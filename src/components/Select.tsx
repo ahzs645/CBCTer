@@ -102,11 +102,14 @@ export function Select({
 
   useLayoutEffect(() => {
     if (!open) return;
-    setPosition(computePosition());
+    const frame = window.requestAnimationFrame(() => {
+      setPosition(computePosition());
+    });
     const update = () => setPosition(computePosition());
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };

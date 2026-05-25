@@ -4,6 +4,7 @@ import type {
   ScanStudy,
   StudyImageLayer,
   StudyMask,
+  StudySurface,
   StudyState,
 } from "./types";
 
@@ -67,3 +68,30 @@ export function createStudyMask(
   };
 }
 
+export function createStudySurface(
+  studyId: string,
+  input: Pick<StudySurface, "name" | "color"> &
+    Partial<
+      Pick<
+        StudySurface,
+        | "maskId"
+        | "opacity"
+        | "visible"
+        | "areaMm2"
+        | "volumeMm3"
+        | "vertexCount"
+        | "triangleCount"
+      >
+    >,
+): StudySurface {
+  const now = Date.now();
+  return {
+    id: createAppId("surface"),
+    studyId,
+    opacity: 1,
+    visible: true,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+}

@@ -13,9 +13,14 @@ import { labelComponents, type MaskComponent } from './connectedComponents';
 
 const INF = 1e20;
 
+/** Distance (voxels) a tooth core must reach to seed its own basin. */
+const DEFAULT_CORE_THRESHOLD = 7;
+
 export interface WatershedOptions {
-  /** Foreground voxels below this distance can't seed a marker (noise guard). */
-  minMarkerDistance?: number;
+  /** Granularity knob (voxels): the distance-transform depth a region must
+   * reach to count as a separate tooth core. Lower merges touching teeth
+   * (coarser), higher separates them (finer). */
+  coreThreshold?: number;
 }
 
 /** 1D squared distance transform of a sampled function (Felzenszwalb). */
@@ -192,7 +197,6 @@ export function watershedSplit(
 ): WatershedResult {
   const [depth, height, width] = dims;
   const slice = height * width;
-  const minMarkerDistance = options.minMarkerDistance ?? 3;
 
   const dist = smooth(distanceTransform(mask, dims), dims);
 
@@ -203,50 +207,33 @@ export function watershedSplit(
   const compMaxIdx = new Int32Array(fg.components.length + 1).fill(-1);
   const compHasSeed = new Uint8Array(fg.components.length + 1);
 
+  // Markers = connected "cores": foreground voxels deep enough (distance ≥
+  // coreThreshold) to be a tooth center. One connected core per tooth — far
+  // less over-splitting than one-marker-per-local-max — and the threshold is
+  // the granularity knob: lower lets cores of touching teeth merge (coarser,
+  // fewer teeth), higher shrinks cores so they separate (finer, more teeth).
+  // Any fg component with no core still gets its peak voxel so nothing is left
+  // unlabeled.
+  const coreThreshold = options.coreThreshold ?? DEFAULT_CORE_THRESHOLD;
   const seedMask = new Uint8Array(mask.length);
-  const at = (z: number, y: number, x: number) =>
-    dist[(z * height + y) * width + x];
-
-  for (let z = 0; z < depth; z += 1) {
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const i = (z * height + y) * width + x;
-        if (mask[i] === 0) continue;
-        const comp = fg.labels[i];
-        const dv = dist[i];
-        if (dv > compMaxVal[comp]) {
-          compMaxVal[comp] = dv;
-          compMaxIdx[comp] = i;
-        }
-        if (dv < minMarkerDistance) continue;
-        // Local maximum over the 26-neighborhood (>= keeps plateaus, which the
-        // marker connected-components step then merges into a single seed).
-        let isMax = true;
-        for (const [dz, dy, dx] of NEIGHBORS_26) {
-          const nz = z + dz;
-          const ny = y + dy;
-          const nx = x + dx;
-          if (nz < 0 || ny < 0 || nx < 0) continue;
-          if (nz >= depth || ny >= height || nx >= width) continue;
-          if (at(nz, ny, nx) > dv) {
-            isMax = false;
-            break;
-          }
-        }
-        if (isMax) {
-          seedMask[i] = 1;
-          compHasSeed[comp] = 1;
-        }
-      }
+  for (let i = 0; i < mask.length; i += 1) {
+    if (mask[i] === 0) continue;
+    const comp = fg.labels[i];
+    const dv = dist[i];
+    if (dv > compMaxVal[comp]) {
+      compMaxVal[comp] = dv;
+      compMaxIdx[comp] = i;
+    }
+    if (dv >= coreThreshold) {
+      seedMask[i] = 1;
+      compHasSeed[comp] = 1;
     }
   }
-
-  // Guarantee coverage: components with no local-max seed get their peak voxel.
   for (let c = 1; c < fg.components.length + 1; c += 1) {
     if (!compHasSeed[c] && compMaxIdx[c] >= 0) seedMask[compMaxIdx[c]] = 1;
   }
 
-  // Each connected clump of seed voxels is one marker basin.
+  // Each connected core is one marker basin.
   const markers = labelComponents(seedMask, dims, 26);
 
   const labels = new Int32Array(mask.length);

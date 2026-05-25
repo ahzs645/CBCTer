@@ -12,6 +12,7 @@ import { type Rect, useSliceInteraction } from './useSliceInteraction';
 
 interface SliceCanvasProps {
   image: SliceImage | null;
+  overlay?: SliceImage | null;
   crosshairPoint?: { x: number; y: number };
   crosshairSpace?: [number, number];
   crosshair?: boolean;
@@ -53,6 +54,7 @@ function clampCoveredOffset(
 
 export function SliceCanvas({
   image,
+  overlay,
   crosshairPoint,
   crosshairSpace,
   crosshair = true,
@@ -70,6 +72,8 @@ export function SliceCanvas({
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const [surfaceSize, setSurfaceSize] = useState({ width: 1, height: 1 });
   const imageDataRef = useRef<ImageData | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayImageDataRef = useRef<ImageData | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -102,6 +106,38 @@ export function SliceCanvas({
       }
     }
   }, [image]);
+
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = overlay?.width ?? image?.width ?? 1;
+    const height = overlay?.height ?? image?.height ?? 1;
+    canvas.width = width;
+    canvas.height = height;
+    ctx.clearRect(0, 0, width, height);
+
+    if (overlay) {
+      const imageData = overlayImageDataRef.current;
+      const canReuseImageData =
+        imageData &&
+        imageData.width === overlay.width &&
+        imageData.height === overlay.height;
+
+      if (canReuseImageData) {
+        imageData.data.set(overlay.data);
+        ctx.putImageData(imageData, 0, 0);
+      } else {
+        const nextImageData = new ImageData(overlay.width, overlay.height);
+        nextImageData.data.set(overlay.data);
+        overlayImageDataRef.current = nextImageData;
+        ctx.putImageData(nextImageData, 0, 0);
+      }
+    }
+  }, [image?.height, image?.width, overlay]);
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -220,6 +256,23 @@ export function SliceCanvas({
             height: `${imageRect.height}px`,
           }}
         />
+        {overlay ? (
+          <canvas
+            ref={overlayCanvasRef}
+            className={cn(
+              'pointer-events-none absolute block',
+              overlay.pixelated !== false && '[image-rendering:pixelated]',
+            )}
+            style={{
+              left: `${imageRect.left}px`,
+              top: `${imageRect.top}px`,
+              width: `${imageRect.width}px`,
+              height: `${imageRect.height}px`,
+            }}
+          />
+        ) : (
+          <canvas ref={overlayCanvasRef} className="hidden" />
+        )}
         {label ? (
           <Badge
             variant={BadgeVariant.Overlay}

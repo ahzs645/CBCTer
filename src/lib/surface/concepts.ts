@@ -39,3 +39,30 @@ export const SURFACE_GENERATION_PRESETS: Record<
   },
 };
 
+export function estimateVoxelSurfaceTriangleCount(
+  mask: Uint8Array,
+  dims: [number, number, number],
+): number {
+  const [depth, height, width] = dims;
+  const at = (z: number, y: number, x: number) => {
+    if (z < 0 || y < 0 || x < 0 || z >= depth || y >= height || x >= width) {
+      return 0;
+    }
+    return mask[(z * height + y) * width + x];
+  };
+  let exposedFaces = 0;
+  for (let z = 0; z < depth; z += 1) {
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (!at(z, y, x)) continue;
+        if (!at(z, y, x - 1)) exposedFaces += 1;
+        if (!at(z, y, x + 1)) exposedFaces += 1;
+        if (!at(z, y - 1, x)) exposedFaces += 1;
+        if (!at(z, y + 1, x)) exposedFaces += 1;
+        if (!at(z - 1, y, x)) exposedFaces += 1;
+        if (!at(z + 1, y, x)) exposedFaces += 1;
+      }
+    }
+  }
+  return exposedFaces * 2;
+}

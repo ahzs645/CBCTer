@@ -29,11 +29,11 @@ export interface UseSegmentation {
   /** Progress of the in-browser generation, or null when idle. */
   genProgress: GenerateProgress | null;
   /** Run the UNet over `roi` and build a library entirely in the browser.
-   * `minMarkerDistance` tunes watershed separation granularity. */
+   * `coreThreshold` tunes watershed separation granularity (voxels). */
   generate: (
     volume: LoadedVolume,
     roi: ToothRoi,
-    minMarkerDistance?: number,
+    coreThreshold?: number,
   ) => Promise<void>;
   assetRoot: string;
   visibleItems: SegmentationItem[];
@@ -113,7 +113,7 @@ export function useSegmentation(
   );
 
   const generate = useCallback(
-    async (volume: LoadedVolume, roi: ToothRoi, minMarkerDistance?: number) => {
+    async (volume: LoadedVolume, roi: ToothRoi, coreThreshold?: number) => {
       setGenerating(true);
       setError(null);
       setGenProgress(null);
@@ -123,7 +123,7 @@ export function useSegmentation(
           volume,
           roi,
           setGenProgress,
-          { minMarkerDistance },
+          { coreThreshold },
         );
         generatedUrls.current = urls;
         setManifest(built);
@@ -147,7 +147,11 @@ export function useSegmentation(
   );
 
   useEffect(() => {
-    void loadAlgorithm(algorithm);
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) void loadAlgorithm(algorithm);
+    });
+    return () => controller.abort();
   }, [algorithm, loadAlgorithm]);
 
   // Revoke any generated object URLs when the page unmounts.

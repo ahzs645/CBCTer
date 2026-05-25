@@ -20,9 +20,11 @@ interface BrowserLibraryGeneratorProps {
 const DEFAULT_SIZE = 160;
 const MIN_SIZE = 96;
 const MAX_SIZE = 240;
-const DEFAULT_SEPARATION = 3;
-const MIN_SEPARATION = 1;
-const MAX_SEPARATION = 12;
+// Watershed core threshold in voxels: lower merges touching teeth (coarser),
+// higher separates them (finer).
+const DEFAULT_SEPARATION = 7;
+const MIN_SEPARATION = 3;
+const MAX_SEPARATION = 16;
 
 /**
  * Empty-state for the library tab when no manifest is loaded: generate the

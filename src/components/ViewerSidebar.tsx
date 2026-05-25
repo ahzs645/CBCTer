@@ -12,6 +12,7 @@ import {
   SunMedium,
 } from 'lucide-react';
 import { formatSpacing } from '../app/helpers';
+import type { StudyState } from '../domain/types';
 import { useTranslation } from '../i18n';
 import type {
   ImportIssue,
@@ -30,6 +31,14 @@ import { LanguageSelect } from './LanguageSelect';
 import { Notice } from './Notice';
 import { RangeField } from './RangeField';
 import { Select } from './Select';
+import { StudyWorkflowPanel } from './StudyWorkflowPanel';
+
+interface ThresholdMaskPreset {
+  id: string;
+  label: string;
+  range: [number, number];
+  color: string;
+}
 
 interface ViewerSidebarProps {
   cursor: VolumeCursor | null;
@@ -45,15 +54,28 @@ interface ViewerSidebarProps {
   volumeMeta: ParsedVolumeMeta | null;
   windowBounds: RangeBounds;
   windowLevelDraft: SliceWindowLevel;
+  studyState: StudyState;
   onBackToImport: () => void;
+  onCreateThresholdMask: (preset: ThresholdMaskPreset) => void;
+  onCreateSurfaceFromActiveMask: () => void;
+  onDownloadSurface: (surfaceId: string) => void;
+  onExportProject: () => void;
+  onFillMaskHoles: () => void;
+  onImportProject: (file: File) => void;
+  onKeepLargestMaskComponent: () => void;
   onLevelChange: (value: number) => void;
   onLevelCommit: (value: number) => void;
   onOpenDirectory: () => void;
   onOpenTeeth: () => void;
   onOpenPanoramic: () => void;
   onSeriesChange: (seriesId: string) => void;
+  onRedoMaskEdit: () => void;
+  onRegionGrowFromCursor: (preset: ThresholdMaskPreset) => void;
+  onToggleSurfaceVisibility: (surfaceId: string) => void;
   onWindowChange: (value: number) => void;
   onWindowCommit: (value: number) => void;
+  onToggleMaskVisibility: (maskId: string) => void;
+  onUndoMaskEdit: () => void;
 }
 
 export function ViewerSidebar({
@@ -70,15 +92,28 @@ export function ViewerSidebar({
   volumeMeta,
   windowBounds,
   windowLevelDraft,
+  studyState,
   onBackToImport,
+  onCreateThresholdMask,
+  onCreateSurfaceFromActiveMask,
+  onDownloadSurface,
+  onExportProject,
+  onFillMaskHoles,
+  onImportProject,
+  onKeepLargestMaskComponent,
   onLevelChange,
   onLevelCommit,
   onOpenDirectory,
   onOpenTeeth,
   onOpenPanoramic,
   onSeriesChange,
+  onRedoMaskEdit,
+  onRegionGrowFromCursor,
+  onToggleSurfaceVisibility,
   onWindowChange,
   onWindowCommit,
+  onToggleMaskVisibility,
+  onUndoMaskEdit,
 }: ViewerSidebarProps) {
   const { t } = useTranslation();
   const sectionLabelClass =
@@ -162,6 +197,24 @@ export function ViewerSidebar({
             {sourceLabel}
           </div>
         </section>
+
+        <StudyWorkflowPanel
+          dimensions={dimensions}
+          spacing={spacing}
+          state={studyState}
+          onCreateThresholdMask={onCreateThresholdMask}
+          onCreateSurfaceFromActiveMask={onCreateSurfaceFromActiveMask}
+          onDownloadSurface={onDownloadSurface}
+          onExportProject={onExportProject}
+          onFillMaskHoles={onFillMaskHoles}
+          onImportProject={onImportProject}
+          onKeepLargestMaskComponent={onKeepLargestMaskComponent}
+          onRedoMaskEdit={onRedoMaskEdit}
+          onRegionGrowFromCursor={onRegionGrowFromCursor}
+          onToggleSurfaceVisibility={onToggleSurfaceVisibility}
+          onToggleMaskVisibility={onToggleMaskVisibility}
+          onUndoMaskEdit={onUndoMaskEdit}
+        />
 
         <section className="min-w-0 rounded border border-slate-800 bg-slate-950/70 p-2.5">
           <div className={sectionLabelClass}>

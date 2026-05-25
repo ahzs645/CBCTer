@@ -1,4 +1,5 @@
 import { labelComponents } from './connectedComponents';
+import { VolumeAxis, type SliceImage, type Vec3, type VolumeCursor } from '../../types';
 
 export function thresholdVolume(
   voxels: Int16Array,
@@ -94,3 +95,218 @@ export function fillMaskHoles(
   return out;
 }
 
+export function regionGrowMask(
+  voxels: Int16Array,
+  dims: [number, number, number],
+  seed: [number, number, number],
+  range: [number, number],
+  connectivity: 6 | 26 = 6,
+): Uint8Array {
+  const [depth, height, width] = dims;
+  const [seedX, seedY, seedZ] = seed;
+  const out = new Uint8Array(voxels.length);
+  if (
+    seedX < 0 ||
+    seedY < 0 ||
+    seedZ < 0 ||
+    seedX >= width ||
+    seedY >= height ||
+    seedZ >= depth
+  ) {
+    return out;
+  }
+
+  const [min, max] = range;
+  const seedIndex = (seedZ * height + seedY) * width + seedX;
+  const seedValue = voxels[seedIndex];
+  if (seedValue < min || seedValue > max) return out;
+
+  const offsets: Array<[number, number, number]> = [];
+  for (let dz = -1; dz <= 1; dz += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        if (dx === 0 && dy === 0 && dz === 0) continue;
+        const distance = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
+        if (connectivity === 6 && distance !== 1) continue;
+        offsets.push([dz, dy, dx]);
+      }
+    }
+  }
+
+  const stack = new Int32Array(voxels.length);
+  let stackTop = 0;
+  stack[stackTop++] = seedIndex;
+  out[seedIndex] = 1;
+
+  while (stackTop > 0) {
+    const index = stack[--stackTop];
+    const z = Math.floor(index / (height * width));
+    const rem = index - z * height * width;
+    const y = Math.floor(rem / width);
+    const x = rem - y * width;
+
+    for (const [dz, dy, dx] of offsets) {
+      const nz = z + dz;
+      const ny = y + dy;
+      const nx = x + dx;
+      if (nz < 0 || ny < 0 || nx < 0) continue;
+      if (nz >= depth || ny >= height || nx >= width) continue;
+      const next = (nz * height + ny) * width + nx;
+      if (out[next]) continue;
+      const value = voxels[next];
+      if (value < min || value > max) continue;
+      out[next] = 1;
+      stack[stackTop++] = next;
+    }
+  }
+
+  return out;
+}
+
+export function countMaskVoxels(mask: Uint8Array): number {
+  let count = 0;
+  for (let index = 0; index < mask.length; index += 1) count += mask[index];
+  return count;
+}
+
+export interface MaskOverlayLayer {
+  mask: Uint8Array;
+  color: string;
+  opacity: number;
+  visible: boolean;
+}
+
+function parseHexColor(color: string): [number, number, number] {
+  const normalized = color.replace('#', '');
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return [56, 189, 248];
+  return [
+    Number.parseInt(normalized.slice(0, 2), 16),
+    Number.parseInt(normalized.slice(2, 4), 16),
+    Number.parseInt(normalized.slice(4, 6), 16),
+  ];
+}
+
+function overlayShape(
+  axis: VolumeAxis,
+  dimensions: Vec3,
+): Pick<SliceImage, 'width' | 'height'> {
+  const [width, height, depth] = dimensions;
+  switch (axis) {
+    case VolumeAxis.Axial:
+      return { width, height };
+    case VolumeAxis.Coronal:
+      return { width, height: depth };
+    case VolumeAxis.Sagittal:
+      return { width: height, height: depth };
+  }
+}
+
+function overlayDisplayAspect(axis: VolumeAxis, spacing: Vec3): number {
+  const [spacingX, spacingY, spacingZ] = spacing;
+  switch (axis) {
+    case VolumeAxis.Axial:
+      return spacingX / spacingY || 1;
+    case VolumeAxis.Coronal:
+      return spacingX / spacingZ || 1;
+    case VolumeAxis.Sagittal:
+      return spacingY / spacingZ || 1;
+  }
+}
+
+function blendPixel(
+  data: Uint8ClampedArray,
+  offset: number,
+  color: [number, number, number],
+  alpha: number,
+): void {
+  if (alpha <= 0) return;
+  if (data[offset + 3] === 0) {
+    data[offset] = color[0];
+    data[offset + 1] = color[1];
+    data[offset + 2] = color[2];
+    data[offset + 3] = alpha;
+    return;
+  }
+  const existingAlpha = data[offset + 3] / 255;
+  const nextAlpha = alpha / 255;
+  const outAlpha = nextAlpha + existingAlpha * (1 - nextAlpha);
+  if (outAlpha <= 0) return;
+  data[offset] =
+    (color[0] * nextAlpha +
+      data[offset] * existingAlpha * (1 - nextAlpha)) /
+    outAlpha;
+  data[offset + 1] =
+    (color[1] * nextAlpha +
+      data[offset + 1] * existingAlpha * (1 - nextAlpha)) /
+    outAlpha;
+  data[offset + 2] =
+    (color[2] * nextAlpha +
+      data[offset + 2] * existingAlpha * (1 - nextAlpha)) /
+    outAlpha;
+  data[offset + 3] = Math.round(outAlpha * 255);
+}
+
+export function extractMaskOverlayImage(
+  layers: MaskOverlayLayer[],
+  axis: VolumeAxis,
+  cursor: VolumeCursor,
+  dimensions: Vec3,
+  spacing: Vec3,
+): SliceImage | null {
+  const visibleLayers = layers.filter((layer) => layer.visible);
+  if (visibleLayers.length === 0) return null;
+
+  const [width, height, depth] = dimensions;
+  const shape = overlayShape(axis, dimensions);
+  const data = new Uint8ClampedArray(shape.width * shape.height * 4);
+  const sliceStride = width * height;
+
+  for (const layer of visibleLayers) {
+    const color = parseHexColor(layer.color);
+    const alpha = Math.round(Math.max(0, Math.min(1, layer.opacity)) * 180);
+    let output = 0;
+
+    switch (axis) {
+      case VolumeAxis.Axial: {
+        const base = cursor.z * sliceStride;
+        for (let y = 0; y < height; y += 1) {
+          const row = base + y * width;
+          for (let x = 0; x < width; x += 1) {
+            if (layer.mask[row + x]) blendPixel(data, output * 4, color, alpha);
+            output += 1;
+          }
+        }
+        break;
+      }
+      case VolumeAxis.Coronal: {
+        for (let z = depth - 1; z >= 0; z -= 1) {
+          const base = z * sliceStride + cursor.y * width;
+          for (let x = 0; x < width; x += 1) {
+            if (layer.mask[base + x]) blendPixel(data, output * 4, color, alpha);
+            output += 1;
+          }
+        }
+        break;
+      }
+      case VolumeAxis.Sagittal: {
+        for (let z = depth - 1; z >= 0; z -= 1) {
+          const base = z * sliceStride + cursor.x;
+          for (let y = 0; y < height; y += 1) {
+            if (layer.mask[base + y * width]) {
+              blendPixel(data, output * 4, color, alpha);
+            }
+            output += 1;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  return {
+    ...shape,
+    data,
+    displayAspect: overlayDisplayAspect(axis, spacing),
+    pixelated: true,
+  };
+}

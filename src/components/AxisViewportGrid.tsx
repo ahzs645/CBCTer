@@ -13,6 +13,7 @@ interface AxisViewportGridProps {
   dimensions: Vec3;
   spacing: Vec3;
   mprZoom: number;
+  overlays?: Partial<Record<VolumeAxis, SliceImage | null>>;
   selectedAxis?: VolumeAxis;
   slices: ViewerSlices;
   hasVolume: boolean;
@@ -36,6 +37,7 @@ interface AxisViewportDefinition {
   crosshairSpace?: [number, number];
   crosshairColors: { vertical: string; horizontal: string };
   mmPerPixel?: { x: number; y: number };
+  overlay?: SliceImage | null;
   exportName: string;
 }
 
@@ -95,6 +97,7 @@ function AxisViewportPane({
     >
       <SliceCanvas
         image={definition.image}
+        overlay={definition.overlay}
         crosshairPoint={definition.crosshairPoint}
         crosshairSpace={definition.crosshairSpace}
         crosshairColors={definition.crosshairColors}
@@ -116,6 +119,7 @@ function resolveAxisDefinitions(
   slices: ViewerSlices,
   hasVolume: boolean,
   t: TFunction<'translation', undefined>,
+  overlays?: Partial<Record<VolumeAxis, SliceImage | null>>,
 ): Record<VolumeAxis, AxisViewportDefinition> {
   return {
     [VolumeAxis.Coronal]: {
@@ -125,6 +129,7 @@ function resolveAxisDefinitions(
       labelKey: 'axisViewport.coronal.label',
       orientationKey: 'axisViewport.coronal.orientation',
       image: slices.coronal,
+      overlay: overlays?.[VolumeAxis.Coronal],
       status: cursor
         ? t('axisViewport.coronal.status', {
             current: cursor.y + 1,
@@ -149,6 +154,7 @@ function resolveAxisDefinitions(
       labelKey: 'axisViewport.sagittal.label',
       orientationKey: 'axisViewport.sagittal.orientation',
       image: slices.sagittal,
+      overlay: overlays?.[VolumeAxis.Sagittal],
       status: cursor
         ? t('axisViewport.sagittal.status', {
             current: cursor.x + 1,
@@ -173,6 +179,7 @@ function resolveAxisDefinitions(
       labelKey: 'axisViewport.axial.label',
       orientationKey: 'axisViewport.axial.orientation',
       image: slices.axial,
+      overlay: overlays?.[VolumeAxis.Axial],
       status: cursor
         ? t('axisViewport.axial.status', {
             current: cursor.z + 1,
@@ -197,6 +204,7 @@ export function AxisViewportGrid({
   dimensions,
   spacing,
   mprZoom,
+  overlays,
   selectedAxis = VolumeAxis.Coronal,
   slices,
   hasVolume,
@@ -228,6 +236,7 @@ export function AxisViewportGrid({
     slices,
     hasVolume,
     t,
+    overlays,
   );
   const axes = [VolumeAxis.Coronal, VolumeAxis.Sagittal, VolumeAxis.Axial];
 

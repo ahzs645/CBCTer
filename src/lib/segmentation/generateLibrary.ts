@@ -80,9 +80,9 @@ function quality(
  * the empty string — URLs are already absolute.
  */
 export interface GenerateOptions {
-  /** Watershed marker distance (voxels): higher merges nearby teeth, lower
-   * splits touching teeth more aggressively. */
-  minMarkerDistance?: number;
+  /** Watershed core threshold (voxels): lower merges touching teeth (coarser),
+   * higher separates them (finer). */
+  coreThreshold?: number;
 }
 
 export async function generateLibrary(
@@ -105,7 +105,7 @@ export async function generateLibrary(
   // Watershed on the distance transform splits touching teeth that plain
   // connected-components would merge into a single blob.
   const { labels, components } = watershedSplit(mask, dims, {
-    minMarkerDistance: options.minMarkerDistance,
+    coreThreshold: options.coreThreshold,
   });
 
   const candidateCount = components.filter(

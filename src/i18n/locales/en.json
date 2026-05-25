@@ -118,6 +118,54 @@
     "voxelsLabel": "{{dimensions}} voxels",
     "spacingLabel": "{{spacing}} mm"
   },
+  "workflow": {
+    "tabs": {
+      "study": "Study",
+      "masks": "Masks",
+      "surfaces": "Surfaces",
+      "measures": "Measures",
+      "export": "Export"
+    },
+    "study": {
+      "images": "{{count}} image layer",
+      "dimensions": "{{dimensions}} voxels",
+      "spacing": "{{spacing}} mm",
+      "activeTool": "Active tool: {{tool}}"
+    },
+    "masks": {
+      "threshold": "Threshold mask",
+      "createThresholdMask": "Create mask",
+      "regionGrow": "Region grow",
+      "keepLargest": "Largest",
+      "fillHoles": "Fill holes",
+      "undo": "Undo",
+      "redo": "Redo",
+      "empty": "No masks yet. Create a threshold mask to start a client-side layer.",
+      "manual": "Manual mask"
+    },
+    "surfaces": {
+      "pipeline": "Surface pipeline",
+      "presetDetail": "{{smooth}} smoothing steps · {{decimate}}% decimation",
+      "createFromMask": "Create STL from active mask",
+      "empty": "No surfaces yet. Generate one from the active mask.",
+      "triangles": "{{count}} triangles",
+      "download": "Download STL"
+    },
+    "measures": {
+      "tools": "Measurement tools",
+      "distance": "Distance: point-to-point length in calibrated millimeters.",
+      "angle": "Angle: three-point angle measurement.",
+      "roi": "ROI: ellipse and polygon area, perimeter, and density stats."
+    },
+    "export": {
+      "clientSide": "Client-side artifacts",
+      "downloadProject": "Download project package",
+      "importProject": "Restore project package",
+      "masks": "Masks: IndexedDB/OPFS-ready binary mask volumes.",
+      "surfaces": "Surfaces: STL and PLY mesh export path.",
+      "project": "Project: local package of study state and generated objects."
+    }
+  },
   "teeth": {
     "title": "Tooth extraction",
     "subtitle": "Review separated tooth labels and export meshes.",
@@ -156,7 +204,7 @@
       "size": "Region size",
       "sizeHint": "Arch region ≈ {{dims}} voxels",
       "separation": "Separation detail",
-      "separationHint": "Lower splits touching teeth more; higher merges them.",
+      "separationHint": "Higher separates touching teeth into more pieces; lower merges them.",
       "run": "Generate library",
       "generating": "Generating…",
       "starting": "Starting…",
@@ -258,6 +306,14 @@
       "soft": "Soft tissue",
       "xray": "X-ray"
     },
+    "colormap": "Colormap",
+    "colormaps": {
+      "grayscale": "Grayscale",
+      "bone": "Bone",
+      "hot": "Hot",
+      "viridis": "Viridis"
+    },
+    "grid": "Reference grid",
     "previewError": "3D preview failed"
   },
   "errors": {

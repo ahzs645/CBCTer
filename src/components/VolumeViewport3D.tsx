@@ -1,5 +1,6 @@
 import {
   Camera,
+  Grid3x3,
   PanelBottomClose,
   PanelBottomOpen,
   PanelRightClose,
@@ -25,6 +26,7 @@ import {
   type VolumeViewPreset,
 } from '../lib/volume/three-preview';
 import type { PreparedVolumeFor3D, VolumeCursor } from '../types';
+import { cn } from '../utils/cn';
 import { Button } from './Button';
 import { RangeField } from './RangeField';
 import { Select } from './Select';
@@ -292,6 +294,42 @@ export const VolumeViewport3D = memo(
                   applyRender({ opacity: value / 100 });
                 }}
               />
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-400">
+                  {t('volumeViewport3d.colormap')}
+                </span>
+                <Select
+                  size="sm"
+                  block
+                  value={colormap}
+                  onChange={(value) => {
+                    const next = value as VolumeColormap;
+                    setColormap(next);
+                    applyRender({ colormap: next });
+                  }}
+                  options={[
+                    { value: 'grayscale', label: t('volumeViewport3d.colormaps.grayscale') },
+                    { value: 'bone', label: t('volumeViewport3d.colormaps.bone') },
+                    { value: 'hot', label: t('volumeViewport3d.colormaps.hot') },
+                    { value: 'viridis', label: t('volumeViewport3d.colormaps.viridis') },
+                  ]}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setGridVisible((visible) => !visible)}
+                className={cn(
+                  'flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-xs transition',
+                  gridVisible
+                    ? 'border-sky-500 bg-sky-500/10 text-sky-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800',
+                )}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Grid3x3 className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('volumeViewport3d.grid')}
+                </span>
+              </button>
             </div>
           ) : null}
         </div>
