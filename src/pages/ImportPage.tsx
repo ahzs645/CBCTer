@@ -1,4 +1,5 @@
-import { Activity, Layers3 } from 'lucide-react';
+import { Activity, FileUp, Layers3 } from 'lucide-react';
+import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import logoUrl from '../assets/voxel-viewer-logo.svg';
@@ -18,6 +19,7 @@ interface ImportPageProps {
 export default function ImportPage({ app }: ImportPageProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const niftiInputRef = useRef<HTMLInputElement | null>(null);
   const codeClass =
     'rounded bg-slate-900 px-1 py-0.5 font-mono text-[0.9em] text-slate-200';
 
@@ -81,11 +83,30 @@ export default function ImportPage({ app }: ImportPageProps) {
                   </Button>
                   <Button
                     variant="ghost"
+                    onClick={() => niftiInputRef.current?.click()}
+                    disabled={app.busy}
+                  >
+                    <FileUp className="h-4 w-4" aria-hidden="true" />
+                    {t('importPage.openNifti')}
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={() => navigate(APP_ROUTES.teeth)}
                   >
                     <Layers3 className="h-4 w-4" aria-hidden="true" />
                     {t('importPage.openTeeth')}
                   </Button>
+                  <input
+                    ref={niftiInputRef}
+                    type="file"
+                    accept=".nii,.nii.gz,.gz"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void app.openNifti(file);
+                      event.target.value = '';
+                    }}
+                  />
                 </div>
               </div>
               <div className="mx-auto flex w-24 shrink-0 justify-center md:mx-0 md:w-36 md:self-stretch md:p-4 lg:w-40">

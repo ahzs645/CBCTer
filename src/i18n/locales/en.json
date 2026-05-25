@@ -26,6 +26,7 @@
     "sampleTitle": "Try the bundled sample",
     "sampleDescription": "Load the bundled CBCT volume to explore the viewer and tooth extraction without importing a folder.",
     "loadSample": "Load sample CBCT",
+    "openNifti": "Open NIfTI file",
     "openTeeth": "Open tooth extraction",
     "supportedFoldersTitle": "Supported folders",
     "supportedFolders": {
@@ -175,6 +176,9 @@
     "generateHint": "Run the tooth separation pipeline against a DICOM folder to generate labels (see segment:* npm scripts).",
     "labelName": "Label {{label}}",
     "voxels": "voxels",
+    "report": "Report",
+    "reportHtml": "Download HTML report (reference only)",
+    "reportCsv": "Download CSV of separated teeth",
     "accept": "Accept",
     "flagReview": "Flag for review",
     "hide": "Hide",

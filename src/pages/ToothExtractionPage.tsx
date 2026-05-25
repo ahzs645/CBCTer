@@ -2,10 +2,12 @@ import {
   ArrowLeft,
   Check,
   Download,
+  FileText,
   FlaskConical,
   Layers3,
   LoaderCircle,
   Library,
+  Sheet,
   ShieldAlert,
   X,
 } from 'lucide-react';
@@ -19,7 +21,12 @@ import { ToothArchViewport } from '../components/ToothArchViewport';
 import { ToothMeshViewport } from '../components/ToothMeshViewport';
 import { APP_ROUTES } from '../constants';
 import { useTranslation } from '../i18n';
-import { SEGMENTATION_ALGORITHMS } from '../lib/segmentation/types';
+import { buildToothCsv, buildToothReportHtml } from '../lib/segmentation/report';
+import {
+  formatVolume,
+  SEGMENTATION_ALGORITHMS,
+  toothVolumeMm3,
+} from '../lib/segmentation/types';
 import { useSegmentation } from '../lib/segmentation/useSegmentation';
 import { cn } from '../utils/cn';
 
@@ -35,6 +42,25 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
   const [mode, setMode] = useState<ToothMode>('library');
   const seg = useSegmentation();
   const { manifest, selectedItem, assetRoot, counts } = seg;
+  const spacing = seg.manifest?.spacing ?? app.volume?.meta.spacing;
+
+  const reportMeta = {
+    scanId: app.volume?.meta.scanId,
+    sourceLabel: app.sourceLabel,
+    algorithm: seg.algorithm,
+    dimensions: app.volume?.meta.dimensions,
+    spacing,
+  };
+
+  const downloadText = (filename: string, content: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
@@ -170,14 +196,46 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
                 <span>
                   {t('teeth.candidateCount', { count: counts.candidates })}
                 </span>
-                {manifest.labels ? (
-                  <a
-                    className="ml-auto text-sky-400 hover:text-sky-300"
-                    href={`${assetRoot}${manifest.labels}`}
+                <span className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadText(
+                        'cbcter-tooth-report.html',
+                        buildToothReportHtml(manifest, reportMeta),
+                        'text/html',
+                      )
+                    }
+                    className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
+                    title={t('teeth.reportHtml')}
                   >
-                    labels.npz
-                  </a>
-                ) : null}
+                    <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('teeth.report')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadText(
+                        'cbcter-teeth.csv',
+                        buildToothCsv(manifest, reportMeta),
+                        'text/csv',
+                      )
+                    }
+                    className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300"
+                    title={t('teeth.reportCsv')}
+                  >
+                    <Sheet className="h-3.5 w-3.5" aria-hidden="true" />
+                    CSV
+                  </button>
+                  {manifest.labels ? (
+                    <a
+                      className="text-sky-400 hover:text-sky-300"
+                      href={`${assetRoot}${manifest.labels}`}
+                    >
+                      labels.npz
+                    </a>
+                  ) : null}
+                </span>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -209,6 +267,9 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
                           <span className="block truncate text-[11px] text-slate-500">
                             {item.assignedVoxels.toLocaleString()}{' '}
                             {t('teeth.voxels')}
+                            {spacing
+                              ? ` · ${formatVolume(toothVolumeMm3(item.assignedVoxels, spacing))}`
+                              : ''}
                           </span>
                         </span>
                       </button>

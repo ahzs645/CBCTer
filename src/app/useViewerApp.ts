@@ -10,6 +10,7 @@ import { loadVolumeFromFolder } from '../lib/import/load-volume';
 import type { ScanFolderPicker } from '../lib/import/source-picker';
 import type { ImportParseOptions } from '../lib/import/types';
 import { loadSample as loadSampleVolume } from '../viewer/sampleBridge';
+import { loadNifti } from '../viewer/niftiLoader';
 import {
   clamp,
   extractAxialImage,
@@ -69,6 +70,7 @@ export interface ViewerApp {
   handleWindowCommit: (value: number) => void;
   openDirectory: () => Promise<void>;
   openSample: () => Promise<void>;
+  openNifti: (file: File) => Promise<void>;
   resetViewer: () => void;
   setAxisViewsVisible: (visible: boolean) => void;
   setDownsampled3D: (downsampled: boolean) => void;
@@ -254,6 +256,48 @@ export function useViewerApp({
     }
   };
 
+  const openNifti = async (file: File) => {
+    resetViewer();
+    setSourceLabel(file.name);
+    setProgress({
+      stage: ImportStage.Assembling,
+      detailKey: 'importStatus.progress.scanningSelectedFolder',
+      completed: 0,
+      total: 1,
+    });
+
+    try {
+      const loaded = await loadNifti(file);
+
+      setIssue(null);
+      setVolume(loaded.volume);
+      setSourceLabel(loaded.label);
+      setPrepared3D(loaded.prepared3D);
+      setCursor(createCenterCursor(loaded.volume));
+      setWindowLevelDraft(loaded.volume.meta.initialWindowLevel);
+      setWindowLevel(loaded.volume.meta.initialWindowLevel);
+      setMprZoom(DEFAULT_MPR_ZOOM);
+      setSelectedAxis(loaded.volume.meta.nativeAxis ?? VolumeAxis.Coronal);
+      setProgress({
+        stage: ImportStage.Ready,
+        detailKey: 'importStatus.progress.loadedScan',
+        detailValues: { scanId: loaded.volume.meta.scanId },
+        completed: loaded.volume.meta.sliceCount,
+        total: loaded.volume.meta.sliceCount,
+      });
+    } catch (error) {
+      if (isAbortError(error)) return;
+
+      setIssue(makeImportIssue(error));
+      setProgress({
+        stage: ImportStage.Error,
+        detailKey: 'importStatus.progress.importFailed',
+        completed: 0,
+        total: 1,
+      });
+    }
+  };
+
   const selectSeries = async (seriesId: string) => {
     if (!currentSource || busy) return;
 
@@ -375,6 +419,7 @@ export function useViewerApp({
     handleWindowCommit,
     openDirectory,
     openSample,
+    openNifti,
     updateCursor,
   };
 }

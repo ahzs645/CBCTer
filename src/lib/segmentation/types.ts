@@ -22,8 +22,24 @@ export type SegmentationManifest = {
   positiveVoxels: number;
   qualityAccepted?: number;
   qualityReview?: number;
+  /** Voxel spacing in mm [x, y, z] for the volume these labels came from. */
+  spacing?: [number, number, number];
   items: SegmentationItem[];
 };
+
+/** Tooth volume in mm³ from voxel count and spacing (mm per voxel). */
+export function toothVolumeMm3(
+  assignedVoxels: number,
+  spacing: [number, number, number],
+): number {
+  return assignedVoxels * spacing[0] * spacing[1] * spacing[2];
+}
+
+/** Format a mm³ volume as cm³ (or mm³ when small) for display. */
+export function formatVolume(mm3: number): string {
+  if (mm3 >= 1000) return `${(mm3 / 1000).toFixed(2)} cm³`;
+  return `${Math.round(mm3)} mm³`;
+}
 
 export type SegmentationAlgorithm = 'curated' | 'hybrid' | 'model' | 'watershed';
 export type ReviewOverride = 'accepted' | 'review' | 'rejected';

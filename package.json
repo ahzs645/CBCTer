@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
+    "prebuild": "node scripts/stage-ort.mjs",
+    "stage:ort": "node scripts/stage-ort.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1",
     "sample:build": "python3 scripts/build_sample_volume.py \"$CBCTER_SAMPLE_DICOM_DIR\" public/sample-cbct",

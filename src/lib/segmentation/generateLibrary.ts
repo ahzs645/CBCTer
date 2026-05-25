@@ -1,10 +1,10 @@
 import type { LoadedVolume } from '../../types';
-import { labelComponents } from './connectedComponents';
 import { maskProjectionDataUrl } from './maskPreview';
 import { maskToBinaryStl } from './maskMesh';
 import type { ToothRoi } from './roi';
 import { segmentToothROI } from './toothInference';
 import type { SegmentationItem, SegmentationManifest } from './types';
+import { watershedSplit } from './watershed';
 
 /** Tints reused from ToothArchViewport so previews match the 3D arch colors. */
 const TOOTH_COLORS = [
@@ -95,7 +95,9 @@ export async function generateLibrary(
   onProgress?.({ phase: 'separation', completed: 0, total: 1 });
   const { mask, dims, origin, spacing, voxelCount } = segmentation;
   const [, height, width] = dims;
-  const { labels, components } = labelComponents(mask, dims, 26);
+  // Watershed on the distance transform splits touching teeth that plain
+  // connected-components would merge into a single blob.
+  const { labels, components } = watershedSplit(mask, dims);
 
   const candidateCount = components.filter(
     (component) => component.voxels >= NOISE_FLOOR,
@@ -155,8 +157,16 @@ export async function generateLibrary(
 
     const color = TOOTH_COLORS[index % TOOTH_COLORS.length];
     // Offset the mesh by its ROI-local bbox origin so every tooth keeps its
-    // relative position in the shared arch frame.
-    const stlBlob = maskToBinaryStl(sub, [sd, sh, sw], spacing, [x0, y0, z0]);
+    // relative position in the shared arch frame. Large teeth get a coarser
+    // mesh (adaptive quality) to keep face counts and GPU load reasonable.
+    const meshStride = Math.max(sd, sh, sw) > 96 ? 2 : 1;
+    const stlBlob = maskToBinaryStl(
+      sub,
+      [sd, sh, sw],
+      spacing,
+      [x0, y0, z0],
+      meshStride,
+    );
     const stlUrl = URL.createObjectURL(stlBlob);
     urls.push(stlUrl);
 
@@ -185,6 +195,7 @@ export async function generateLibrary(
     positiveVoxels: voxelCount,
     qualityAccepted,
     qualityReview,
+    spacing,
     items,
   };
 

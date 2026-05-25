@@ -1,5 +1,32 @@
 import type { Vec3 } from '../../types';
 
+/** Downsample a binary mask by `stride`; a coarse cell is set if any fine
+ * voxel in its stride³ block is set. */
+function downsampleMask(
+  mask: Uint8Array,
+  dims: [number, number, number],
+  stride: number,
+): { mask: Uint8Array; dims: [number, number, number] } {
+  const [cd, ch, cw] = dims;
+  const dd = Math.ceil(cd / stride);
+  const dh = Math.ceil(ch / stride);
+  const dw = Math.ceil(cw / stride);
+  const out = new Uint8Array(dd * dh * dw);
+  for (let z = 0; z < cd; z += 1) {
+    for (let y = 0; y < ch; y += 1) {
+      const row = (z * ch + y) * cw;
+      for (let x = 0; x < cw; x += 1) {
+        if (!mask[row + x]) continue;
+        const oz = Math.floor(z / stride);
+        const oy = Math.floor(y / stride);
+        const ox = Math.floor(x / stride);
+        out[(oz * dh + oy) * dw + ox] = 1;
+      }
+    }
+  }
+  return { mask: out, dims: [dd, dh, dw] };
+}
+
 /**
  * Build a binary STL blob from a binary mask by emitting the exposed faces
  * of foreground voxels (a "blocky" but topologically exact surface). This
@@ -12,13 +39,26 @@ import type { Vec3 } from '../../types';
  * @param origin voxel offset [x, y, z] added before scaling, so a per-tooth
  *   submask can be placed at its position within a shared frame (lets several
  *   tooth meshes keep their relative arch arrangement). Defaults to no offset.
+ * @param stride decimation factor (>1 builds a coarser mesh with fewer faces
+ *   for large volumes); the mask is downsampled by `stride` before meshing.
  */
 export function maskToBinaryStl(
   mask: Uint8Array,
   dims: [number, number, number],
   spacing: Vec3,
   origin: Vec3 = [0, 0, 0],
+  stride = 1,
 ): Blob {
+  if (stride > 1) {
+    const coarse = downsampleMask(mask, dims, stride);
+    return maskToBinaryStl(
+      coarse.mask,
+      coarse.dims,
+      [spacing[0] * stride, spacing[1] * stride, spacing[2] * stride],
+      [origin[0] / stride, origin[1] / stride, origin[2] / stride],
+      1,
+    );
+  }
   const [cd, ch, cw] = dims;
   const [sx, sy, sz] = spacing;
   const [ox, oy, oz] = origin;
