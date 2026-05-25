@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Local/generated artifacts
+outputs/
+.playwright-mcp/
+*.log
+*.png
+!public/**/*.png
+!src/**/*.png
+
+# Generated sample data published for local demos.
+public/sample-cbct/
+public/sample-dicom/
+public/sample-segmentation*/
+models/source-check/
+
+# OS/editor noise
+.DS_Store
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# PHI-bearing DICOM studies should stay outside the repo unless de-identified.
+*.dcm
