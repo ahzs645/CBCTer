@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { LoadedVolume } from '../../types';
+import { type GenerateProgress, generateLibrary } from './generateLibrary';
+import type { ToothRoi } from './roi';
 import {
   type ReviewOverride,
   SEGMENTATION_ASSET_ROOTS,
@@ -21,6 +24,12 @@ export interface UseSegmentation {
   manifest: SegmentationManifest | null;
   loading: boolean;
   error: string | null;
+  /** True while an in-browser library is being generated. */
+  generating: boolean;
+  /** Progress of the in-browser generation, or null when idle. */
+  genProgress: GenerateProgress | null;
+  /** Run the UNet over `roi` and build a library entirely in the browser. */
+  generate: (volume: LoadedVolume, roi: ToothRoi) => Promise<void>;
   assetRoot: string;
   visibleItems: SegmentationItem[];
   selectedItem: SegmentationItem | null;
@@ -44,45 +53,101 @@ export function useSegmentation(
   const [manifest, setManifest] = useState<SegmentationManifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genProgress, setGenProgress] = useState<GenerateProgress | null>(null);
+  // Non-null while a generated (in-browser) manifest is active; its asset root
+  // is '' because item URLs are already absolute blob/data URLs.
+  const [assetRootOverride, setAssetRootOverride] = useState<string | null>(
+    null,
+  );
   const [selectedLabel, setSelectedLabel] = useState<number | null>(null);
   const [reviewOverrides, setReviewOverrides] = useState<
     Record<number, ReviewOverride>
   >({});
 
-  const loadAlgorithm = useCallback(async (next: SegmentationAlgorithm) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `${SEGMENTATION_ASSET_ROOTS[next]}manifest.json`,
-      );
-      const contentType = response.headers.get('content-type') ?? '';
-      // A missing asset is served as the SPA index.html fallback (HTML, 200),
-      // so guard on content-type instead of trusting response.ok alone.
-      if (!response.ok || !contentType.includes('json')) {
-        throw new Error('Segmentation manifest is not available.');
-      }
-      const data = (await response.json()) as SegmentationManifest;
-      setManifest(data);
-      setSelectedLabel(data.items[0]?.label ?? null);
-      setReviewOverrides({});
-    } catch (cause) {
-      setManifest(null);
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : 'Unable to load segmentation manifest.',
-      );
-    } finally {
-      setLoading(false);
-    }
+  // Object URLs from the active generated library, revoked on replace/unmount.
+  const generatedUrls = useRef<string[]>([]);
+  const revokeGenerated = useCallback(() => {
+    for (const url of generatedUrls.current) URL.revokeObjectURL(url);
+    generatedUrls.current = [];
   }, []);
+
+  const loadAlgorithm = useCallback(
+    async (next: SegmentationAlgorithm) => {
+      setLoading(true);
+      setError(null);
+      // Switching to a prebuilt set discards any generated library.
+      revokeGenerated();
+      setAssetRootOverride(null);
+      try {
+        const response = await fetch(
+          `${SEGMENTATION_ASSET_ROOTS[next]}manifest.json`,
+        );
+        const contentType = response.headers.get('content-type') ?? '';
+        // A missing asset is served as the SPA index.html fallback (HTML, 200),
+        // so guard on content-type instead of trusting response.ok alone.
+        if (!response.ok || !contentType.includes('json')) {
+          throw new Error('Segmentation manifest is not available.');
+        }
+        const data = (await response.json()) as SegmentationManifest;
+        setManifest(data);
+        setSelectedLabel(data.items[0]?.label ?? null);
+        setReviewOverrides({});
+      } catch (cause) {
+        setManifest(null);
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Unable to load segmentation manifest.',
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [revokeGenerated],
+  );
+
+  const generate = useCallback(
+    async (volume: LoadedVolume, roi: ToothRoi) => {
+      setGenerating(true);
+      setError(null);
+      setGenProgress(null);
+      revokeGenerated();
+      try {
+        const { manifest: built, urls } = await generateLibrary(
+          volume,
+          roi,
+          setGenProgress,
+        );
+        generatedUrls.current = urls;
+        setManifest(built);
+        setAssetRootOverride('');
+        setSelectedLabel(built.items[0]?.label ?? null);
+        setReviewOverrides({});
+      } catch (cause) {
+        setManifest(null);
+        setAssetRootOverride(null);
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'In-browser segmentation failed.',
+        );
+      } finally {
+        setGenerating(false);
+        setGenProgress(null);
+      }
+    },
+    [revokeGenerated],
+  );
 
   useEffect(() => {
     void loadAlgorithm(algorithm);
   }, [algorithm, loadAlgorithm]);
 
-  const assetRoot = SEGMENTATION_ASSET_ROOTS[algorithm];
+  // Revoke any generated object URLs when the page unmounts.
+  useEffect(() => () => revokeGenerated(), [revokeGenerated]);
+
+  const assetRoot = assetRootOverride ?? SEGMENTATION_ASSET_ROOTS[algorithm];
 
   const reviewStatus = useCallback(
     (item: SegmentationItem): ReviewOverride =>
@@ -129,6 +194,9 @@ export function useSegmentation(
     manifest,
     loading,
     error,
+    generating,
+    genProgress,
+    generate,
     assetRoot,
     visibleItems,
     selectedItem,

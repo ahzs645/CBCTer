@@ -12,9 +12,9 @@ import {
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
+import { BrowserLibraryGenerator } from '../components/BrowserLibraryGenerator';
 import { Button } from '../components/Button';
 import { LiveToothSegmentation } from '../components/LiveToothSegmentation';
-import { Notice } from '../components/Notice';
 import { ToothArchViewport } from '../components/ToothArchViewport';
 import { ToothMeshViewport } from '../components/ToothMeshViewport';
 import { APP_ROUTES } from '../constants';
@@ -86,7 +86,9 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
         ))}
       </div>
 
-      {mode === 'live' ? <LiveToothSegmentation app={app} /> : (
+      {mode === 'live' ? (
+        <LiveToothSegmentation app={app} />
+      ) : manifest && selectedItem ? (
       <div className="flex min-h-0 flex-1 flex-col gap-px overflow-hidden bg-slate-800 lg:flex-row">
         {/* Arch overview */}
         <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-950">
@@ -132,15 +134,6 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
 
         {/* Detail + list */}
         <aside className="flex min-h-0 w-full flex-col bg-slate-950 lg:w-[360px]">
-          {seg.error ? (
-            <div className="p-3">
-              <Notice variant="error">{seg.error}</Notice>
-              <p className="mt-3 text-xs text-slate-500">
-                {t('teeth.generateHint')}
-              </p>
-            </div>
-          ) : null}
-
           {manifest && selectedItem ? (
             <>
               <div className="grid grid-cols-2 gap-px border-b border-slate-800 bg-slate-800">
@@ -177,12 +170,14 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
                 <span>
                   {t('teeth.candidateCount', { count: counts.candidates })}
                 </span>
-                <a
-                  className="ml-auto text-sky-400 hover:text-sky-300"
-                  href={`${assetRoot}${manifest.labels}`}
-                >
-                  labels.npz
-                </a>
+                {manifest.labels ? (
+                  <a
+                    className="ml-auto text-sky-400 hover:text-sky-300"
+                    href={`${assetRoot}${manifest.labels}`}
+                  >
+                    labels.npz
+                  </a>
+                ) : null}
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -273,11 +268,11 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
                 })}
               </div>
             </>
-          ) : !seg.loading && !seg.error ? (
-            <div className="p-3 text-sm text-slate-400">{t('teeth.empty')}</div>
           ) : null}
         </aside>
       </div>
+      ) : (
+        <BrowserLibraryGenerator app={app} seg={seg} />
       )}
     </main>
   );

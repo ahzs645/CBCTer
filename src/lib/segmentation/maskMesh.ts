@@ -9,14 +9,19 @@ import type { Vec3 } from '../../types';
  * @param mask   binary mask in [D, H, W] order
  * @param dims   [depth, height, width]
  * @param spacing voxel spacing in mm [x, y, z]
+ * @param origin voxel offset [x, y, z] added before scaling, so a per-tooth
+ *   submask can be placed at its position within a shared frame (lets several
+ *   tooth meshes keep their relative arch arrangement). Defaults to no offset.
  */
 export function maskToBinaryStl(
   mask: Uint8Array,
   dims: [number, number, number],
   spacing: Vec3,
+  origin: Vec3 = [0, 0, 0],
 ): Blob {
   const [cd, ch, cw] = dims;
   const [sx, sy, sz] = spacing;
+  const [ox, oy, oz] = origin;
   const at = (z: number, y: number, x: number) => {
     if (z < 0 || y < 0 || x < 0 || z >= cd || y >= ch || x >= cw) return 0;
     return mask[(z * ch + y) * cw + x];
@@ -39,12 +44,12 @@ export function maskToBinaryStl(
     for (let y = 0; y < ch; y += 1) {
       for (let x = 0; x < cw; x += 1) {
         if (!at(z, y, x)) continue;
-        const x0 = x * sx;
-        const x1 = (x + 1) * sx;
-        const y0 = y * sy;
-        const y1 = (y + 1) * sy;
-        const z0 = z * sz;
-        const z1 = (z + 1) * sz;
+        const x0 = (x + ox) * sx;
+        const x1 = (x + 1 + ox) * sx;
+        const y0 = (y + oy) * sy;
+        const y1 = (y + 1 + oy) * sy;
+        const z0 = (z + oz) * sz;
+        const z1 = (z + 1 + oz) * sz;
 
         if (!at(z, y, x - 1))
           quad([-1, 0, 0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]);
