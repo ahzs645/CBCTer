@@ -35,22 +35,30 @@ export function buildTexture(
 
 export function buildColormap(three: ThreeModule): DataTexture {
   const data = new Uint8Array(256 * 4);
+  const texture = new three.DataTexture(data, 256, 1, three.RGBAFormat);
+  texture.minFilter = three.LinearFilter;
+  texture.magFilter = three.LinearFilter;
+  setColormapOpacity(texture, 1);
+  return texture;
+}
+
+/** Rewrite the grayscale colormap's alpha ramp scaled by `opacity` (0..1). */
+export function setColormapOpacity(
+  texture: DataTexture,
+  opacity: number,
+): void {
+  const data = texture.image.data as Uint8Array;
+  const scale = Math.min(1, Math.max(0, opacity));
   for (let i = 0; i < 256; i += 1) {
     const t = i / 255;
     const luminance = Math.round(18 + t * 237);
-    const alpha = Math.round(10 + t * 245);
     const offset = i * 4;
     data[offset] = luminance;
     data[offset + 1] = luminance;
     data[offset + 2] = luminance;
-    data[offset + 3] = alpha;
+    data[offset + 3] = Math.round((10 + t * 245) * scale);
   }
-
-  const texture = new three.DataTexture(data, 256, 1, three.RGBAFormat);
-  texture.minFilter = three.LinearFilter;
-  texture.magFilter = three.LinearFilter;
   texture.needsUpdate = true;
-  return texture;
 }
 
 export function buildMaterial(

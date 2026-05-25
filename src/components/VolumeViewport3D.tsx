@@ -1,9 +1,12 @@
 import {
+  Camera,
   PanelBottomClose,
   PanelBottomOpen,
   PanelRightClose,
   PanelRightOpen,
   Ratio,
+  RotateCcw,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   forwardRef,
@@ -18,8 +21,31 @@ import {
   createThreePreview,
   type ThreePreviewInstance,
 } from '../lib/volume/three-preview';
-import type { PreparedVolumeFor3D, VolumeCursor } from '../types';
+import type {
+  PreparedVolumeFor3D,
+  VolumeCursor,
+  VolumeRenderOptions,
+  VolumeViewPreset,
+} from '../types';
 import { Button } from './Button';
+import { RangeField } from './RangeField';
+import { Select } from './Select';
+
+const VIEW_PRESETS: { id: VolumeViewPreset; label: string }[] = [
+  { id: 'front', label: 'F' },
+  { id: 'back', label: 'Bk' },
+  { id: 'left', label: 'L' },
+  { id: 'right', label: 'R' },
+  { id: 'top', label: 'T' },
+  { id: 'bottom', label: 'Bo' },
+];
+
+const RENDER_PRESETS: Record<string, Partial<VolumeRenderOptions>> = {
+  default: { renderStyle: 'mip', threshold: 0.5, opacity: 1, climLow: 0, climHigh: 1 },
+  bone: { renderStyle: 'iso', threshold: 0.38, opacity: 1, climLow: 0, climHigh: 1 },
+  soft: { renderStyle: 'mip', threshold: 0.5, opacity: 0.65, climLow: 0.05, climHigh: 0.6 },
+  xray: { renderStyle: 'mip', threshold: 0.5, opacity: 0.35, climLow: 0, climHigh: 1 },
+};
 
 interface VolumeViewport3DProps {
   volume: PreparedVolumeFor3D | null;
@@ -58,6 +84,35 @@ export const VolumeViewport3D = memo(
   const [error, setError] = useState(false);
   const [planesVisible, setPlanesVisible] = useState(true);
   const planesVisibleRef = useRef(planesVisible);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [preset, setPreset] = useState('default');
+  const [threshold, setThreshold] = useState(0.5);
+  const [opacity, setOpacity] = useState(1);
+  const renderOptsRef = useRef<Partial<VolumeRenderOptions>>(
+    RENDER_PRESETS.default,
+  );
+
+  const applyRender = (partial: Partial<VolumeRenderOptions>) => {
+    renderOptsRef.current = { ...renderOptsRef.current, ...partial };
+    instanceRef.current?.setRenderOptions(partial);
+  };
+
+  const applyPreset = (key: string) => {
+    const next = RENDER_PRESETS[key] ?? RENDER_PRESETS.default;
+    setPreset(key);
+    setThreshold(next.threshold ?? 0.5);
+    setOpacity(next.opacity ?? 1);
+    applyRender(next);
+  };
+
+  const downloadSnapshot = () => {
+    const url = instanceRef.current?.snapshot();
+    if (!url) return;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'cbcter-3d.png';
+    link.click();
+  };
 
   useImperativeHandle(ref, () => ({
     focusCursor: (cursor) => {
@@ -118,6 +173,7 @@ export const VolumeViewport3D = memo(
           instanceRef.current = instance;
           instance.focusCursor(cursorRef.current);
           instance.setPlanesVisible(planesVisibleRef.current);
+          instance.setRenderOptions(renderOptsRef.current);
           cleanup = instance.dispose;
         })
         .catch(() => {

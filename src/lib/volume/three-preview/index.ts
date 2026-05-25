@@ -4,6 +4,8 @@ import type {
   ThreePreviewInstance,
   TrackballControlsModule,
   VolumeShaderModule,
+  VolumeShaderUniforms,
+  VolumeViewPreset,
 } from '../types';
 import {
   applyDistanceLimits,
@@ -16,6 +18,7 @@ import {
   buildMaterial,
   buildTexture,
   buildVolumeMesh,
+  setColormapOpacity,
 } from './volume-object';
 
 export type { ThreePreviewInstance } from '../types';
@@ -49,6 +52,7 @@ function buildPreview(
     antialias: true,
     alpha: false,
     powerPreference: 'high-performance',
+    preserveDrawingBuffer: true,
   });
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
@@ -165,6 +169,65 @@ function buildPreview(
     },
     setPlanesVisible(visible) {
       cursorPlanes.root.visible = visible;
+    },
+    setRenderOptions(options) {
+      const uniforms = material.uniforms as VolumeShaderUniforms;
+      if (options.renderStyle !== undefined) {
+        uniforms.u_renderstyle.value = options.renderStyle === 'iso' ? 1 : 0;
+      }
+      if (options.threshold !== undefined) {
+        uniforms.u_renderthreshold.value = Math.min(
+          0.98,
+          Math.max(0.02, options.threshold),
+        );
+      }
+      if (options.climLow !== undefined || options.climHigh !== undefined) {
+        const low = options.climLow ?? uniforms.u_clim.value.x;
+        const high = options.climHigh ?? uniforms.u_clim.value.y;
+        uniforms.u_clim.value.set(Math.min(low, high), Math.max(low, high));
+      }
+      if (options.opacity !== undefined) {
+        setColormapOpacity(colormap, options.opacity);
+        material.transparent = options.opacity < 1;
+        material.needsUpdate = true;
+      }
+    },
+    setView(preset: VolumeViewPreset) {
+      const distance = Math.max(controls.minDistance, maxWorldEdge * 2.6);
+      const epsilon = maxWorldEdge * 0.0008;
+      const offsets: Record<VolumeViewPreset, [number, number, number]> = {
+        front: [epsilon, -distance, epsilon],
+        back: [epsilon, distance, epsilon],
+        left: [-distance, epsilon, epsilon],
+        right: [distance, epsilon, epsilon],
+        top: [epsilon, epsilon, distance],
+        bottom: [epsilon, epsilon, -distance],
+      };
+      const [dx, dy, dz] = offsets[preset];
+      camera.position.set(
+        currentTarget.x + dx,
+        currentTarget.y + dy,
+        currentTarget.z + dz,
+      );
+      applyDistanceLimits(camera, controls, worldSize, currentTarget);
+      controls.target.copy(currentTarget);
+      camera.lookAt(currentTarget);
+      controls.update();
+    },
+    resetView() {
+      camera.position.copy(currentTarget.clone().add(initialOffset));
+      applyDistanceLimits(camera, controls, worldSize, currentTarget);
+      controls.target.copy(currentTarget);
+      camera.lookAt(currentTarget);
+      controls.update();
+    },
+    snapshot() {
+      try {
+        renderer.render(scene, camera);
+        return renderer.domElement.toDataURL('image/png');
+      } catch {
+        return null;
+      }
     },
     dispose() {
       window.cancelAnimationFrame(frame);
