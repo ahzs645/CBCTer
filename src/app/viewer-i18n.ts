@@ -20,6 +20,7 @@ export const appViewerTheme: ViewerTheme = {
     coronal: PLANE_COLORS.coronal,
     sagittal: PLANE_COLORS.sagittal,
   },
+  crosshairColor: '#7dd3fc',
 };
 
 export function useAxisViewportLabels(): AxisViewportLabels {

@@ -1,6 +1,7 @@
 import type { SliceImage, Vec3, ViewerSlices, VolumeCursor } from '../../types';
 import { VolumeAxis } from '../../types';
 import { Select } from '../../components/Select';
+import { cn } from '../../utils/cn';
 import { defaultAxisViewportLabels, type AxisViewportLabels } from '../labels';
 import { defaultViewerTheme, type ViewerTheme } from '../theme';
 import { SliceCanvas } from './SliceCanvas';
@@ -21,6 +22,8 @@ interface AxisViewportGridProps {
   theme?: ViewerTheme;
   /** User-facing strings (English defaults otherwise). */
   labels?: AxisViewportLabels;
+  /** Extra classes merged onto the root element. */
+  className?: string;
   onSelectAxis: (
     axis: VolumeAxis,
   ) => (point: { xRatio: number; yRatio: number }) => void;
@@ -217,6 +220,7 @@ export function AxisViewportGrid({
   hasVolume,
   theme = defaultViewerTheme,
   labels = defaultAxisViewportLabels,
+  className,
   onSelectAxis,
   onSelectedAxisChange,
   onZoomChange,
@@ -251,7 +255,7 @@ export function AxisViewportGrid({
 
   if (compact) {
     return (
-      <div className="min-h-0 min-w-0 bg-slate-800">
+      <div className={cn('min-h-0 min-w-0 bg-slate-800', className)}>
         <AxisViewportPane
           compact
           definition={axisDefinitions[selectedAxis]}
@@ -265,7 +269,12 @@ export function AxisViewportGrid({
   }
 
   return (
-    <div className="grid min-h-0 min-w-0 grid-cols-3 gap-px bg-slate-800">
+    <div
+      className={cn(
+        'grid min-h-0 min-w-0 grid-cols-3 gap-px bg-slate-800',
+        className,
+      )}
+    >
       {axes.map((axis) => (
         <AxisViewportPane
           key={axis}

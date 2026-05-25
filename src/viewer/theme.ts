@@ -11,6 +11,8 @@ export interface ViewerTheme {
     coronal: string;
     sagittal: string;
   };
+  /** Fallback crosshair color when a pane does not specify per-axis colors. */
+  crosshairColor: string;
 }
 
 export const defaultViewerTheme: ViewerTheme = {
@@ -19,4 +21,5 @@ export const defaultViewerTheme: ViewerTheme = {
     coronal: '#f59e0b',
     sagittal: '#a78bfa',
   },
+  crosshairColor: '#7dd3fc',
 };

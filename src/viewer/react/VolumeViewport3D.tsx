@@ -59,6 +59,8 @@ interface VolumeViewport3DProps {
   onDownsampledChange?: (downsampled: boolean) => void;
   /** User-facing strings (English defaults otherwise). */
   labels?: VolumeViewport3DLabels;
+  /** Extra classes merged onto the root element. */
+  className?: string;
 }
 
 export interface VolumeViewport3DHandle {
@@ -80,6 +82,7 @@ export const VolumeViewport3D = memo(
         onSidebarVisibleChange,
         onDownsampledChange,
         labels = defaultVolumeViewport3DLabels,
+        className,
       },
       ref,
     ) {
@@ -223,7 +226,12 @@ export const VolumeViewport3D = memo(
   }, [volume]);
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden bg-black">
+    <div
+      className={cn(
+        'relative h-full min-h-0 overflow-hidden bg-black',
+        className,
+      )}
+    >
       <div
         ref={hostRef}
         className="absolute inset-0 h-full min-h-0 overflow-hidden"

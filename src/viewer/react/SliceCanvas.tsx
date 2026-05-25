@@ -18,6 +18,10 @@ interface SliceCanvasProps {
   crosshairSpace?: [number, number];
   crosshair?: boolean;
   crosshairColors?: { vertical: string; horizontal: string };
+  /** Fallback crosshair color when crosshairColors is not provided. */
+  crosshairColor?: string;
+  /** Extra classes merged onto the root element. */
+  className?: string;
   label?: string;
   fit?: SliceCanvasFitType;
   displayAspect?: number;
@@ -62,6 +66,8 @@ export function SliceCanvas({
   crosshairSpace,
   crosshair = true,
   crosshairColors,
+  crosshairColor = '#7dd3fc',
+  className,
   label,
   fit = SliceCanvasFit.Contain,
   displayAspect = 1,
@@ -237,7 +243,7 @@ export function SliceCanvas({
   });
 
   return (
-    <div className="h-full min-h-0">
+    <div className={cn('h-full min-h-0', className)}>
       <div
         ref={surfaceRef}
         className="relative h-full min-h-0 w-full overflow-hidden bg-black"
@@ -294,7 +300,7 @@ export function SliceCanvas({
               className="absolute top-0 bottom-0 w-px"
               style={{
                 left: `${x}px`,
-                backgroundColor: crosshairColors?.vertical ?? '#7dd3fc',
+                backgroundColor: crosshairColors?.vertical ?? crosshairColor,
                 opacity: 0.78,
               }}
             />
@@ -302,7 +308,7 @@ export function SliceCanvas({
               className="absolute left-0 right-0 h-px"
               style={{
                 top: `${y}px`,
-                backgroundColor: crosshairColors?.horizontal ?? '#7dd3fc',
+                backgroundColor: crosshairColors?.horizontal ?? crosshairColor,
                 opacity: 0.78,
               }}
             />
