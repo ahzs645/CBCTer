@@ -4,11 +4,7 @@ import { maskProjectionDataUrl } from './maskPreview';
 import { maskToBinaryStl } from './maskMesh';
 import type { ToothRoi } from './roi';
 import { segmentToothROI } from './toothInference';
-import type {
-  ReviewOverride,
-  SegmentationItem,
-  SegmentationManifest,
-} from './types';
+import type { SegmentationItem, SegmentationManifest } from './types';
 
 /** Tints reused from ToothArchViewport so previews match the 3D arch colors. */
 const TOOTH_COLORS = [
@@ -36,7 +32,7 @@ export interface GeneratedLibrary {
 }
 
 interface Quality {
-  status: ReviewOverride;
+  status: 'accepted' | 'review';
   reasons: string[];
   score: number;
 }
