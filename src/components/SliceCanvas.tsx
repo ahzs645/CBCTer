@@ -1,3 +1,4 @@
+import { Download, Ruler, Triangle, X } from 'lucide-react';
 import {
   type PointerEvent,
   useEffect,
@@ -10,6 +11,12 @@ import type { SliceImage } from '../types';
 import { cn } from '../utils/cn';
 import { Badge } from './Badge';
 import { BadgeVariant } from './Badge.constants';
+
+type MeasureMode = 'off' | 'distance' | 'angle';
+interface MeasurePoint {
+  xRatio: number;
+  yRatio: number;
+}
 import {
   SliceCanvasFit,
   type SliceCanvasFit as SliceCanvasFitType,
@@ -40,6 +47,10 @@ interface SliceCanvasProps {
   zoom?: number;
   onZoomChange?: (nextZoom: number) => void;
   onSelect?: (point: { xRatio: number; yRatio: number }) => void;
+  /** In-plane mm per image pixel [x, y]; enables measurement + export tools. */
+  mmPerPixel?: { x: number; y: number };
+  /** Filename used for the per-pane PNG export. */
+  exportName?: string;
 }
 
 interface Rect {
@@ -130,7 +141,11 @@ export function SliceCanvas({
   zoom = 1,
   onZoomChange,
   onSelect,
+  mmPerPixel,
+  exportName = 'slice',
 }: SliceCanvasProps) {
+  const [measureMode, setMeasureMode] = useState<MeasureMode>('off');
+  const [measurePoints, setMeasurePoints] = useState<MeasurePoint[]>([]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const [surfaceSize, setSurfaceSize] = useState({ width: 1, height: 1 });
@@ -294,6 +309,52 @@ export function SliceCanvas({
       1,
     ),
   });
+
+  const addMeasurePoint = (point: MeasurePoint) => {
+    const max = measureMode === 'angle' ? 3 : 2;
+    setMeasurePoints((prev) => (prev.length >= max ? [point] : [...prev, point]));
+  };
+
+  const toggleMode = (mode: MeasureMode) => {
+    setMeasureMode((current) => (current === mode ? 'off' : mode));
+    setMeasurePoints([]);
+  };
+
+  const downloadPng = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = `${exportName}.png`;
+    link.click();
+  };
+
+  const toScreen = (point: MeasurePoint) => ({
+    x: imageRect.left + point.xRatio * imageRect.width,
+    y: imageRect.top + point.yRatio * imageRect.height,
+  });
+
+  const mmBetween = (a: MeasurePoint, b: MeasurePoint) => {
+    const w = (image?.width ?? 1) - 1;
+    const h = (image?.height ?? 1) - 1;
+    const dx = (b.xRatio - a.xRatio) * w * (mmPerPixel?.x ?? 1);
+    const dy = (b.yRatio - a.yRatio) * h * (mmPerPixel?.y ?? 1);
+    return Math.hypot(dx, dy);
+  };
+
+  const angleAt = (p0: MeasurePoint, p1: MeasurePoint, p2: MeasurePoint) => {
+    const w = (image?.width ?? 1) - 1;
+    const h = (image?.height ?? 1) - 1;
+    const mx = mmPerPixel?.x ?? 1;
+    const my = mmPerPixel?.y ?? 1;
+    const v0x = (p0.xRatio - p1.xRatio) * w * mx;
+    const v0y = (p0.yRatio - p1.yRatio) * h * my;
+    const v2x = (p2.xRatio - p1.xRatio) * w * mx;
+    const v2y = (p2.yRatio - p1.yRatio) * h * my;
+    const dot = v0x * v2x + v0y * v2y;
+    const mag = Math.hypot(v0x, v0y) * Math.hypot(v2x, v2y) || 1;
+    return (Math.acos(Math.min(1, Math.max(-1, dot / mag))) * 180) / Math.PI;
+  };
 
   const cancelScrubFrame = () => {
     if (rafRef.current === null) return;

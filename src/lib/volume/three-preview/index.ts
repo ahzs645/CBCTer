@@ -21,7 +21,12 @@ import {
   setColormapOpacity,
 } from './volume-object';
 
-export type { ThreePreviewInstance } from '../types';
+export type {
+  ThreePreviewInstance,
+  VolumeRenderOptions,
+  VolumeRenderStyle,
+  VolumeViewPreset,
+} from '../types';
 
 export async function createThreePreview(
   host: HTMLDivElement,

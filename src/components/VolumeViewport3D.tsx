@@ -20,13 +20,10 @@ import { useTranslation } from '../i18n';
 import {
   createThreePreview,
   type ThreePreviewInstance,
+  type VolumeRenderOptions,
+  type VolumeViewPreset,
 } from '../lib/volume/three-preview';
-import type {
-  PreparedVolumeFor3D,
-  VolumeCursor,
-  VolumeRenderOptions,
-  VolumeViewPreset,
-} from '../types';
+import type { PreparedVolumeFor3D, VolumeCursor } from '../types';
 import { Button } from './Button';
 import { RangeField } from './RangeField';
 import { Select } from './Select';
@@ -215,6 +212,79 @@ export const VolumeViewport3D = memo(
         className="absolute inset-0 h-full min-h-0 overflow-hidden"
       />
       <div className="absolute inset-0 z-20 pointer-events-none">
+        <div className="pointer-events-auto absolute left-2 top-2 flex flex-col gap-1.5">
+          <div className="flex items-center gap-0.5 rounded-lg bg-slate-950/70 p-1 ring-1 ring-white/10">
+            {VIEW_PRESETS.map((view) => (
+              <button
+                key={view.id}
+                type="button"
+                title={view.id}
+                onClick={() => instanceRef.current?.setView(view.id)}
+                className="rounded px-1.5 py-1 text-[11px] font-medium text-slate-200 transition hover:bg-slate-800"
+              >
+                {view.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              title={t('volumeViewport3d.resetView')}
+              onClick={() => instanceRef.current?.resetView()}
+              className="rounded px-1.5 py-1 text-slate-300 transition hover:bg-slate-800"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="overlay"
+              size="sm"
+              onClick={() => setPanelOpen((open) => !open)}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('volumeViewport3d.render')}
+            </Button>
+            <Button variant="overlay" size="sm" onClick={downloadSnapshot}>
+              <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('volumeViewport3d.snapshot')}
+            </Button>
+          </div>
+          {panelOpen ? (
+            <div className="w-56 space-y-2.5 rounded-lg bg-slate-950/85 p-2.5 ring-1 ring-white/10">
+              <Select
+                size="sm"
+                block
+                value={preset}
+                onChange={applyPreset}
+                options={[
+                  { value: 'default', label: t('volumeViewport3d.presets.default') },
+                  { value: 'bone', label: t('volumeViewport3d.presets.bone') },
+                  { value: 'soft', label: t('volumeViewport3d.presets.soft') },
+                  { value: 'xray', label: t('volumeViewport3d.presets.xray') },
+                ]}
+              />
+              <RangeField
+                label={t('volumeViewport3d.threshold')}
+                min={2}
+                max={98}
+                value={Math.round(threshold * 100)}
+                onChange={(value) => {
+                  setThreshold(value / 100);
+                  applyRender({ threshold: value / 100 });
+                }}
+              />
+              <RangeField
+                label={t('volumeViewport3d.opacity')}
+                min={5}
+                max={100}
+                value={Math.round(opacity * 100)}
+                onChange={(value) => {
+                  setOpacity(value / 100);
+                  applyRender({ opacity: value / 100 });
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
         <div className="pointer-events-auto absolute inset-x-2 bottom-2 flex flex-wrap items-center justify-center gap-1 sm:inset-x-auto sm:right-2 sm:justify-end">
           <Button
             variant="overlay"

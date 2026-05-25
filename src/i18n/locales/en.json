@@ -217,6 +217,17 @@
     "showPlanesShort": "Planes on",
     "hidePlanesLong": "Hide planes",
     "showPlanesLong": "Show planes",
+    "render": "Render",
+    "snapshot": "PNG",
+    "resetView": "Reset view",
+    "threshold": "Threshold",
+    "opacity": "Opacity",
+    "presets": {
+      "default": "Default",
+      "bone": "Bone surface",
+      "soft": "Soft tissue",
+      "xray": "X-ray"
+    },
     "previewError": "3D preview failed"
   },
   "errors": {
