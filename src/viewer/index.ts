@@ -12,6 +12,11 @@
 
 export * from './core';
 
+export {
+  useVolumeViewerState,
+  type VolumeViewerState,
+} from './useVolumeViewerState';
+
 export { SliceCanvas } from './react/SliceCanvas';
 export {
   SliceCanvasFit,

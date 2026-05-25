@@ -26,7 +26,9 @@ export {
 
 export { VolumeAxis } from '../../types';
 export type {
+  LoadedVolume,
   PreparedVolumeFor3D,
+  RangeBounds,
   SliceImage,
   SliceWindowLevel,
   Vec3,
