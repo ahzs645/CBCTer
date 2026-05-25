@@ -1,6 +1,6 @@
-import { prepareVolumeFor3D } from "../lib/volume";
-import type { LoadedVolume, PreparedVolumeFor3D, Vec3 } from "../types";
-import { VolumeAxis } from "../types";
+import { prepareVolumeFor3D } from "../../lib/volume";
+import type { LoadedVolume, PreparedVolumeFor3D, Vec3 } from "../../types";
+import { VolumeAxis } from "../../types";
 import { loadSampleVolume, type SampleVolumeManifest } from "./sampleVolume";
 
 export interface LoadedSample {

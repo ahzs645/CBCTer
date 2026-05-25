@@ -9,8 +9,8 @@ import {
 import { loadVolumeFromFolder } from '../lib/import/load-volume';
 import type { ScanFolderPicker } from '../lib/import/source-picker';
 import type { ImportParseOptions } from '../lib/import/types';
-import { loadSample as loadSampleVolume } from '../viewer/sampleBridge';
-import { loadNifti } from '../viewer/niftiLoader';
+import { loadSample as loadSampleVolume } from './sources/sampleBridge';
+import { loadNifti } from './sources/niftiLoader';
 import {
   clamp,
   extractAxialImage,
