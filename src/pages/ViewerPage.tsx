@@ -104,6 +104,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   hasVolume={Boolean(app.volume)}
                   cursor={app.cursor}
                   dimensions={app.dimensions}
+                  spacing={app.spacing}
                   slices={app.slices}
                   mprZoom={app.mprZoom}
                   selectedAxis={app.selectedAxis}

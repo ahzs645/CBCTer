@@ -11,6 +11,7 @@ import { ViewportFrame } from './ViewportFrame';
 interface AxisViewportGridProps {
   cursor: { x: number; y: number; z: number } | null;
   dimensions: Vec3;
+  spacing: Vec3;
   mprZoom: number;
   selectedAxis?: VolumeAxis;
   slices: ViewerSlices;
@@ -34,6 +35,8 @@ interface AxisViewportDefinition {
   crosshairPoint?: { x: number; y: number };
   crosshairSpace?: [number, number];
   crosshairColors: { vertical: string; horizontal: string };
+  mmPerPixel?: { x: number; y: number };
+  exportName: string;
 }
 
 interface AxisViewportPaneProps {
@@ -99,6 +102,8 @@ function AxisViewportPane({
         zoom={mprZoom}
         onZoomChange={onZoomChange}
         onSelect={onSelect}
+        mmPerPixel={definition.mmPerPixel}
+        exportName={definition.exportName}
       />
     </ViewportFrame>
   );
@@ -107,6 +112,7 @@ function AxisViewportPane({
 function resolveAxisDefinitions(
   cursor: VolumeCursor | null,
   dimensions: Vec3,
+  spacing: Vec3,
   slices: ViewerSlices,
   hasVolume: boolean,
   t: TFunction<'translation', undefined>,
@@ -133,6 +139,8 @@ function resolveAxisDefinitions(
         vertical: PLANE_COLORS.sagittal,
         horizontal: PLANE_COLORS.axial,
       },
+      mmPerPixel: hasVolume ? { x: spacing[0], y: spacing[2] } : undefined,
+      exportName: 'coronal',
     },
     [VolumeAxis.Sagittal]: {
       axis: VolumeAxis.Sagittal,
@@ -155,6 +163,8 @@ function resolveAxisDefinitions(
         vertical: PLANE_COLORS.coronal,
         horizontal: PLANE_COLORS.axial,
       },
+      mmPerPixel: hasVolume ? { x: spacing[1], y: spacing[2] } : undefined,
+      exportName: 'sagittal',
     },
     [VolumeAxis.Axial]: {
       axis: VolumeAxis.Axial,
@@ -175,6 +185,8 @@ function resolveAxisDefinitions(
         vertical: PLANE_COLORS.sagittal,
         horizontal: PLANE_COLORS.coronal,
       },
+      mmPerPixel: hasVolume ? { x: spacing[0], y: spacing[1] } : undefined,
+      exportName: 'axial',
     },
   };
 }
@@ -183,6 +195,7 @@ export function AxisViewportGrid({
   compact = false,
   cursor,
   dimensions,
+  spacing,
   mprZoom,
   selectedAxis = VolumeAxis.Coronal,
   slices,
@@ -211,6 +224,7 @@ export function AxisViewportGrid({
   const axisDefinitions = resolveAxisDefinitions(
     cursor,
     dimensions,
+    spacing,
     slices,
     hasVolume,
     t,
