@@ -154,6 +154,8 @@
       "centerZ": "Region center Z (slice)",
       "size": "Region size",
       "sizeHint": "Arch region ≈ {{dims}} voxels",
+      "separation": "Separation detail",
+      "separationHint": "Lower splits touching teeth more; higher merges them.",
       "run": "Generate library",
       "generating": "Generating…",
       "starting": "Starting…",

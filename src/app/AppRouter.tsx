@@ -8,6 +8,7 @@ import { useViewerApp } from './useViewerApp';
 const ImportPage = lazy(() => import('../pages/ImportPage'));
 const ViewerPage = lazy(() => import('../pages/ViewerPage'));
 const ToothExtractionPage = lazy(() => import('../pages/ToothExtractionPage'));
+const PanoramicPage = lazy(() => import('../pages/PanoramicPage'));
 
 function RouteFallback() {
   const { t } = useTranslation();
@@ -52,6 +53,16 @@ export function AppRouter() {
         <Route
           path={APP_ROUTES.teeth}
           element={<ToothExtractionPage app={app} />}
+        />
+        <Route
+          path={APP_ROUTES.panoramic}
+          element={
+            hasVolume ? (
+              <PanoramicPage app={app} />
+            ) : (
+              <Navigate to={APP_ROUTES.import} replace />
+            )
+          }
         />
         <Route
           path="*"

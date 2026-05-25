@@ -28,8 +28,13 @@ export interface UseSegmentation {
   generating: boolean;
   /** Progress of the in-browser generation, or null when idle. */
   genProgress: GenerateProgress | null;
-  /** Run the UNet over `roi` and build a library entirely in the browser. */
-  generate: (volume: LoadedVolume, roi: ToothRoi) => Promise<void>;
+  /** Run the UNet over `roi` and build a library entirely in the browser.
+   * `minMarkerDistance` tunes watershed separation granularity. */
+  generate: (
+    volume: LoadedVolume,
+    roi: ToothRoi,
+    minMarkerDistance?: number,
+  ) => Promise<void>;
   assetRoot: string;
   visibleItems: SegmentationItem[];
   selectedItem: SegmentationItem | null;
@@ -108,7 +113,7 @@ export function useSegmentation(
   );
 
   const generate = useCallback(
-    async (volume: LoadedVolume, roi: ToothRoi) => {
+    async (volume: LoadedVolume, roi: ToothRoi, minMarkerDistance?: number) => {
       setGenerating(true);
       setError(null);
       setGenProgress(null);
@@ -118,6 +123,7 @@ export function useSegmentation(
           volume,
           roi,
           setGenProgress,
+          { minMarkerDistance },
         );
         generatedUrls.current = urls;
         setManifest(built);

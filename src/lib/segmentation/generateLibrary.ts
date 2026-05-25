@@ -79,10 +79,17 @@ function quality(
  * with no `fetch()` and no Python pipeline). `assetRoot` for this manifest is
  * the empty string — URLs are already absolute.
  */
+export interface GenerateOptions {
+  /** Watershed marker distance (voxels): higher merges nearby teeth, lower
+   * splits touching teeth more aggressively. */
+  minMarkerDistance?: number;
+}
+
 export async function generateLibrary(
   volume: LoadedVolume,
   roi: ToothRoi,
   onProgress?: (progress: GenerateProgress) => void,
+  options: GenerateOptions = {},
 ): Promise<GeneratedLibrary> {
   const segmentation = await segmentToothROI(volume, roi, (p) =>
     onProgress?.({
@@ -97,7 +104,9 @@ export async function generateLibrary(
   const [, height, width] = dims;
   // Watershed on the distance transform splits touching teeth that plain
   // connected-components would merge into a single blob.
-  const { labels, components } = watershedSplit(mask, dims);
+  const { labels, components } = watershedSplit(mask, dims, {
+    minMarkerDistance: options.minMarkerDistance,
+  });
 
   const candidateCount = components.filter(
     (component) => component.voxels >= NOISE_FLOOR,

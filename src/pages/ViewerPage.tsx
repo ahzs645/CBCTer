@@ -24,6 +24,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const openTeeth = () => navigate(APP_ROUTES.teeth);
+  const openPanoramic = () => navigate(APP_ROUTES.panoramic);
   const viewport3DRef = useRef<VolumeViewport3DHandle>(null);
 
   // Push cursor changes to the 3D viewport imperatively so scrubbing never
@@ -138,6 +139,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
               onOpenDirectory={() => void app.openDirectory()}
               onOpenTeeth={openTeeth}
+              onOpenPanoramic={openPanoramic}
               onBackToImport={app.resetViewer}
             />
           ) : null}
@@ -187,6 +189,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
                   onOpenDirectory={() => void app.openDirectory()}
                   onOpenTeeth={openTeeth}
+                  onOpenPanoramic={openPanoramic}
                   onBackToImport={app.resetViewer}
                 />
               </div>

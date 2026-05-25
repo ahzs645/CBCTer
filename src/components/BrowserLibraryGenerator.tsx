@@ -20,6 +20,9 @@ interface BrowserLibraryGeneratorProps {
 const DEFAULT_SIZE = 160;
 const MIN_SIZE = 96;
 const MAX_SIZE = 240;
+const DEFAULT_SEPARATION = 3;
+const MIN_SEPARATION = 1;
+const MAX_SEPARATION = 12;
 
 /**
  * Empty-state for the library tab when no manifest is loaded: generate the
@@ -43,6 +46,9 @@ export function BrowserLibraryGenerator({
   ]);
   const sizeCap = Math.min(MAX_SIZE, Math.max(width, height, depth));
   const [size, setSize] = useState(Math.min(DEFAULT_SIZE, sizeCap));
+  // Watershed marker distance (voxels): lower splits touching teeth more,
+  // higher merges them. See watershedSplit().
+  const [separation, setSeparation] = useState(DEFAULT_SEPARATION);
 
   const buildRoi = (): ToothRoi => {
     const half = Math.round(size / 2);
@@ -143,12 +149,20 @@ export function BrowserLibraryGenerator({
               onChange={setSize}
               hint={t('teeth.gen.sizeHint', { dims: roiDims.join(' × ') })}
             />
+            <RangeField
+              label={t('teeth.gen.separation')}
+              min={MIN_SEPARATION}
+              max={MAX_SEPARATION}
+              value={separation}
+              onChange={setSeparation}
+              hint={t('teeth.gen.separationHint')}
+            />
 
             <Button
               variant="primary"
               block
               disabled={seg.generating}
-              onClick={() => void seg.generate(volume, buildRoi())}
+              onClick={() => void seg.generate(volume, buildRoi(), separation)}
             >
               {seg.generating ? (
                 <LoaderCircle

@@ -5,6 +5,7 @@ export const APP_ROUTES = {
   import: '/',
   viewer: '/viewer',
   teeth: '/teeth',
+  panoramic: '/panoramic',
 } as const;
 
 export const PLANE_COLORS = {

@@ -7,6 +7,7 @@ import {
   Languages,
   Layers3,
   ListVideo,
+  ScanLine,
   SlidersHorizontal,
   SunMedium,
 } from 'lucide-react';
@@ -49,6 +50,7 @@ interface ViewerSidebarProps {
   onLevelCommit: (value: number) => void;
   onOpenDirectory: () => void;
   onOpenTeeth: () => void;
+  onOpenPanoramic: () => void;
   onSeriesChange: (seriesId: string) => void;
   onWindowChange: (value: number) => void;
   onWindowCommit: (value: number) => void;
@@ -73,6 +75,7 @@ export function ViewerSidebar({
   onLevelCommit,
   onOpenDirectory,
   onOpenTeeth,
+  onOpenPanoramic,
   onSeriesChange,
   onWindowChange,
   onWindowCommit,
@@ -247,6 +250,10 @@ export function ViewerSidebar({
           <Button variant="primary" block onClick={onOpenTeeth}>
             <Layers3 className="h-4 w-4" aria-hidden="true" />
             {t('viewerSidebar.toothExtraction')}
+          </Button>
+          <Button variant="ghost" block onClick={onOpenPanoramic}>
+            <ScanLine className="h-4 w-4" aria-hidden="true" />
+            {t('viewerSidebar.panoramic')}
           </Button>
           <Button variant="ghost" block onClick={onOpenDirectory}>
             <FolderInput className="h-4 w-4" aria-hidden="true" />
