@@ -69,6 +69,13 @@ function sameVec3(
   return left[0] === right[0] && left[1] === right[1] && left[2] === right[2];
 }
 
+function byteRangeToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
 export default function ViewerPage({ app }: ViewerPageProps) {
   const compactLayout = useCompactViewerLayout();
   const { t } = useTranslation();
@@ -478,11 +485,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   };
 
   const importProject = async (file: File) => {
-    if (!app.volume) return;
+    const volume = app.volume;
+    if (!volume) return;
     try {
       const archive = await readProjectArchive(file);
       const restoredImage = archive.manifest.state.images.find((image) =>
-        sameVec3(image.dimensions, app.volume.meta.dimensions),
+        sameVec3(image.dimensions, volume.meta.dimensions),
       );
       if (!restoredImage) {
         throw new Error(
@@ -491,9 +499,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       }
 
       const expectedMaskBytes =
-        app.volume.meta.dimensions[0] *
-        app.volume.meta.dimensions[1] *
-        app.volume.meta.dimensions[2];
+        volume.meta.dimensions[0] *
+        volume.meta.dimensions[1] *
+        volume.meta.dimensions[2];
       const nextMaskBuffers: MaskBufferMap = {};
       for (const mask of archive.masks) {
         if (mask.data.byteLength !== expectedMaskBytes) {
@@ -510,7 +518,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       const nextSurfaceBlobs: SurfaceBlobMap = {};
       const nextSurfaceUrls: SurfaceUrlMap = {};
       for (const surface of archive.surfaces) {
-        const blob = new Blob([surface.data], { type: 'model/stl' });
+        const blob = new Blob([byteRangeToArrayBuffer(surface.data)], {
+          type: 'model/stl',
+        });
         nextSurfaceBlobs[surface.id] = blob;
         nextSurfaceUrls[surface.id] = URL.createObjectURL(blob);
       }
@@ -522,8 +532,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           image.id === restoredImage.id
             ? {
                 ...image,
-                dimensions: app.volume.meta.dimensions,
-                spacing: app.volume.meta.spacing,
+                dimensions: volume.meta.dimensions,
+                spacing: volume.meta.spacing,
               }
             : image,
         ),
