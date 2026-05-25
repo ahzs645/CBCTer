@@ -22,10 +22,37 @@ export type VolumeShaderUniforms = Record<string, IUniform> & {
   u_cmdata: IUniform<Texture>;
 };
 
+export type VolumeRenderStyle = 'mip' | 'iso';
+
+export interface VolumeRenderOptions {
+  renderStyle: VolumeRenderStyle;
+  /** Iso/MIP density threshold, 0..1. */
+  threshold: number;
+  /** Colormap opacity multiplier, 0..1. */
+  opacity: number;
+  /** Lower contrast limit, 0..1. */
+  climLow: number;
+  /** Upper contrast limit, 0..1. */
+  climHigh: number;
+}
+
+export type VolumeViewPreset =
+  | 'front'
+  | 'back'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom';
+
 export interface ThreePreviewInstance {
   dispose: () => void;
   focusCursor: (cursor: import('../../types').VolumeCursor | null) => void;
   setPlanesVisible: (visible: boolean) => void;
+  setRenderOptions: (options: Partial<VolumeRenderOptions>) => void;
+  setView: (preset: VolumeViewPreset) => void;
+  resetView: () => void;
+  /** PNG data URL of the current 3D frame, or null if capture failed. */
+  snapshot: () => string | null;
 }
 
 export interface CursorPlaneSet {
