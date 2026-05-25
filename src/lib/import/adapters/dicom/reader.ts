@@ -19,6 +19,8 @@ const TAG_IMAGER_PIXEL_SPACING = '00181164';
 const TAG_INSTANCE_NUMBER = '00200013';
 const TAG_MODALITY = '00080060';
 const TAG_NUMBER_OF_FRAMES = '00280008';
+const TAG_PATIENT_ID = '00100020';
+const TAG_PATIENT_NAME = '00100010';
 const TAG_PIXEL_DATA = '7fe00010';
 const TAG_PIXEL_REPRESENTATION = '00280103';
 const TAG_PIXEL_SPACING = '00280030';
@@ -34,6 +36,7 @@ const TAG_SOP_CLASS_UID = '00080016';
 const TAG_SPACING_BETWEEN_SLICES = '00180088';
 const TAG_STUDY_DATE = '00080020';
 const TAG_STUDY_ID = '00200010';
+const TAG_STUDY_INSTANCE_UID = '0020000d';
 const TAG_STUDY_TIME = '00080030';
 const TAG_TRANSFER_SYNTAX_UID = '00020010';
 const TAG_WINDOW_CENTER = '00281050';
@@ -66,6 +69,8 @@ export interface DicomHeader {
   instanceNumber?: number;
   modality?: string;
   numberOfFrames?: number;
+  patientId?: string;
+  patientName?: string;
   pixelDataLength: number;
   pixelDataOffset: number;
   pixelRepresentation: number;
@@ -81,6 +86,7 @@ export interface DicomHeader {
   spacingBetweenSlices?: number;
   studyDate?: string;
   studyId?: string;
+  studyInstanceUid?: string;
   studyTime?: string;
   transferSyntaxUid: string;
   windowCenter?: number;
@@ -110,11 +116,14 @@ export interface DicomOverview {
   imageType?: string;
   modality?: string;
   numberOfFrames?: number;
+  patientId?: string;
+  patientName?: string;
   photometricInterpretation?: string;
   rows?: number;
   samplesPerPixel?: number;
   seriesDescription?: string;
   sopClassUid?: string;
+  studyInstanceUid?: string;
   transferSyntaxUid: string;
 }
 
@@ -431,8 +440,14 @@ export function readDicomOverview(buffer: ArrayBuffer): DicomOverview {
       overview.imageType = readTextValue(bytes, offset, length);
     else if (tag === TAG_MODALITY)
       overview.modality = readTextValue(bytes, offset, length);
+    else if (tag === TAG_PATIENT_ID)
+      overview.patientId = readTextValue(bytes, offset, length);
+    else if (tag === TAG_PATIENT_NAME)
+      overview.patientName = readTextValue(bytes, offset, length);
     else if (tag === TAG_SERIES_DESCRIPTION)
       overview.seriesDescription = readTextValue(bytes, offset, length);
+    else if (tag === TAG_STUDY_INSTANCE_UID)
+      overview.studyInstanceUid = readTextValue(bytes, offset, length);
     else if (tag === TAG_NUMBER_OF_FRAMES)
       overview.numberOfFrames = parseIntegerText(bytes, offset, length);
     else if (tag === TAG_ROWS)
@@ -480,6 +495,8 @@ export function parseEnhancedMultiframeDicom(
   let instanceNumber: number | undefined;
   let modality: string | undefined;
   let numberOfFrames: number | undefined;
+  let patientId: string | undefined;
+  let patientName: string | undefined;
   let pixelDataLength: number | undefined;
   let pixelDataOffset: number | undefined;
   let pixelRepresentation = 1;
@@ -496,6 +513,7 @@ export function parseEnhancedMultiframeDicom(
   let spacingBetweenSlices: number | undefined;
   let studyDate: string | undefined;
   let studyId: string | undefined;
+  let studyInstanceUid: string | undefined;
   let studyTime: string | undefined;
   let windowCenter: number | undefined;
   let windowWidth: number | undefined;
@@ -527,6 +545,12 @@ export function parseEnhancedMultiframeDicom(
           break;
         case TAG_MODALITY:
           modality = readTextValue(bytes, valueOffset, length);
+          break;
+        case TAG_PATIENT_ID:
+          patientId = readTextValue(bytes, valueOffset, length);
+          break;
+        case TAG_PATIENT_NAME:
+          patientName = readTextValue(bytes, valueOffset, length);
           break;
         case TAG_SERIES_DESCRIPTION:
           seriesDescription = readTextValue(bytes, valueOffset, length);
@@ -563,6 +587,9 @@ export function parseEnhancedMultiframeDicom(
           break;
         case TAG_STUDY_ID:
           studyId = readTextValue(bytes, valueOffset, length);
+          break;
+        case TAG_STUDY_INSTANCE_UID:
+          studyInstanceUid = readTextValue(bytes, valueOffset, length);
           break;
         case TAG_STUDY_TIME:
           studyTime = readTextValue(bytes, valueOffset, length);
@@ -663,6 +690,8 @@ export function parseEnhancedMultiframeDicom(
     instanceNumber,
     modality,
     numberOfFrames,
+    patientId,
+    patientName,
     pixelDataLength: pixelDataLength ?? 0,
     pixelDataOffset: pixelDataOffset ?? 0,
     pixelRepresentation,
@@ -679,6 +708,7 @@ export function parseEnhancedMultiframeDicom(
     spacingBetweenSlices,
     studyDate,
     studyId,
+    studyInstanceUid,
     studyTime,
     transferSyntaxUid,
     windowCenter,
@@ -712,6 +742,8 @@ export function parseImplicitLittleEndianDicom(
   let imagePositionPatient: Vec3 | undefined;
   let instanceNumber: number | undefined;
   let imagerPixelSpacing: [number, number] | undefined;
+  let patientId: string | undefined;
+  let patientName: string | undefined;
   let pixelDataLength: number | undefined;
   let pixelDataOffset: number | undefined;
   let pixelRepresentation = 1;
@@ -721,10 +753,12 @@ export function parseImplicitLittleEndianDicom(
   let rescaleSlope = 1;
   let rows: number | undefined;
   let samplesPerPixel = 1;
+  let seriesDescription: string | undefined;
   let seriesInstanceUid: string | undefined;
   let sliceThickness: number | undefined;
   let studyDate: string | undefined;
   let studyId: string | undefined;
+  let studyInstanceUid: string | undefined;
   let studyTime: string | undefined;
   let windowCenter: number | undefined;
   let windowWidth: number | undefined;
@@ -767,8 +801,16 @@ export function parseImplicitLittleEndianDicom(
     } else if (tag === TAG_STUDY_DATE)
       studyDate = decodeAscii(bytes, offset, length);
     else if (tag === TAG_STUDY_ID) studyId = decodeAscii(bytes, offset, length);
+    else if (tag === TAG_STUDY_INSTANCE_UID)
+      studyInstanceUid = decodeAscii(bytes, offset, length);
     else if (tag === TAG_STUDY_TIME)
       studyTime = decodeAscii(bytes, offset, length);
+    else if (tag === TAG_PATIENT_ID)
+      patientId = decodeAscii(bytes, offset, length);
+    else if (tag === TAG_PATIENT_NAME)
+      patientName = decodeAscii(bytes, offset, length);
+    else if (tag === TAG_SERIES_DESCRIPTION)
+      seriesDescription = decodeAscii(bytes, offset, length);
     else if (tag === TAG_SERIES_INSTANCE_UID)
       seriesInstanceUid = decodeAscii(bytes, offset, length);
     else if (tag === TAG_PHOTOMETRIC_INTERPRETATION)
@@ -849,6 +891,8 @@ export function parseImplicitLittleEndianDicom(
     imageOrientationPatient,
     imagePositionPatient,
     instanceNumber,
+    patientId,
+    patientName,
     pixelDataLength: pixelDataLength ?? 0,
     pixelDataOffset: pixelDataOffset ?? 0,
     pixelRepresentation,
@@ -858,10 +902,12 @@ export function parseImplicitLittleEndianDicom(
     rescaleSlope,
     rows,
     samplesPerPixel,
+    seriesDescription,
     seriesInstanceUid,
     sliceThickness,
     studyDate,
     studyId,
+    studyInstanceUid,
     studyTime,
     transferSyntaxUid,
     windowCenter,

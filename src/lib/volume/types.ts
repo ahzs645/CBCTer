@@ -24,6 +24,8 @@ export type VolumeShaderUniforms = Record<string, IUniform> & {
 
 export type VolumeRenderStyle = 'mip' | 'iso';
 
+export type VolumeColormap = 'grayscale' | 'bone' | 'hot' | 'viridis';
+
 export interface VolumeRenderOptions {
   renderStyle: VolumeRenderStyle;
   /** Iso/MIP density threshold, 0..1. */
@@ -34,6 +36,8 @@ export interface VolumeRenderOptions {
   climLow: number;
   /** Upper contrast limit, 0..1. */
   climHigh: number;
+  /** Volume transfer-function colormap (default grayscale). */
+  colormap: VolumeColormap;
 }
 
 export type VolumeViewPreset =
@@ -48,6 +52,7 @@ export interface ThreePreviewInstance {
   dispose: () => void;
   focusCursor: (cursor: import('../../types').VolumeCursor | null) => void;
   setPlanesVisible: (visible: boolean) => void;
+  setGridVisible: (visible: boolean) => void;
   setRenderOptions: (options: Partial<VolumeRenderOptions>) => void;
   setView: (preset: VolumeViewPreset) => void;
   resetView: () => void;

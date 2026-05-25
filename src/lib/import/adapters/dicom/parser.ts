@@ -14,6 +14,10 @@ import type {
   ParsedImportResult,
 } from '../../types';
 import { getEntryPath, inferOneVolumeScanId, resolveScanId } from '../utils';
+import {
+  estimateZSpacing,
+  selectPrimaryDicomSeries,
+} from './heuristics';
 import type { DicomOverview, DicomSliceEntry } from './reader';
 import {
   computeDicomSliceLocation,
@@ -55,40 +59,6 @@ function makeError(code: string, message: string): ImportFailure {
   error.name = code;
   error.code = code;
   return error;
-}
-
-function getStackKey(slice: DicomSliceEntry): string {
-  const { header } = slice;
-  return [
-    header.seriesInstanceUid ?? '',
-    header.rows,
-    header.columns,
-    header.bitsAllocated,
-    header.bitsStored,
-    header.pixelRepresentation,
-    header.samplesPerPixel,
-    header.photometricInterpretation ?? '',
-    header.transferSyntaxUid,
-  ].join('|');
-}
-
-function selectLargestStack(slices: DicomSliceEntry[]): DicomSliceEntry[] {
-  const groups = new Map<string, DicomSliceEntry[]>();
-
-  for (const slice of slices) {
-    if (!isNativeLittleEndianDicom(slice.header)) continue;
-    if ((slice.header.numberOfFrames ?? 1) > 1) continue;
-
-    const key = getStackKey(slice);
-    const group = groups.get(key);
-    if (group) group.push(slice);
-    else groups.set(key, [slice]);
-  }
-
-  return (
-    [...groups.values()].sort((left, right) => right.length - left.length)[0] ??
-    []
-  );
 }
 
 function computeFrameStep(slice: DicomSliceEntry): number {
@@ -401,7 +371,7 @@ export async function parseDicomFolder(
     .map((entry) => entry.slice)
     .filter((slice): slice is DicomSliceEntry => slice != null);
 
-  const slices = selectLargestStack(parsedSlices);
+  const slices = selectPrimaryDicomSeries(parsedSlices);
   const enhancedCandidates = collectEnhancedVolumeCandidates(parsedSlices);
   const enhancedVolume = selectEnhancedVolumeCandidate(
     enhancedCandidates,
@@ -481,10 +451,7 @@ export async function parseDicomFolder(
     }
   }
 
-  const sliceStep =
-    sorted.length > 1
-      ? Math.abs(sorted[1].sliceLocation - sorted[0].sliceLocation)
-      : first.pixelSpacing[0];
+  const sliceStep = estimateZSpacing(sorted) || first.pixelSpacing[0];
   const width = first.columns;
   const height = first.rows;
   const depth = sorted.length;

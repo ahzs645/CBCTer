@@ -32,6 +32,130 @@ export type ViewerPreset = {
   deletedAt?: number;
 };
 
+export type StudyTool =
+  | "pan"
+  | "zoom"
+  | "window-level"
+  | "crosshair"
+  | "measure-distance"
+  | "measure-angle"
+  | "measure-ellipse"
+  | "measure-polygon"
+  | "mask-brush"
+  | "mask-erase"
+  | "mask-threshold"
+  | "mask-region-grow"
+  | "mask-watershed-seed"
+  | "surface-select";
+
+export type MaskOperation = "draw" | "erase" | "threshold";
+export type MaskBrushShape = "circle" | "square";
+export type WatershedSeedKind = "foreground" | "background" | "erase";
+
+export type StudyImageLayer = {
+  id: AppId;
+  studyId: AppId;
+  name: string;
+  source: ScanStudy["source"];
+  dimensions: [number, number, number];
+  spacing: [number, number, number];
+  visible: boolean;
+  opacity: number;
+};
+
+export type StudyMask = {
+  id: AppId;
+  studyId: AppId;
+  imageId: AppId;
+  name: string;
+  color: string;
+  opacity: number;
+  visible: boolean;
+  thresholdRange?: [number, number];
+  edited: boolean;
+  voxelCount?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type StudySurface = {
+  id: AppId;
+  studyId: AppId;
+  maskId?: AppId;
+  name: string;
+  color: string;
+  opacity: number;
+  visible: boolean;
+  areaMm2?: number;
+  volumeMm3?: number;
+  vertexCount?: number;
+  triangleCount?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type StudyMeasurementKind =
+  | "distance"
+  | "angle"
+  | "ellipse"
+  | "polygon"
+  | "density";
+
+export type StudyMeasurement = {
+  id: AppId;
+  studyId: AppId;
+  kind: StudyMeasurementKind;
+  name: string;
+  points: [number, number, number][];
+  value: number;
+  unit: "mm" | "degrees" | "mm2" | "HU";
+  visible: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type StudyAnnotation = {
+  id: AppId;
+  studyId: AppId;
+  name: string;
+  point: [number, number, number];
+  text: string;
+  visible: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type MaskWorkflowState = {
+  brushShape: MaskBrushShape;
+  brushSizeMm: number;
+  operation: MaskOperation;
+  thresholdRange: [number, number];
+  watershedSeedKind: WatershedSeedKind;
+  watershedSeeds: Array<{
+    id: AppId;
+    kind: WatershedSeedKind;
+    point: [number, number, number];
+  }>;
+  canUndo: boolean;
+  canRedo: boolean;
+};
+
+export type StudyState = {
+  study: ScanStudy | null;
+  images: StudyImageLayer[];
+  masks: StudyMask[];
+  surfaces: StudySurface[];
+  measurements: StudyMeasurement[];
+  annotations: StudyAnnotation[];
+  activeTool: StudyTool;
+  activeImageId?: AppId;
+  activeMaskId?: AppId;
+  activeSurfaceId?: AppId;
+  activeMeasurementId?: AppId;
+  displayPreset?: ViewerPreset;
+  maskWorkflow: MaskWorkflowState;
+};
+
 export type CreateStudyInput = {
   name: string;
   source: ScanStudy["source"];

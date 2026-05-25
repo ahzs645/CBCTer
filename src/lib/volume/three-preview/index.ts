@@ -3,6 +3,7 @@ import type {
   ThreeModule,
   ThreePreviewInstance,
   TrackballControlsModule,
+  VolumeColormap,
   VolumeShaderModule,
   VolumeShaderUniforms,
   VolumeViewPreset,
@@ -14,15 +15,16 @@ import {
 } from './camera';
 import { buildCursorPlanes } from './cursor-planes';
 import {
+  applyColormap,
   buildColormap,
   buildMaterial,
   buildTexture,
   buildVolumeMesh,
-  setColormapOpacity,
 } from './volume-object';
 
 export type {
   ThreePreviewInstance,
+  VolumeColormap,
   VolumeRenderOptions,
   VolumeRenderStyle,
   VolumeViewPreset,
@@ -121,6 +123,22 @@ function buildPreview(
   );
   const cursorPlanes = buildCursorPlanes(three, worldSize, center);
   scene.add(cursorPlanes.root);
+
+  // Optional reference floor grid (off by default).
+  const grid = new three.GridHelper(
+    maxWorldEdge * 1.8,
+    18,
+    0x3b5b7a,
+    0x24384d,
+  );
+  grid.position.set(center.x, 0, center.z);
+  grid.visible = false;
+  scene.add(grid);
+
+  // Track colormap style + opacity so either can be changed independently.
+  let colormapStyle: VolumeColormap = 'grayscale';
+  let colormapOpacity = 1;
+
   camera.near = Math.max(0.1, maxWorldEdge / 2048);
 
   const initialTarget = center.clone();
@@ -175,6 +193,9 @@ function buildPreview(
     setPlanesVisible(visible) {
       cursorPlanes.root.visible = visible;
     },
+    setGridVisible(visible) {
+      grid.visible = visible;
+    },
     setRenderOptions(options) {
       const uniforms = material.uniforms as VolumeShaderUniforms;
       if (options.renderStyle !== undefined) {
@@ -191,9 +212,11 @@ function buildPreview(
         const high = options.climHigh ?? uniforms.u_clim.value.y;
         uniforms.u_clim.value.set(Math.min(low, high), Math.max(low, high));
       }
-      if (options.opacity !== undefined) {
-        setColormapOpacity(colormap, options.opacity);
-        material.transparent = options.opacity < 1;
+      if (options.colormap !== undefined || options.opacity !== undefined) {
+        if (options.colormap !== undefined) colormapStyle = options.colormap;
+        if (options.opacity !== undefined) colormapOpacity = options.opacity;
+        applyColormap(colormap, colormapStyle, colormapOpacity);
+        material.transparent = colormapOpacity < 1;
         material.needsUpdate = true;
       }
     },
@@ -241,6 +264,13 @@ function buildPreview(
       mesh.geometry.dispose();
       material.dispose();
       cursorPlanes.dispose();
+      grid.geometry.dispose();
+      const gridMaterial = grid.material;
+      if (Array.isArray(gridMaterial)) {
+        for (const entry of gridMaterial) entry.dispose();
+      } else {
+        gridMaterial.dispose();
+      }
       texture.dispose();
       colormap.dispose();
       renderer.dispose();

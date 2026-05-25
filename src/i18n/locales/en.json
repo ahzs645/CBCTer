@@ -114,6 +114,7 @@
     "openFolder": "Open folder",
     "backToImport": "Back to import",
     "toothExtraction": "Tooth extraction",
+    "panoramic": "Panoramic view",
     "voxelsLabel": "{{dimensions}} voxels",
     "spacingLabel": "{{spacing}} mm"
   },
@@ -185,6 +186,29 @@
     "flagReview": "Flag for review",
     "hide": "Hide",
     "downloadStl": "Download STL for label {{label}}"
+  },
+  "panoramic": {
+    "title": "Panoramic reconstruction",
+    "subtitle": "Unroll the dental arch into a flat panoramic (OPG-like) image.",
+    "backToViewer": "Viewer",
+    "archSection": "Dental arch",
+    "pointCount": "{{count}} points",
+    "editHint": "Click to add a point, drag to move, alt/right-click a point to remove. Auto-fit seeds the arch from bone; adjust freely.",
+    "autoFit": "Auto-fit arch",
+    "clear": "Clear",
+    "zMin": "Slab start (Z)",
+    "zMax": "Slab end (Z)",
+    "depthMm": "Buccal-lingual depth (mm)",
+    "window": "Window",
+    "level": "Level",
+    "projection": "Projection",
+    "projectionMean": "Average",
+    "projectionMip": "Max intensity (MIP)",
+    "generate": "Generate panorama",
+    "generating": "Generating… {{percent}}%",
+    "output": "Panorama",
+    "outputEmpty": "Adjust the arch, then generate the panorama.",
+    "calibration": "{{width}}×{{height}} px · {{mmx}}×{{mmy}} mm/px"
   },
   "axisViewport": {
     "selectAxisView": "Select axis view",

@@ -20,6 +20,7 @@ import { useTranslation } from '../i18n';
 import {
   createThreePreview,
   type ThreePreviewInstance,
+  type VolumeColormap,
   type VolumeRenderOptions,
   type VolumeViewPreset,
 } from '../lib/volume/three-preview';
@@ -85,6 +86,9 @@ export const VolumeViewport3D = memo(
   const [preset, setPreset] = useState('default');
   const [threshold, setThreshold] = useState(0.5);
   const [opacity, setOpacity] = useState(1);
+  const [colormap, setColormap] = useState<VolumeColormap>('grayscale');
+  const [gridVisible, setGridVisible] = useState(false);
+  const gridVisibleRef = useRef(gridVisible);
   const renderOptsRef = useRef<Partial<VolumeRenderOptions>>(
     RENDER_PRESETS.default,
   );
@@ -122,6 +126,11 @@ export const VolumeViewport3D = memo(
     planesVisibleRef.current = planesVisible;
     instanceRef.current?.setPlanesVisible(planesVisible);
   }, [planesVisible]);
+
+  useEffect(() => {
+    gridVisibleRef.current = gridVisible;
+    instanceRef.current?.setGridVisible(gridVisible);
+  }, [gridVisible]);
 
   useEffect(() => {
     onDownsampledChange?.(Boolean(volume?.downsampled));
@@ -170,6 +179,7 @@ export const VolumeViewport3D = memo(
           instanceRef.current = instance;
           instance.focusCursor(cursorRef.current);
           instance.setPlanesVisible(planesVisibleRef.current);
+          instance.setGridVisible(gridVisibleRef.current);
           instance.setRenderOptions(renderOptsRef.current);
           cleanup = instance.dispose;
         })
