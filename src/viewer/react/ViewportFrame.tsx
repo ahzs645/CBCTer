@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Badge } from './Badge';
+import { Badge } from '../../components/Badge';
+import { cn } from '../../utils/cn';
 
 interface ViewportFrameProps {
   title: ReactNode;
@@ -8,6 +9,8 @@ interface ViewportFrameProps {
   statusClassName?: string;
   statusStyle?: CSSProperties;
   actions?: ReactNode;
+  /** Extra classes merged onto the root element. */
+  className?: string;
   children: ReactNode;
 }
 
@@ -18,10 +21,16 @@ export function ViewportFrame({
   statusClassName,
   statusStyle,
   actions,
+  className,
   children,
 }: ViewportFrameProps) {
   return (
-    <section className="relative h-full min-h-0 overflow-hidden bg-slate-950/80 rounded-none border-0 p-0">
+    <section
+      className={cn(
+        'relative h-full min-h-0 overflow-hidden bg-slate-950/80 rounded-none border-0 p-0',
+        className,
+      )}
+    >
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 bg-gradient-to-b from-slate-950/92 via-slate-950/68 to-transparent px-3 py-2">
         <div className="space-y-0.5">
           <h2 className="text-sm font-semibold text-slate-100">{title}</h2>

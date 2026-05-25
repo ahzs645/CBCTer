@@ -1,13 +1,5 @@
-import { LEVEL_MAX, LEVEL_MIN, WINDOW_MAX, WINDOW_MIN } from '../constants';
 import { i18n } from '../i18n';
-import type {
-  ImportIssue,
-  ImportProgress,
-  LoadedVolume,
-  RangeBounds,
-  Vec3,
-  VolumeCursor,
-} from '../types';
+import type { ImportIssue, ImportProgress, Vec3 } from '../types';
 import { ImportStage } from '../types';
 
 export function isAbortError(error: unknown): boolean {
@@ -56,42 +48,6 @@ export function makeImportIssue(error: unknown): ImportIssue {
   };
 }
 
-export function createCenterCursor(volume: LoadedVolume): VolumeCursor {
-  const [x, y, z] = volume.meta.dimensions;
-
-  return {
-    x: Math.floor(x / 2),
-    y: Math.floor(y / 2),
-    z: Math.floor(z / 2),
-  };
-}
-
 export function formatSpacing(spacing: Vec3): string {
   return spacing.map((value) => value.toFixed(2)).join(' x ');
-}
-
-export function resolveWindowBounds(volume: LoadedVolume | null): RangeBounds {
-  if (!volume) return { min: WINDOW_MIN, max: WINDOW_MAX };
-
-  const span = Math.round(
-    volume.meta.scalarRange[1] - volume.meta.scalarRange[0],
-  );
-
-  return {
-    min: WINDOW_MIN,
-    max: Math.max(WINDOW_MAX, span, volume.meta.initialWindowLevel.window),
-  };
-}
-
-export function resolveLevelBounds(volume: LoadedVolume | null): RangeBounds {
-  if (!volume) return { min: LEVEL_MIN, max: LEVEL_MAX };
-
-  return {
-    min: Math.min(LEVEL_MIN, Math.floor(volume.meta.scalarRange[0])),
-    max: Math.max(
-      LEVEL_MAX,
-      Math.ceil(volume.meta.scalarRange[1]),
-      volume.meta.initialWindowLevel.level,
-    ),
-  };
 }

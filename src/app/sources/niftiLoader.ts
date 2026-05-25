@@ -1,7 +1,7 @@
 import { gunzipSync } from 'fflate';
-import { prepareVolumeFor3D } from '../lib/volume';
-import type { LoadedVolume, PreparedVolumeFor3D, Vec3 } from '../types';
-import { VolumeAxis } from '../types';
+import { prepareVolumeFor3D } from '../../lib/volume';
+import type { LoadedVolume, PreparedVolumeFor3D, Vec3 } from '../../types';
+import { VolumeAxis } from '../../types';
 
 export interface LoadedNifti {
   volume: LoadedVolume;

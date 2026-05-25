@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { SliceImage } from '../types';
-import { cn } from '../utils/cn';
-import { Badge } from './Badge';
-import { BadgeVariant } from './Badge.constants';
+import type { SliceImage } from '../../types';
+import { cn } from '../../utils/cn';
+import { Badge } from '../../components/Badge';
+import { BadgeVariant } from '../../components/Badge.constants';
 import { MeasurementOverlay } from './MeasurementOverlay';
+import type { MeasurementLabels } from '../labels';
 import {
   SliceCanvasFit,
   type SliceCanvasFit as SliceCanvasFitType,
@@ -17,6 +18,10 @@ interface SliceCanvasProps {
   crosshairSpace?: [number, number];
   crosshair?: boolean;
   crosshairColors?: { vertical: string; horizontal: string };
+  /** Fallback crosshair color when crosshairColors is not provided. */
+  crosshairColor?: string;
+  /** Extra classes merged onto the root element. */
+  className?: string;
   label?: string;
   fit?: SliceCanvasFitType;
   displayAspect?: number;
@@ -27,6 +32,8 @@ interface SliceCanvasProps {
   mmPerPixel?: { x: number; y: number };
   /** Filename used for the per-pane PNG export. */
   exportName?: string;
+  /** Override the measurement toolbar tooltips (English defaults otherwise). */
+  measurementLabels?: MeasurementLabels;
 }
 
 const FALLBACK_RECT: Rect = {
@@ -59,6 +66,8 @@ export function SliceCanvas({
   crosshairSpace,
   crosshair = true,
   crosshairColors,
+  crosshairColor = '#7dd3fc',
+  className,
   label,
   fit = SliceCanvasFit.Contain,
   displayAspect = 1,
@@ -67,6 +76,7 @@ export function SliceCanvas({
   onSelect,
   mmPerPixel,
   exportName = 'slice',
+  measurementLabels,
 }: SliceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -233,7 +243,7 @@ export function SliceCanvas({
   });
 
   return (
-    <div className="h-full min-h-0">
+    <div className={cn('h-full min-h-0', className)}>
       <div
         ref={surfaceRef}
         className="relative h-full min-h-0 w-full overflow-hidden bg-black"
@@ -290,7 +300,7 @@ export function SliceCanvas({
               className="absolute top-0 bottom-0 w-px"
               style={{
                 left: `${x}px`,
-                backgroundColor: crosshairColors?.vertical ?? '#7dd3fc',
+                backgroundColor: crosshairColors?.vertical ?? crosshairColor,
                 opacity: 0.78,
               }}
             />
@@ -298,7 +308,7 @@ export function SliceCanvas({
               className="absolute left-0 right-0 h-px"
               style={{
                 top: `${y}px`,
-                backgroundColor: crosshairColors?.horizontal ?? '#7dd3fc',
+                backgroundColor: crosshairColors?.horizontal ?? crosshairColor,
                 opacity: 0.78,
               }}
             />
@@ -311,6 +321,7 @@ export function SliceCanvas({
             mmPerPixel={mmPerPixel}
             exportName={exportName}
             getCanvas={() => canvasRef.current}
+            labels={measurementLabels}
           />
         ) : null}
       </div>

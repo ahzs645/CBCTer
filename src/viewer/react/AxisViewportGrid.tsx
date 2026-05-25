@@ -1,9 +1,9 @@
-import type { TFunction } from 'i18next';
-import { PLANE_COLORS } from '../constants';
-import { useTranslation } from '../i18n';
-import type { SliceImage, Vec3, ViewerSlices, VolumeCursor } from '../types';
-import { VolumeAxis } from '../types';
-import { Select } from './Select';
+import type { SliceImage, Vec3, ViewerSlices, VolumeCursor } from '../../types';
+import { VolumeAxis } from '../../types';
+import { Select } from '../../components/Select';
+import { cn } from '../../utils/cn';
+import { defaultAxisViewportLabels, type AxisViewportLabels } from '../labels';
+import { defaultViewerTheme, type ViewerTheme } from '../theme';
 import { SliceCanvas } from './SliceCanvas';
 import { SliceCanvasFit } from './SliceCanvas.constants';
 import { ViewportFrame } from './ViewportFrame';
@@ -18,6 +18,12 @@ interface AxisViewportGridProps {
   slices: ViewerSlices;
   hasVolume: boolean;
   compact?: boolean;
+  /** Per-plane colors for labels, badges, and crosshairs. */
+  theme?: ViewerTheme;
+  /** User-facing strings (English defaults otherwise). */
+  labels?: AxisViewportLabels;
+  /** Extra classes merged onto the root element. */
+  className?: string;
   onSelectAxis: (
     axis: VolumeAxis,
   ) => (point: { xRatio: number; yRatio: number }) => void;
@@ -29,8 +35,8 @@ interface AxisViewportDefinition {
   axis: VolumeAxis;
   badge: string;
   color: string;
-  labelKey: string;
-  orientationKey: string;
+  label: string;
+  orientation: string;
   image: SliceImage | null;
   status: string;
   crosshairPoint?: { x: number; y: number };
@@ -58,7 +64,6 @@ function AxisViewportPane({
   onSelect,
   onZoomChange,
 }: AxisViewportPaneProps) {
-  const { t } = useTranslation();
   const subtitleLabelClass =
     'inline-flex items-center gap-1.5 text-[11px] text-slate-400';
   const axisBadgeClass =
@@ -69,7 +74,7 @@ function AxisViewportPane({
     <ViewportFrame
       title={
         <span className={titleClass} style={{ color: definition.color }}>
-          {t(definition.labelKey)}
+          {definition.label}
         </span>
       }
       subtitle={
@@ -84,7 +89,7 @@ function AxisViewportPane({
           >
             {definition.badge}
           </span>
-          {t(definition.orientationKey)}
+          {definition.orientation}
         </span>
       }
       status={definition.status}
@@ -118,31 +123,34 @@ function resolveAxisDefinitions(
   spacing: Vec3,
   slices: ViewerSlices,
   hasVolume: boolean,
-  t: TFunction<'translation', undefined>,
+  theme: ViewerTheme,
+  labels: AxisViewportLabels,
   overlays?: Partial<Record<VolumeAxis, SliceImage | null>>,
 ): Record<VolumeAxis, AxisViewportDefinition> {
+  const planeColors = theme.planeColors;
   return {
     [VolumeAxis.Coronal]: {
       axis: VolumeAxis.Coronal,
       badge: 'XZ',
-      color: PLANE_COLORS.coronal,
-      labelKey: 'axisViewport.coronal.label',
-      orientationKey: 'axisViewport.coronal.orientation',
+      color: planeColors.coronal,
+      label: labels.coronal.label,
+      orientation: labels.coronal.orientation,
       image: slices.coronal,
       overlay: overlays?.[VolumeAxis.Coronal],
       status: cursor
-        ? t('axisViewport.coronal.status', {
-            current: cursor.y + 1,
-            total: Math.max(1, dimensions[1]),
-          })
-        : t('axisViewport.noVolume'),
+        ? labels.status(
+            VolumeAxis.Coronal,
+            cursor.y + 1,
+            Math.max(1, dimensions[1]),
+          )
+        : labels.noVolume,
       crosshairPoint: cursor
         ? { x: cursor.x, y: dimensions[2] - 1 - cursor.z }
         : undefined,
       crosshairSpace: hasVolume ? [dimensions[0], dimensions[2]] : undefined,
       crosshairColors: {
-        vertical: PLANE_COLORS.sagittal,
-        horizontal: PLANE_COLORS.axial,
+        vertical: planeColors.sagittal,
+        horizontal: planeColors.axial,
       },
       mmPerPixel: hasVolume ? { x: spacing[0], y: spacing[2] } : undefined,
       exportName: 'coronal',
@@ -150,24 +158,25 @@ function resolveAxisDefinitions(
     [VolumeAxis.Sagittal]: {
       axis: VolumeAxis.Sagittal,
       badge: 'YZ',
-      color: PLANE_COLORS.sagittal,
-      labelKey: 'axisViewport.sagittal.label',
-      orientationKey: 'axisViewport.sagittal.orientation',
+      color: planeColors.sagittal,
+      label: labels.sagittal.label,
+      orientation: labels.sagittal.orientation,
       image: slices.sagittal,
       overlay: overlays?.[VolumeAxis.Sagittal],
       status: cursor
-        ? t('axisViewport.sagittal.status', {
-            current: cursor.x + 1,
-            total: Math.max(1, dimensions[0]),
-          })
-        : t('axisViewport.noVolume'),
+        ? labels.status(
+            VolumeAxis.Sagittal,
+            cursor.x + 1,
+            Math.max(1, dimensions[0]),
+          )
+        : labels.noVolume,
       crosshairPoint: cursor
         ? { x: cursor.y, y: dimensions[2] - 1 - cursor.z }
         : undefined,
       crosshairSpace: hasVolume ? [dimensions[1], dimensions[2]] : undefined,
       crosshairColors: {
-        vertical: PLANE_COLORS.coronal,
-        horizontal: PLANE_COLORS.axial,
+        vertical: planeColors.coronal,
+        horizontal: planeColors.axial,
       },
       mmPerPixel: hasVolume ? { x: spacing[1], y: spacing[2] } : undefined,
       exportName: 'sagittal',
@@ -175,22 +184,23 @@ function resolveAxisDefinitions(
     [VolumeAxis.Axial]: {
       axis: VolumeAxis.Axial,
       badge: 'XY',
-      color: PLANE_COLORS.axial,
-      labelKey: 'axisViewport.axial.label',
-      orientationKey: 'axisViewport.axial.orientation',
+      color: planeColors.axial,
+      label: labels.axial.label,
+      orientation: labels.axial.orientation,
       image: slices.axial,
       overlay: overlays?.[VolumeAxis.Axial],
       status: cursor
-        ? t('axisViewport.axial.status', {
-            current: cursor.z + 1,
-            total: Math.max(1, dimensions[2]),
-          })
-        : t('axisViewport.noVolume'),
+        ? labels.status(
+            VolumeAxis.Axial,
+            cursor.z + 1,
+            Math.max(1, dimensions[2]),
+          )
+        : labels.noVolume,
       crosshairPoint: cursor ? { x: cursor.x, y: cursor.y } : undefined,
       crosshairSpace: hasVolume ? [dimensions[0], dimensions[1]] : undefined,
       crosshairColors: {
-        vertical: PLANE_COLORS.sagittal,
-        horizontal: PLANE_COLORS.coronal,
+        vertical: planeColors.sagittal,
+        horizontal: planeColors.coronal,
       },
       mmPerPixel: hasVolume ? { x: spacing[0], y: spacing[1] } : undefined,
       exportName: 'axial',
@@ -208,23 +218,25 @@ export function AxisViewportGrid({
   selectedAxis = VolumeAxis.Coronal,
   slices,
   hasVolume,
+  theme = defaultViewerTheme,
+  labels = defaultAxisViewportLabels,
+  className,
   onSelectAxis,
   onSelectedAxisChange,
   onZoomChange,
 }: AxisViewportGridProps) {
-  const { t } = useTranslation();
   const axisSelector = (
     <label className="pointer-events-auto">
-      <span className="sr-only">{t('axisViewport.selectAxisView')}</span>
+      <span className="sr-only">{labels.selectAxisView}</span>
       <Select
         variant="overlay"
         size="sm"
         value={selectedAxis}
         onChange={(value) => onSelectedAxisChange?.(value as VolumeAxis)}
         options={[
-          { value: VolumeAxis.Coronal, label: t('axisViewport.options.coronal') },
-          { value: VolumeAxis.Sagittal, label: t('axisViewport.options.sagittal') },
-          { value: VolumeAxis.Axial, label: t('axisViewport.options.axial') },
+          { value: VolumeAxis.Coronal, label: labels.options.coronal },
+          { value: VolumeAxis.Sagittal, label: labels.options.sagittal },
+          { value: VolumeAxis.Axial, label: labels.options.axial },
         ]}
       />
     </label>
@@ -235,14 +247,15 @@ export function AxisViewportGrid({
     spacing,
     slices,
     hasVolume,
-    t,
+    theme,
+    labels,
     overlays,
   );
   const axes = [VolumeAxis.Coronal, VolumeAxis.Sagittal, VolumeAxis.Axial];
 
   if (compact) {
     return (
-      <div className="min-h-0 min-w-0 bg-slate-800">
+      <div className={cn('min-h-0 min-w-0 bg-slate-800', className)}>
         <AxisViewportPane
           compact
           definition={axisDefinitions[selectedAxis]}
@@ -256,7 +269,12 @@ export function AxisViewportGrid({
   }
 
   return (
-    <div className="grid min-h-0 min-w-0 grid-cols-3 gap-px bg-slate-800">
+    <div
+      className={cn(
+        'grid min-h-0 min-w-0 grid-cols-3 gap-px bg-slate-800',
+        className,
+      )}
+    >
       {axes.map((axis) => (
         <AxisViewportPane
           key={axis}

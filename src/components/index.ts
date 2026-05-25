@@ -6,6 +6,3 @@ export * from './LanguageSelect';
 export * from './Notice';
 export * from './RangeField';
 export * from './Select';
-export * from './SliceCanvas';
-export * from './ViewportFrame';
-export * from './VolumeViewport3D';
