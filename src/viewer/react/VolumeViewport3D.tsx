@@ -17,19 +17,22 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useTranslation } from '../i18n';
 import {
   createThreePreview,
   type ThreePreviewInstance,
   type VolumeColormap,
   type VolumeRenderOptions,
   type VolumeViewPreset,
-} from '../lib/volume/three-preview';
-import type { PreparedVolumeFor3D, VolumeCursor } from '../types';
-import { cn } from '../utils/cn';
-import { Button } from './Button';
-import { RangeField } from './RangeField';
-import { Select } from './Select';
+} from '../core';
+import type { PreparedVolumeFor3D, VolumeCursor } from '../../types';
+import { cn } from '../../utils/cn';
+import { Button } from '../../components/Button';
+import { RangeField } from '../../components/RangeField';
+import { Select } from '../../components/Select';
+import {
+  defaultVolumeViewport3DLabels,
+  type VolumeViewport3DLabels,
+} from '../labels';
 
 const VIEW_PRESETS: { id: VolumeViewPreset; label: string }[] = [
   { id: 'front', label: 'F' },
@@ -54,6 +57,8 @@ interface VolumeViewport3DProps {
   sidebarVisible?: boolean;
   onSidebarVisibleChange?: (visible: boolean) => void;
   onDownsampledChange?: (downsampled: boolean) => void;
+  /** User-facing strings (English defaults otherwise). */
+  labels?: VolumeViewport3DLabels;
 }
 
 export interface VolumeViewport3DHandle {
@@ -74,10 +79,10 @@ export const VolumeViewport3D = memo(
         sidebarVisible = true,
         onSidebarVisibleChange,
         onDownsampledChange,
+        labels = defaultVolumeViewport3DLabels,
       },
       ref,
     ) {
-  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const instanceRef = useRef<ThreePreviewInstance | null>(null);
   const cursorRef = useRef<VolumeCursor | null>(null);
@@ -239,7 +244,7 @@ export const VolumeViewport3D = memo(
             ))}
             <button
               type="button"
-              title={t('volumeViewport3d.resetView')}
+              title={labels.resetView}
               onClick={() => instanceRef.current?.resetView()}
               className="rounded px-1.5 py-1 text-slate-300 transition hover:bg-slate-800"
             >
@@ -253,11 +258,11 @@ export const VolumeViewport3D = memo(
               onClick={() => setPanelOpen((open) => !open)}
             >
               <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('volumeViewport3d.render')}
+              {labels.render}
             </Button>
             <Button variant="overlay" size="sm" onClick={downloadSnapshot}>
               <Camera className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('volumeViewport3d.snapshot')}
+              {labels.snapshot}
             </Button>
           </div>
           {panelOpen ? (
@@ -268,14 +273,14 @@ export const VolumeViewport3D = memo(
                 value={preset}
                 onChange={applyPreset}
                 options={[
-                  { value: 'default', label: t('volumeViewport3d.presets.default') },
-                  { value: 'bone', label: t('volumeViewport3d.presets.bone') },
-                  { value: 'soft', label: t('volumeViewport3d.presets.soft') },
-                  { value: 'xray', label: t('volumeViewport3d.presets.xray') },
+                  { value: 'default', label: labels.presets.default },
+                  { value: 'bone', label: labels.presets.bone },
+                  { value: 'soft', label: labels.presets.soft },
+                  { value: 'xray', label: labels.presets.xray },
                 ]}
               />
               <RangeField
-                label={t('volumeViewport3d.threshold')}
+                label={labels.threshold}
                 min={2}
                 max={98}
                 value={Math.round(threshold * 100)}
@@ -285,7 +290,7 @@ export const VolumeViewport3D = memo(
                 }}
               />
               <RangeField
-                label={t('volumeViewport3d.opacity')}
+                label={labels.opacity}
                 min={5}
                 max={100}
                 value={Math.round(opacity * 100)}
@@ -296,7 +301,7 @@ export const VolumeViewport3D = memo(
               />
               <label className="block">
                 <span className="mb-1 block text-xs text-slate-400">
-                  {t('volumeViewport3d.colormap')}
+                  {labels.colormap}
                 </span>
                 <Select
                   size="sm"
@@ -308,10 +313,10 @@ export const VolumeViewport3D = memo(
                     applyRender({ colormap: next });
                   }}
                   options={[
-                    { value: 'grayscale', label: t('volumeViewport3d.colormaps.grayscale') },
-                    { value: 'bone', label: t('volumeViewport3d.colormaps.bone') },
-                    { value: 'hot', label: t('volumeViewport3d.colormaps.hot') },
-                    { value: 'viridis', label: t('volumeViewport3d.colormaps.viridis') },
+                    { value: 'grayscale', label: labels.colormaps.grayscale },
+                    { value: 'bone', label: labels.colormaps.bone },
+                    { value: 'hot', label: labels.colormaps.hot },
+                    { value: 'viridis', label: labels.colormaps.viridis },
                   ]}
                 />
               </label>
@@ -327,7 +332,7 @@ export const VolumeViewport3D = memo(
               >
                 <span className="inline-flex items-center gap-1.5">
                   <Grid3x3 className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('volumeViewport3d.grid')}
+                  {labels.grid}
                 </span>
               </button>
             </div>
@@ -347,13 +352,13 @@ export const VolumeViewport3D = memo(
             )}
             <span className="sm:hidden">
               {axisViewsVisible
-                ? t('volumeViewport3d.hideAxisViewsShort')
-                : t('volumeViewport3d.showAxisViewsShort')}
+                ? labels.axisViews.hideShort
+                : labels.axisViews.showShort}
             </span>
             <span className="hidden sm:inline">
               {axisViewsVisible
-                ? t('volumeViewport3d.hideAxisViewsLong')
-                : t('volumeViewport3d.showAxisViewsLong')}
+                ? labels.axisViews.hideLong
+                : labels.axisViews.showLong}
             </span>
           </Button>
           <Button
@@ -369,13 +374,13 @@ export const VolumeViewport3D = memo(
             )}
             <span className="sm:hidden">
               {sidebarVisible
-                ? t('volumeViewport3d.hideSidebarShort')
-                : t('volumeViewport3d.showSidebarShort')}
+                ? labels.sidebar.hideShort
+                : labels.sidebar.showShort}
             </span>
             <span className="hidden sm:inline">
               {sidebarVisible
-                ? t('volumeViewport3d.hideSidebarLong')
-                : t('volumeViewport3d.showSidebarLong')}
+                ? labels.sidebar.hideLong
+                : labels.sidebar.showLong}
             </span>
           </Button>
           <Button
@@ -387,20 +392,20 @@ export const VolumeViewport3D = memo(
             <Ratio className="h-3.5 w-3.5" aria-hidden="true" />
             <span className="sm:hidden">
               {planesVisible
-                ? t('volumeViewport3d.hidePlanesShort')
-                : t('volumeViewport3d.showPlanesShort')}
+                ? labels.planes.hideShort
+                : labels.planes.showShort}
             </span>
             <span className="hidden sm:inline">
               {planesVisible
-                ? t('volumeViewport3d.hidePlanesLong')
-                : t('volumeViewport3d.showPlanesLong')}
+                ? labels.planes.hideLong
+                : labels.planes.showLong}
             </span>
           </Button>
         </div>
       </div>
       {error ? (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/85 px-4 text-center text-xs text-slate-400">
-          {t('volumeViewport3d.previewError')}
+          {labels.previewError}
         </div>
       ) : null}
     </div>

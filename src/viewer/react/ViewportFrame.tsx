@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Badge } from './Badge';
+import { Badge } from '../../components/Badge';
 
 interface ViewportFrameProps {
   title: ReactNode;

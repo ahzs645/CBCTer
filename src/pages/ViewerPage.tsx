@@ -3,14 +3,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import { useCompactViewerLayout } from '../app/viewer-layout';
-import { AxisViewportGrid } from '../components/AxisViewportGrid';
 import { Button } from '../components/Button';
 import { ViewerSidebar } from '../components/ViewerSidebar';
-import { ViewportFrame } from '../components/ViewportFrame';
 import {
+  AxisViewportGrid,
+  ViewportFrame,
   VolumeViewport3D,
   type VolumeViewport3DHandle,
-} from '../components/VolumeViewport3D';
+} from '../viewer';
+import {
+  appViewerTheme,
+  useAxisViewportLabels,
+  useVolumeViewport3DLabels,
+} from '../app/viewer-i18n';
 import { APP_ROUTES } from '../constants';
 import {
   createEmptyStudyState,
@@ -79,6 +84,8 @@ function byteRangeToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export default function ViewerPage({ app }: ViewerPageProps) {
   const compactLayout = useCompactViewerLayout();
   const { t } = useTranslation();
+  const axisLabels = useAxisViewportLabels();
+  const volume3DLabels = useVolumeViewport3DLabels();
   const navigate = useNavigate();
   const openTeeth = () => navigate(APP_ROUTES.teeth);
   const openPanoramic = () => navigate(APP_ROUTES.panoramic);
@@ -611,6 +618,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                     sidebarVisible={app.sidebarVisible}
                     onSidebarVisibleChange={app.setSidebarVisible}
                     onDownsampledChange={app.setDownsampled3D}
+                    labels={volume3DLabels}
                   />
                 </ViewportFrame>
               </div>
@@ -626,6 +634,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   mprZoom={app.mprZoom}
                   overlays={maskOverlays}
                   selectedAxis={app.selectedAxis}
+                  theme={appViewerTheme}
+                  labels={axisLabels}
                   onZoomChange={app.setMprZoom}
                   onSelectedAxisChange={app.setSelectedAxis}
                   onSelectAxis={app.updateCursor}

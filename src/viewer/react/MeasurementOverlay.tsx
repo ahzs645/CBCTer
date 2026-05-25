@@ -1,7 +1,8 @@
 import { Download, Ruler, Triangle, X } from 'lucide-react';
 import { type PointerEvent, useState } from 'react';
-import type { SliceImage } from '../types';
-import { cn } from '../utils/cn';
+import type { SliceImage } from '../../types';
+import { cn } from '../../utils/cn';
+import { defaultMeasurementLabels, type MeasurementLabels } from '../labels';
 
 type MeasureMode = 'off' | 'distance' | 'angle';
 interface MeasurePoint {
@@ -24,6 +25,7 @@ interface MeasurementOverlayProps {
   /** Filename used for the per-pane PNG export. */
   exportName: string;
   getCanvas: () => HTMLCanvasElement | null;
+  labels?: MeasurementLabels;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -44,6 +46,7 @@ export function MeasurementOverlay({
   mmPerPixel,
   exportName,
   getCanvas,
+  labels = defaultMeasurementLabels,
 }: MeasurementOverlayProps) {
   const [mode, setMode] = useState<MeasureMode>('off');
   const [points, setPoints] = useState<MeasurePoint[]>([]);
@@ -112,7 +115,7 @@ export function MeasurementOverlay({
       <div className="pointer-events-auto absolute right-2 top-2 flex items-center gap-0.5 rounded-md bg-slate-950/75 p-0.5 ring-1 ring-white/10">
         <button
           type="button"
-          title="Measure distance (reference only)"
+          title={labels.measureDistance}
           onClick={() => toggleMode('distance')}
           className={cn(
             'rounded p-1 transition',
@@ -125,7 +128,7 @@ export function MeasurementOverlay({
         </button>
         <button
           type="button"
-          title="Measure angle (reference only)"
+          title={labels.measureAngle}
           onClick={() => toggleMode('angle')}
           className={cn(
             'rounded p-1 transition',
@@ -138,7 +141,7 @@ export function MeasurementOverlay({
         </button>
         <button
           type="button"
-          title="Clear measurement"
+          title={labels.clear}
           onClick={() => setPoints([])}
           className="rounded p-1 text-slate-300 transition hover:bg-slate-800"
         >
@@ -146,7 +149,7 @@ export function MeasurementOverlay({
         </button>
         <button
           type="button"
-          title="Save slice as PNG"
+          title={labels.savePng}
           onClick={downloadPng}
           className="rounded p-1 text-slate-300 transition hover:bg-slate-800"
         >

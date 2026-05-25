@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { SliceImage } from '../types';
-import { cn } from '../utils/cn';
-import { Badge } from './Badge';
-import { BadgeVariant } from './Badge.constants';
+import type { SliceImage } from '../../types';
+import { cn } from '../../utils/cn';
+import { Badge } from '../../components/Badge';
+import { BadgeVariant } from '../../components/Badge.constants';
 import { MeasurementOverlay } from './MeasurementOverlay';
+import type { MeasurementLabels } from '../labels';
 import {
   SliceCanvasFit,
   type SliceCanvasFit as SliceCanvasFitType,
@@ -27,6 +28,8 @@ interface SliceCanvasProps {
   mmPerPixel?: { x: number; y: number };
   /** Filename used for the per-pane PNG export. */
   exportName?: string;
+  /** Override the measurement toolbar tooltips (English defaults otherwise). */
+  measurementLabels?: MeasurementLabels;
 }
 
 const FALLBACK_RECT: Rect = {
@@ -67,6 +70,7 @@ export function SliceCanvas({
   onSelect,
   mmPerPixel,
   exportName = 'slice',
+  measurementLabels,
 }: SliceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -311,6 +315,7 @@ export function SliceCanvas({
             mmPerPixel={mmPerPixel}
             exportName={exportName}
             getCanvas={() => canvasRef.current}
+            labels={measurementLabels}
           />
         ) : null}
       </div>

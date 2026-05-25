@@ -5,7 +5,7 @@ import {
   useState,
   type WheelEvent,
 } from 'react';
-import type { SliceImage } from '../types';
+import type { SliceImage } from '../../types';
 
 export interface Rect {
   left: number;
