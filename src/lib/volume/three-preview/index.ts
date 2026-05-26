@@ -3,6 +3,7 @@ import type {
   ThreeModule,
   ThreePreviewInstance,
   TrackballControlsModule,
+  SurfaceMeshPreview,
   VolumeColormap,
   VolumeShaderModule,
   VolumeShaderUniforms,
@@ -23,6 +24,7 @@ import {
 } from './volume-object';
 
 export type {
+  SurfaceMeshPreview,
   ThreePreviewInstance,
   VolumeColormap,
   VolumeRenderOptions,
@@ -124,6 +126,10 @@ function buildPreview(
   const cursorPlanes = buildCursorPlanes(three, worldSize, center);
   scene.add(cursorPlanes.root);
 
+  const surfaceRoot = new three.Group();
+  scene.add(surfaceRoot);
+  let surfaceDisposers: Array<() => void> = [];
+
   // Optional reference floor grid (off by default).
   const grid = new three.GridHelper(
     maxWorldEdge * 1.8,
@@ -196,6 +202,40 @@ function buildPreview(
     setGridVisible(visible) {
       grid.visible = visible;
     },
+    setSurfaceMeshes(surfaces: SurfaceMeshPreview[]) {
+      for (const dispose of surfaceDisposers) dispose();
+      surfaceDisposers = [];
+      surfaceRoot.clear();
+      if (surfaces.length === 0) return;
+
+      void import('three/addons/loaders/STLLoader.js')
+        .then(({ STLLoader }) => {
+          const loader = new STLLoader();
+          for (const surface of surfaces) {
+            if (!surface.visible) continue;
+            const geometry = loader.parse(surface.stl.slice(0));
+            geometry.computeVertexNormals();
+            const material = new three.MeshStandardMaterial({
+              color: new three.Color(surface.color),
+              opacity: surface.opacity,
+              transparent: surface.opacity < 1,
+              roughness: 0.68,
+              metalness: 0.02,
+              side: three.DoubleSide,
+            });
+            const surfaceMesh = new three.Mesh(geometry, material);
+            surfaceMesh.name = `surface-${surface.id}`;
+            surfaceRoot.add(surfaceMesh);
+            surfaceDisposers.push(() => {
+              geometry.dispose();
+              material.dispose();
+            });
+          }
+        })
+        .catch(() => {
+          // Surface preview is secondary; downloads remain available.
+        });
+    },
     setRenderOptions(options) {
       const uniforms = material.uniforms as VolumeShaderUniforms;
       if (options.renderStyle !== undefined) {
@@ -264,6 +304,8 @@ function buildPreview(
       mesh.geometry.dispose();
       material.dispose();
       cursorPlanes.dispose();
+      for (const dispose of surfaceDisposers) dispose();
+      surfaceRoot.clear();
       grid.geometry.dispose();
       const gridMaterial = grid.material;
       if (Array.isArray(gridMaterial)) {

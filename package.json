@@ -9,6 +9,7 @@
     "prebuild": "node scripts/stage-ort.mjs",
     "stage:ort": "node scripts/stage-ort.mjs",
     "lint": "eslint .",
+    "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1",
     "sample:build": "python3 scripts/build_sample_volume.py \"$CBCTER_SAMPLE_DICOM_DIR\" public/sample-cbct",
     "sample:link-dicom": "python3 scripts/link_sample_dicom.py",
@@ -60,6 +61,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.7"
   }
 }

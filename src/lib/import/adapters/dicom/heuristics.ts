@@ -11,6 +11,10 @@ export interface DicomSeriesGroup {
   orientation: VolumeAxis | 'oblique';
 }
 
+interface MutableDicomSeriesGroup extends DicomSeriesGroup {
+  positionKeys: Set<string>;
+}
+
 function vectorCross(a: Vec3, b: Vec3): Vec3 {
   return [
     a[1] * b[2] - a[2] * b[1],
@@ -63,33 +67,17 @@ export function buildDicomSeriesKey(slice: DicomSliceEntry): string {
 }
 
 export function groupDicomSeries(slices: DicomSliceEntry[]): DicomSeriesGroup[] {
-  const groups = new Map<string, DicomSeriesGroup>();
+  const groups = new Map<string, MutableDicomSeriesGroup>();
 
   for (const slice of slices) {
     if (!isNativeLittleEndianDicom(slice.header)) continue;
     if ((slice.header.numberOfFrames ?? 1) > 1) continue;
 
-    const baseKey = buildDicomSeriesKey(slice);
+    const key = buildDicomSeriesKey(slice);
     const positionKey = slice.header.imagePositionPatient
       .map((value) => value.toFixed(4))
       .join('\\');
-    let index = 0;
-    let key = baseKey;
     let group = groups.get(key);
-
-    while (
-      group?.slices.some(
-        (existing) =>
-          existing.header.imagePositionPatient
-            .map((value) => value.toFixed(4))
-            .join('\\') === positionKey,
-      )
-    ) {
-      group.duplicatePositions += 1;
-      index += 1;
-      key = `${baseKey}|duplicate-${index}`;
-      group = groups.get(key);
-    }
 
     if (!group) {
       group = {
@@ -97,13 +85,24 @@ export function groupDicomSeries(slices: DicomSliceEntry[]): DicomSeriesGroup[] 
         slices: [],
         duplicatePositions: 0,
         orientation: resolveDicomOrientationLabel(slice.header),
+        positionKeys: new Set<string>(),
       };
       groups.set(key, group);
     }
+    if (group.positionKeys.has(positionKey)) {
+      group.duplicatePositions += 1;
+      continue;
+    }
+    group.positionKeys.add(positionKey);
     group.slices.push(slice);
   }
 
-  return [...groups.values()];
+  return [...groups.values()].map((group) => ({
+    key: group.key,
+    slices: group.slices,
+    duplicatePositions: group.duplicatePositions,
+    orientation: group.orientation,
+  }));
 }
 
 export function selectPrimaryDicomSeries(
@@ -143,4 +142,3 @@ export function estimateZSpacing(sortedSlices: DicomSliceEntry[]): number {
   spacings.sort((left, right) => left - right);
   return spacings[Math.floor(spacings.length / 2)];
 }
-

@@ -85,6 +85,10 @@ export interface SliceInteractionParams {
   cursorHeight: number;
   surfaceHeight: number;
   onSelect?: (point: { xRatio: number; yRatio: number }) => void;
+  onEdit?: (
+    point: { xRatio: number; yRatio: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
   onZoomChange?: (nextZoom: number) => void;
 }
 
@@ -113,6 +117,7 @@ export function useSliceInteraction({
   cursorHeight,
   surfaceHeight,
   onSelect,
+  onEdit,
   onZoomChange,
 }: SliceInteractionParams): SliceInteraction {
   const [scrubCursor, setScrubCursor] = useState<ScrubCursor>(
@@ -301,11 +306,20 @@ export function useSliceInteraction({
     if (!image) return;
 
     if (event.pointerType === 'mouse') {
-      if (event.button !== 0 || !onSelect) return;
+      if (event.button !== 0 || (!onSelect && !onEdit)) return;
 
       event.currentTarget.setPointerCapture(event.pointerId);
       const point = pointFromEvent(event);
       const selection = toSelectionPoint(point.x, point.y);
+      if (onEdit) {
+        dragRef.current.active = true;
+        dragRef.current.pointerId = event.pointerId;
+        dragRef.current.pointerType = ScrubPointerType.Mouse;
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onEdit(selection, 'start');
+        return;
+      }
       startScrub(event.pointerId, ScrubPointerType.Mouse, point, selection);
       emitScrubSelection();
       return;
@@ -329,7 +343,15 @@ export function useSliceInteraction({
         return;
       }
 
-      if (onSelect) {
+      if (onEdit) {
+        const point = pointFromEvent(event);
+        dragRef.current.active = true;
+        dragRef.current.pointerId = event.pointerId;
+        dragRef.current.pointerType = ScrubPointerType.Touch;
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onEdit(toSelectionPoint(point.x, point.y), 'start');
+      } else if (onSelect) {
         const point = pointFromEvent(event);
         const selection = toSelectionPoint(point.x, point.y);
         startScrub(event.pointerId, ScrubPointerType.Touch, point, selection);
@@ -344,13 +366,19 @@ export function useSliceInteraction({
       if (
         !dragRef.current.active ||
         dragRef.current.pointerId !== event.pointerId ||
-        !onSelect
+        (!onSelect && !onEdit)
       ) {
         return;
       }
 
       event.preventDefault();
       const point = pointFromEvent(event);
+      if (onEdit) {
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onEdit(toSelectionPoint(point.x, point.y), 'move');
+        return;
+      }
       updateScrubCursor(
         ScrubPointerType.Mouse,
         point.x - dragRef.current.lastX,
@@ -378,10 +406,16 @@ export function useSliceInteraction({
       dragRef.current.active &&
       dragRef.current.pointerId === event.pointerId &&
       dragRef.current.pointerType === ScrubPointerType.Touch &&
-      onSelect
+      (onSelect || onEdit)
     ) {
       event.preventDefault();
       const point = pointFromEvent(event);
+      if (onEdit) {
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onEdit(toSelectionPoint(point.x, point.y), 'move');
+        return;
+      }
       updateScrubCursor(
         ScrubPointerType.Touch,
         point.x - dragRef.current.lastX,
@@ -424,7 +458,10 @@ export function useSliceInteraction({
         dragRef.current.active &&
         dragRef.current.pointerId === event.pointerId
       ) {
-        if (
+        if (onEdit) {
+          const point = pointFromEvent(event);
+          onEdit(toSelectionPoint(point.x, point.y), 'end');
+        } else if (
           Math.abs(dragRef.current.pendingX) >= 1 ||
           Math.abs(dragRef.current.pendingY) >= 1
         ) {
@@ -442,7 +479,10 @@ export function useSliceInteraction({
       const wasScrubbing =
         dragRef.current.active && dragRef.current.pointerId === event.pointerId;
       if (wasScrubbing) {
-        if (
+        if (onEdit) {
+          const point = pointFromEvent(event);
+          onEdit(toSelectionPoint(point.x, point.y), 'end');
+        } else if (
           Math.abs(dragRef.current.pendingX) >= 1 ||
           Math.abs(dragRef.current.pendingY) >= 1
         ) {

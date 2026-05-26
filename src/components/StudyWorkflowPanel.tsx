@@ -9,12 +9,21 @@ import {
   Layers3,
   PencilRuler,
   Scissors,
+  Split,
+  Square,
+  Trash2,
   Waves,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
-import type { StudyState } from '../domain/types';
+import type {
+  MaskOperation,
+  StudyState,
+  StudyTool,
+  WatershedSeedKind,
+} from '../domain/types';
 import { useTranslation } from '../i18n';
 import { SURFACE_GENERATION_PRESETS } from '../lib/surface';
+import type { SurfaceGenerationQuality } from '../lib/surface';
 import type { Vec3 } from '../types';
 import { cn } from '../utils/cn';
 import { Button } from './Button';
@@ -42,13 +51,33 @@ interface StudyWorkflowPanelProps {
   dimensions: Vec3;
   spacing: Vec3;
   state: StudyState;
+  maskStatus?: string;
+  surfaceStatus?: string;
+  onCancelMaskOperation: () => void;
+  onCancelSurfaceGeneration: () => void;
   onCreateThresholdMask: (preset: ThresholdPreset) => void;
-  onCreateSurfaceFromActiveMask: () => void;
+  onCreateSurfaceFromActiveMask: (quality: SurfaceGenerationQuality) => void;
   onDownloadSurface: (surfaceId: string) => void;
+  onDownloadSurfacePly: (surfaceId: string) => void;
+  onDeleteMeasurement: (measurementId: string) => void;
   onExportProject: () => void;
   onFillMaskHoles: () => void;
   onKeepLargestMaskComponent: () => void;
   onImportProject: (file: File) => void;
+  onSaveLocalProject: () => void;
+  onRestoreLocalProject: () => void;
+  onSelectMask: (maskId: string) => void;
+  onSplitMaskComponents: () => void;
+  onUpdateMaskAppearance: (
+    maskId: string,
+    patch: Partial<Pick<StudyState['masks'][number], 'color' | 'opacity'>>,
+  ) => void;
+  onUpdateMaskWorkflow: (
+    patch: Partial<StudyState['maskWorkflow']> & { activeTool?: StudyTool },
+  ) => void;
+  onAddWatershedSeedAtCursor: () => void;
+  onApplyWatershedSeeds: () => void;
+  onClearWatershedSeeds: () => void;
   onRedoMaskEdit: () => void;
   onRegionGrowFromCursor: (preset: ThresholdPreset) => void;
   onToggleSurfaceVisibility: (surfaceId: string) => void;
@@ -72,13 +101,28 @@ export function StudyWorkflowPanel({
   dimensions,
   spacing,
   state,
+  maskStatus,
+  surfaceStatus,
+  onCancelMaskOperation,
+  onCancelSurfaceGeneration,
   onCreateThresholdMask,
   onCreateSurfaceFromActiveMask,
   onDownloadSurface,
+  onDownloadSurfacePly,
+  onDeleteMeasurement,
   onExportProject,
   onFillMaskHoles,
   onKeepLargestMaskComponent,
   onImportProject,
+  onSaveLocalProject,
+  onRestoreLocalProject,
+  onSelectMask,
+  onSplitMaskComponents,
+  onUpdateMaskAppearance,
+  onUpdateMaskWorkflow,
+  onAddWatershedSeedAtCursor,
+  onApplyWatershedSeeds,
+  onClearWatershedSeeds,
   onRedoMaskEdit,
   onRegionGrowFromCursor,
   onToggleSurfaceVisibility,
@@ -91,9 +135,28 @@ export function StudyWorkflowPanel({
   const [thresholdPresetId, setThresholdPresetId] = useState(
     THRESHOLD_PRESETS[0].id,
   );
+  const [surfaceQuality, setSurfaceQuality] =
+    useState<SurfaceGenerationQuality>('balanced');
   const selectedThreshold =
     THRESHOLD_PRESETS.find((preset) => preset.id === thresholdPresetId) ??
     THRESHOLD_PRESETS[0];
+  const editTools: Array<{
+    tool: StudyTool;
+    operation: MaskOperation;
+    label: string;
+  }> = [
+    { tool: 'mask-brush', operation: 'draw', label: t('workflow.masks.draw') },
+    { tool: 'mask-erase', operation: 'erase', label: t('workflow.masks.erase') },
+    {
+      tool: 'mask-threshold',
+      operation: 'threshold',
+      label: t('workflow.masks.thresholdBrush'),
+    },
+  ];
+  const seedKinds: Array<{ value: WatershedSeedKind; label: string }> = [
+    { value: 'foreground', label: t('workflow.masks.foregroundSeed') },
+    { value: 'background', label: t('workflow.masks.backgroundSeed') },
+  ];
 
   const tabs: Array<{ id: WorkflowTab; label: string; icon: typeof Box }> = [
     { id: 'study', label: t('workflow.tabs.study'), icon: Box },
@@ -179,11 +242,21 @@ export function StudyWorkflowPanel({
                 variant="ghost"
                 size="sm"
                 block
-                disabled={!state.activeMaskId}
+                disabled={!state.activeMaskId || Boolean(maskStatus)}
                 onClick={onKeepLargestMaskComponent}
               >
                 <Scissors className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('workflow.masks.keepLargest')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                block
+                disabled={!state.activeMaskId || Boolean(maskStatus)}
+                onClick={onSplitMaskComponents}
+              >
+                <Split className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('workflow.masks.split')}
               </Button>
               <Button
                 variant="ghost"
@@ -216,6 +289,111 @@ export function StudyWorkflowPanel({
                 </Button>
               </div>
             </div>
+            {maskStatus ? (
+              <Button
+                className="mt-2"
+                variant="ghost"
+                size="sm"
+                block
+                onClick={onCancelMaskOperation}
+              >
+                <Square className="h-3.5 w-3.5" aria-hidden="true" />
+                {maskStatus} · {t('workflow.masks.cancel')}
+              </Button>
+            ) : null}
+            <div className="mt-2 grid grid-cols-3 gap-1">
+              {editTools.map((item) => (
+                <Button
+                  key={item.tool}
+                  variant={state.activeTool === item.tool ? 'primary' : 'ghost'}
+                  size="sm"
+                  block
+                  disabled={!state.activeMaskId}
+                  onClick={() =>
+                    onUpdateMaskWorkflow({
+                      activeTool: item.tool,
+                      operation: item.operation,
+                    })
+                  }
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+            <label className="mt-2 block text-[11px] text-slate-500">
+              {t('workflow.masks.brushSize')}
+              <input
+                className="mt-1 h-1.5 w-full accent-sky-400"
+                type="range"
+                min={0.5}
+                max={12}
+                step={0.5}
+                value={state.maskWorkflow.brushSizeMm}
+                onChange={(event) =>
+                  onUpdateMaskWorkflow({
+                    brushSizeMm: Number(event.currentTarget.value),
+                  })
+                }
+              />
+            </label>
+            <div className="mt-2 rounded border border-slate-800 bg-slate-950 p-2">
+              <div className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                {t('workflow.masks.watershedSeeds')}
+              </div>
+              <Select
+                block
+                size="sm"
+                value={state.maskWorkflow.watershedSeedKind}
+                onChange={(value) =>
+                  onUpdateMaskWorkflow({
+                    activeTool: 'mask-watershed-seed',
+                    watershedSeedKind: value as WatershedSeedKind,
+                  })
+                }
+                options={seedKinds}
+              />
+              <div className="mt-1.5 grid grid-cols-3 gap-1">
+                <Button
+                  variant={state.activeTool === 'mask-watershed-seed' ? 'primary' : 'ghost'}
+                  size="sm"
+                  block
+                  disabled={!state.activeMaskId}
+                  onClick={() =>
+                    onUpdateMaskWorkflow({ activeTool: 'mask-watershed-seed' })
+                  }
+                >
+                  {t('workflow.masks.seedTool')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  block
+                  disabled={!state.activeMaskId}
+                  onClick={onAddWatershedSeedAtCursor}
+                >
+                  {t('workflow.masks.addSeed')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  block
+                  disabled={!state.activeMaskId || state.maskWorkflow.watershedSeeds.length === 0}
+                  onClick={onApplyWatershedSeeds}
+                >
+                  {t('workflow.masks.applySeeds')}
+                </Button>
+              </div>
+              <button
+                type="button"
+                className="mt-1 text-[11px] text-slate-500 hover:text-slate-200 disabled:opacity-50"
+                disabled={state.maskWorkflow.watershedSeeds.length === 0}
+                onClick={onClearWatershedSeeds}
+              >
+                {t('workflow.masks.seedCount', {
+                  count: state.maskWorkflow.watershedSeeds.length,
+                })}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -227,12 +405,33 @@ export function StudyWorkflowPanel({
               state.masks.map((mask) => (
                 <div
                   key={mask.id}
-                  className="flex items-center gap-2 rounded border border-slate-800 bg-slate-950 px-2 py-1.5"
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded border px-2 py-1.5 text-left',
+                    state.activeMaskId === mask.id
+                      ? 'border-sky-500/70 bg-sky-500/10'
+                      : 'border-slate-800 bg-slate-950 hover:border-slate-700',
+                  )}
+                  onClick={() => onSelectMask(mask.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onSelectMask(mask.id);
+                    }
+                  }}
                 >
-                  <span
-                    className="h-3 w-3 rounded-sm border border-white/20"
-                    style={{ backgroundColor: mask.color }}
-                    aria-hidden="true"
+                  <input
+                    type="color"
+                    className="h-5 w-5 cursor-pointer rounded-sm border border-white/20 bg-transparent p-0"
+                    value={mask.color}
+                    aria-label={t('workflow.masks.color')}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      onUpdateMaskAppearance(mask.id, {
+                        color: event.currentTarget.value,
+                      })
+                    }
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-medium text-slate-200">
@@ -242,12 +441,30 @@ export function StudyWorkflowPanel({
                       {mask.thresholdRange ? formatRange(mask.thresholdRange) : t('workflow.masks.manual')}{' '}
                       · {formatVoxelVolume(mask.voxelCount, spacing)}
                     </div>
+                    <input
+                      className="mt-1 h-1 w-full accent-sky-400"
+                      type="range"
+                      min={0.05}
+                      max={1}
+                      step={0.05}
+                      value={mask.opacity}
+                      aria-label={t('workflow.masks.opacity')}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) =>
+                        onUpdateMaskAppearance(mask.id, {
+                          opacity: Number(event.currentTarget.value),
+                        })
+                      }
+                    />
                   </div>
                   <button
                     type="button"
                     className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
                     aria-label={mask.visible ? t('common.hide') : t('common.show')}
-                    onClick={() => onToggleMaskVisibility(mask.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleMaskVisibility(mask.id);
+                    }}
                   >
                     {mask.visible ? (
                       <Eye className="h-3.5 w-3.5" aria-hidden="true" />
@@ -272,14 +489,35 @@ export function StudyWorkflowPanel({
             variant="primary"
             size="sm"
             block
-            disabled={!state.activeMaskId}
-            onClick={onCreateSurfaceFromActiveMask}
+            disabled={!state.activeMaskId || Boolean(surfaceStatus)}
+            onClick={() => onCreateSurfaceFromActiveMask(surfaceQuality)}
           >
             <Layers3 className="h-3.5 w-3.5" aria-hidden="true" />
-            {t('workflow.surfaces.createFromMask')}
+            {surfaceStatus || t('workflow.surfaces.createFromMask')}
           </Button>
+          {surfaceStatus ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              block
+              onClick={onCancelSurfaceGeneration}
+            >
+              <Square className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('workflow.surfaces.cancel')}
+            </Button>
+          ) : null}
           {Object.values(SURFACE_GENERATION_PRESETS).map((preset) => (
-            <div key={preset.quality} className="rounded border border-slate-800 bg-slate-950 px-2.5 py-2">
+            <button
+              key={preset.quality}
+              type="button"
+              className={cn(
+                'w-full rounded border px-2.5 py-2 text-left',
+                surfaceQuality === preset.quality
+                  ? 'border-sky-500/70 bg-sky-500/10'
+                  : 'border-slate-800 bg-slate-950 hover:border-slate-700',
+              )}
+              onClick={() => setSurfaceQuality(preset.quality)}
+            >
               <div className="font-medium capitalize text-slate-200">{preset.quality}</div>
               <div className="mt-1 text-slate-500">
                 {t('workflow.surfaces.presetDetail', {
@@ -287,7 +525,7 @@ export function StudyWorkflowPanel({
                   decimate: Math.round(preset.decimateReduction * 100),
                 })}
               </div>
-            </div>
+            </button>
           ))}
           <div className="space-y-1.5">
             {state.surfaces.length === 0 ? (
@@ -313,6 +551,9 @@ export function StudyWorkflowPanel({
                       {t('workflow.surfaces.triangles', {
                         count: surface.triangleCount?.toLocaleString() ?? '0',
                       })}
+                      {surface.areaMm2
+                        ? ` · ${Math.round(surface.areaMm2).toLocaleString()} mm2`
+                        : ''}
                     </div>
                   </div>
                   <button
@@ -335,6 +576,14 @@ export function StudyWorkflowPanel({
                   >
                     <Download className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
+                  <button
+                    type="button"
+                    className="rounded px-1 py-0.5 text-[10px] font-semibold text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                    aria-label={t('workflow.surfaces.downloadPly')}
+                    onClick={() => onDownloadSurfacePly(surface.id)}
+                  >
+                    PLY
+                  </button>
                 </div>
               ))
             )}
@@ -351,6 +600,47 @@ export function StudyWorkflowPanel({
           <div>{t('workflow.measures.distance')}</div>
           <div>{t('workflow.measures.angle')}</div>
           <div>{t('workflow.measures.roi')}</div>
+          <div className="mt-3 space-y-1.5">
+            {state.measurements.length === 0 ? (
+              <div className="rounded border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-500">
+                {t('workflow.measures.empty')}
+              </div>
+            ) : (
+              state.measurements.map((measurement) => (
+                <div
+                  key={measurement.id}
+                  className={cn(
+                    'rounded border bg-slate-950 px-2.5 py-2',
+                    state.activeMeasurementId === measurement.id
+                      ? 'border-sky-500/70'
+                      : 'border-slate-800',
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-slate-200">
+                        {measurement.name}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-500">
+                        {measurement.kind} · {measurement.value.toFixed(1)}{' '}
+                        {measurement.unit === 'degrees' ? 'deg' : measurement.unit}
+                        {' · '}
+                        {measurement.points.length} pts
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                      aria-label={t('workflow.measures.delete')}
+                      onClick={() => onDeleteMeasurement(measurement.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -389,6 +679,14 @@ export function StudyWorkflowPanel({
             <Download className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
             {t('workflow.export.importProject')}
           </Button>
+          <div className="grid grid-cols-2 gap-1.5">
+            <Button variant="ghost" size="sm" block onClick={onSaveLocalProject}>
+              {t('workflow.export.saveLocal')}
+            </Button>
+            <Button variant="ghost" size="sm" block onClick={onRestoreLocalProject}>
+              {t('workflow.export.restoreLocal')}
+            </Button>
+          </div>
           <div>{t('workflow.export.masks')}</div>
           <div>{t('workflow.export.surfaces')}</div>
           <div>{t('workflow.export.project')}</div>

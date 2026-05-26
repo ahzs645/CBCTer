@@ -7,6 +7,7 @@ import { defaultViewerTheme, type ViewerTheme } from '../theme';
 import { SliceCanvas } from './SliceCanvas';
 import { SliceCanvasFit } from './SliceCanvas.constants';
 import { ViewportFrame } from './ViewportFrame';
+import type { CompletedSliceMeasurement } from './MeasurementOverlay';
 
 interface AxisViewportGridProps {
   cursor: { x: number; y: number; z: number } | null;
@@ -27,6 +28,15 @@ interface AxisViewportGridProps {
   onSelectAxis: (
     axis: VolumeAxis,
   ) => (point: { xRatio: number; yRatio: number }) => void;
+  onEditAxis?: (
+    axis: VolumeAxis,
+    point: { xRatio: number; yRatio: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
+  onMeasurementComplete?: (
+    axis: VolumeAxis,
+    measurement: CompletedSliceMeasurement,
+  ) => void;
   onSelectedAxisChange?: (axis: VolumeAxis) => void;
   onZoomChange: (zoom: number) => void;
 }
@@ -53,6 +63,11 @@ interface AxisViewportPaneProps {
   compact: boolean;
   mprZoom: number;
   onSelect: (point: { xRatio: number; yRatio: number }) => void;
+  onEdit?: (
+    point: { xRatio: number; yRatio: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
+  onMeasurementComplete?: (measurement: CompletedSliceMeasurement) => void;
   onZoomChange: (zoom: number) => void;
 }
 
@@ -61,6 +76,8 @@ function AxisViewportPane({
   compact,
   definition,
   mprZoom,
+  onEdit,
+  onMeasurementComplete,
   onSelect,
   onZoomChange,
 }: AxisViewportPaneProps) {
@@ -109,6 +126,8 @@ function AxisViewportPane({
         fit={SliceCanvasFit.Contain}
         zoom={mprZoom}
         onZoomChange={onZoomChange}
+        onEdit={onEdit}
+        onMeasurementComplete={onMeasurementComplete}
         onSelect={onSelect}
         mmPerPixel={definition.mmPerPixel}
         exportName={definition.exportName}
@@ -222,6 +241,8 @@ export function AxisViewportGrid({
   labels = defaultAxisViewportLabels,
   className,
   onSelectAxis,
+  onEditAxis,
+  onMeasurementComplete,
   onSelectedAxisChange,
   onZoomChange,
 }: AxisViewportGridProps) {
@@ -262,6 +283,10 @@ export function AxisViewportGrid({
           axisSelector={axisSelector}
           mprZoom={mprZoom}
           onZoomChange={onZoomChange}
+          onEdit={(point, phase) => onEditAxis?.(selectedAxis, point, phase)}
+          onMeasurementComplete={(measurement) =>
+            onMeasurementComplete?.(selectedAxis, measurement)
+          }
           onSelect={onSelectAxis(selectedAxis)}
         />
       </div>
@@ -282,6 +307,10 @@ export function AxisViewportGrid({
           definition={axisDefinitions[axis]}
           mprZoom={mprZoom}
           onZoomChange={onZoomChange}
+          onEdit={(point, phase) => onEditAxis?.(axis, point, phase)}
+          onMeasurementComplete={(measurement) =>
+            onMeasurementComplete?.(axis, measurement)
+          }
           onSelect={onSelectAxis(axis)}
         />
       ))}

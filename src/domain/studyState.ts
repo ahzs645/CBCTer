@@ -3,6 +3,7 @@ import type {
   MaskWorkflowState,
   ScanStudy,
   StudyImageLayer,
+  StudyMeasurement,
   StudyMask,
   StudySurface,
   StudyState,
@@ -89,6 +90,22 @@ export function createStudySurface(
     id: createAppId("surface"),
     studyId,
     opacity: 1,
+    visible: true,
+    createdAt: now,
+    updatedAt: now,
+    ...input,
+  };
+}
+
+export function createStudyMeasurement(
+  studyId: string,
+  input: Pick<StudyMeasurement, "kind" | "name" | "points" | "value" | "unit"> &
+    Partial<Pick<StudyMeasurement, "visible">>,
+): StudyMeasurement {
+  const now = Date.now();
+  return {
+    id: createAppId("measurement"),
+    studyId,
     visible: true,
     createdAt: now,
     updatedAt: now,

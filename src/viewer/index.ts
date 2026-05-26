@@ -28,7 +28,10 @@ export {
   type VolumeViewport3DHandle,
 } from './react/VolumeViewport3D';
 export { ViewportFrame } from './react/ViewportFrame';
-export { MeasurementOverlay } from './react/MeasurementOverlay';
+export {
+  MeasurementOverlay,
+  type CompletedSliceMeasurement,
+} from './react/MeasurementOverlay';
 export {
   useSliceInteraction,
   type Rect,

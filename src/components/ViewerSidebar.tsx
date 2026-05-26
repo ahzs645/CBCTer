@@ -12,8 +12,9 @@ import {
   SunMedium,
 } from 'lucide-react';
 import { formatSpacing } from '../app/helpers';
-import type { StudyState } from '../domain/types';
+import type { StudyState, StudyTool } from '../domain/types';
 import { useTranslation } from '../i18n';
+import type { SurfaceGenerationQuality } from '../lib/surface';
 import type {
   ImportIssue,
   ImportProgress,
@@ -51,18 +52,38 @@ interface ViewerSidebarProps {
   seriesChoices: VolumeSeriesChoice[];
   sourceLabel: string;
   spacing: Vec3;
+  maskStatus?: string;
+  surfaceStatus?: string;
   volumeMeta: ParsedVolumeMeta | null;
   windowBounds: RangeBounds;
   windowLevelDraft: SliceWindowLevel;
   studyState: StudyState;
   onBackToImport: () => void;
+  onCancelMaskOperation: () => void;
+  onCancelSurfaceGeneration: () => void;
   onCreateThresholdMask: (preset: ThresholdMaskPreset) => void;
-  onCreateSurfaceFromActiveMask: () => void;
+  onCreateSurfaceFromActiveMask: (quality: SurfaceGenerationQuality) => void;
+  onDeleteMeasurement: (measurementId: string) => void;
   onDownloadSurface: (surfaceId: string) => void;
+  onDownloadSurfacePly: (surfaceId: string) => void;
   onExportProject: () => void;
   onFillMaskHoles: () => void;
   onImportProject: (file: File) => void;
+  onSaveLocalProject: () => void;
+  onRestoreLocalProject: () => void;
   onKeepLargestMaskComponent: () => void;
+  onSelectMask: (maskId: string) => void;
+  onSplitMaskComponents: () => void;
+  onUpdateMaskAppearance: (
+    maskId: string,
+    patch: Partial<Pick<StudyState['masks'][number], 'color' | 'opacity'>>,
+  ) => void;
+  onUpdateMaskWorkflow: (
+    patch: Partial<StudyState['maskWorkflow']> & { activeTool?: StudyTool },
+  ) => void;
+  onAddWatershedSeedAtCursor: () => void;
+  onApplyWatershedSeeds: () => void;
+  onClearWatershedSeeds: () => void;
   onLevelChange: (value: number) => void;
   onLevelCommit: (value: number) => void;
   onOpenDirectory: () => void;
@@ -89,18 +110,33 @@ export function ViewerSidebar({
   seriesChoices,
   sourceLabel,
   spacing,
+  maskStatus,
+  surfaceStatus,
   volumeMeta,
   windowBounds,
   windowLevelDraft,
   studyState,
   onBackToImport,
+  onCancelMaskOperation,
+  onCancelSurfaceGeneration,
   onCreateThresholdMask,
   onCreateSurfaceFromActiveMask,
+  onDeleteMeasurement,
   onDownloadSurface,
+  onDownloadSurfacePly,
   onExportProject,
   onFillMaskHoles,
   onImportProject,
+  onSaveLocalProject,
+  onRestoreLocalProject,
   onKeepLargestMaskComponent,
+  onSelectMask,
+  onSplitMaskComponents,
+  onUpdateMaskAppearance,
+  onUpdateMaskWorkflow,
+  onAddWatershedSeedAtCursor,
+  onApplyWatershedSeeds,
+  onClearWatershedSeeds,
   onLevelChange,
   onLevelCommit,
   onOpenDirectory,
@@ -201,14 +237,29 @@ export function ViewerSidebar({
         <StudyWorkflowPanel
           dimensions={dimensions}
           spacing={spacing}
+          maskStatus={maskStatus}
+          surfaceStatus={surfaceStatus}
           state={studyState}
+          onCancelMaskOperation={onCancelMaskOperation}
+          onCancelSurfaceGeneration={onCancelSurfaceGeneration}
           onCreateThresholdMask={onCreateThresholdMask}
           onCreateSurfaceFromActiveMask={onCreateSurfaceFromActiveMask}
+          onDeleteMeasurement={onDeleteMeasurement}
           onDownloadSurface={onDownloadSurface}
+          onDownloadSurfacePly={onDownloadSurfacePly}
           onExportProject={onExportProject}
           onFillMaskHoles={onFillMaskHoles}
           onImportProject={onImportProject}
+          onSaveLocalProject={onSaveLocalProject}
+          onRestoreLocalProject={onRestoreLocalProject}
           onKeepLargestMaskComponent={onKeepLargestMaskComponent}
+          onSelectMask={onSelectMask}
+          onSplitMaskComponents={onSplitMaskComponents}
+          onUpdateMaskAppearance={onUpdateMaskAppearance}
+          onUpdateMaskWorkflow={onUpdateMaskWorkflow}
+          onAddWatershedSeedAtCursor={onAddWatershedSeedAtCursor}
+          onApplyWatershedSeeds={onApplyWatershedSeeds}
+          onClearWatershedSeeds={onClearWatershedSeeds}
           onRedoMaskEdit={onRedoMaskEdit}
           onRegionGrowFromCursor={onRegionGrowFromCursor}
           onToggleSurfaceVisibility={onToggleSurfaceVisibility}

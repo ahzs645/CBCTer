@@ -22,6 +22,7 @@ import {
   type ThreePreviewInstance,
   type VolumeColormap,
   type VolumeRenderOptions,
+  type SurfaceMeshPreview,
   type VolumeViewPreset,
 } from '../core';
 import type { PreparedVolumeFor3D, VolumeCursor } from '../../types';
@@ -61,6 +62,7 @@ interface VolumeViewport3DProps {
   labels?: VolumeViewport3DLabels;
   /** Extra classes merged onto the root element. */
   className?: string;
+  surfaces?: SurfaceMeshPreview[];
 }
 
 export interface VolumeViewport3DHandle {
@@ -83,6 +85,7 @@ export const VolumeViewport3D = memo(
         onDownsampledChange,
         labels = defaultVolumeViewport3DLabels,
         className,
+        surfaces = [],
       },
       ref,
     ) {
@@ -99,6 +102,7 @@ export const VolumeViewport3D = memo(
   const [colormap, setColormap] = useState<VolumeColormap>('grayscale');
   const [gridVisible, setGridVisible] = useState(false);
   const gridVisibleRef = useRef(gridVisible);
+  const surfacesRef = useRef<SurfaceMeshPreview[]>(surfaces);
   const renderOptsRef = useRef<Partial<VolumeRenderOptions>>(
     RENDER_PRESETS.default,
   );
@@ -141,6 +145,11 @@ export const VolumeViewport3D = memo(
     gridVisibleRef.current = gridVisible;
     instanceRef.current?.setGridVisible(gridVisible);
   }, [gridVisible]);
+
+  useEffect(() => {
+    surfacesRef.current = surfaces;
+    instanceRef.current?.setSurfaceMeshes(surfaces);
+  }, [surfaces]);
 
   useEffect(() => {
     onDownsampledChange?.(Boolean(volume?.downsampled));
@@ -190,6 +199,7 @@ export const VolumeViewport3D = memo(
           instance.focusCursor(cursorRef.current);
           instance.setPlanesVisible(planesVisibleRef.current);
           instance.setGridVisible(gridVisibleRef.current);
+          instance.setSurfaceMeshes(surfacesRef.current);
           instance.setRenderOptions(renderOptsRef.current);
           cleanup = instance.dispose;
         })

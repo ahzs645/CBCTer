@@ -5,6 +5,7 @@ import { Badge } from '../../components/Badge';
 import { BadgeVariant } from '../../components/Badge.constants';
 import { MeasurementOverlay } from './MeasurementOverlay';
 import type { MeasurementLabels } from '../labels';
+import type { CompletedSliceMeasurement } from './MeasurementOverlay';
 import {
   SliceCanvasFit,
   type SliceCanvasFit as SliceCanvasFitType,
@@ -28,6 +29,11 @@ interface SliceCanvasProps {
   zoom?: number;
   onZoomChange?: (nextZoom: number) => void;
   onSelect?: (point: { xRatio: number; yRatio: number }) => void;
+  onEdit?: (
+    point: { xRatio: number; yRatio: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
+  onMeasurementComplete?: (measurement: CompletedSliceMeasurement) => void;
   /** In-plane mm per image pixel [x, y]; enables measurement + export tools. */
   mmPerPixel?: { x: number; y: number };
   /** Filename used for the per-pane PNG export. */
@@ -74,6 +80,8 @@ export function SliceCanvas({
   zoom = 1,
   onZoomChange,
   onSelect,
+  onEdit,
+  onMeasurementComplete,
   mmPerPixel,
   exportName = 'slice',
   measurementLabels,
@@ -238,6 +246,7 @@ export function SliceCanvas({
     cursorWidth,
     cursorHeight,
     surfaceHeight: surfaceSize.height,
+    onEdit,
     onSelect,
     onZoomChange,
   });
@@ -249,7 +258,7 @@ export function SliceCanvas({
         className="relative h-full min-h-0 w-full overflow-hidden bg-black"
         {...handlers}
         style={{
-          cursor: onSelect ? scrubCursor : undefined,
+          cursor: onEdit ? 'crosshair' : onSelect ? scrubCursor : undefined,
           touchAction: onZoomChange ? 'none' : undefined,
         }}
       >
@@ -322,6 +331,7 @@ export function SliceCanvas({
             exportName={exportName}
             getCanvas={() => canvasRef.current}
             labels={measurementLabels}
+            onMeasurementComplete={onMeasurementComplete}
           />
         ) : null}
       </div>

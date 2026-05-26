@@ -7,6 +7,7 @@ import { Button } from '../components/Button';
 import { ViewerSidebar } from '../components/ViewerSidebar';
 import {
   AxisViewportGrid,
+  type CompletedSliceMeasurement,
   ViewportFrame,
   VolumeViewport3D,
   type VolumeViewport3DHandle,
@@ -20,26 +21,38 @@ import { APP_ROUTES } from '../constants';
 import {
   createEmptyStudyState,
   createStudyImageLayer,
+  createStudyMeasurement,
   createStudyMask,
   createStudySurface,
 } from '../domain/studyState';
 import type { ScanStudy, StudyState } from '../domain/types';
+import { createAppId } from '../domain/ids';
 import { useTranslation } from '../i18n';
+import { densityStats } from '../lib/measurements/geometry';
 import {
   buildProjectArchive,
+  loadLatestProject,
   projectArchiveName,
   readProjectArchive,
+  saveLatestProject,
 } from '../lib/project';
 import {
   countMaskVoxels,
   extractMaskOverlayImage,
   fillMaskHoles,
-  keepLargestMaskComponent,
   regionGrowMask,
   thresholdVolume,
 } from '../lib/segmentation/maskOperations';
-import { maskToBinaryStl } from '../lib/segmentation/maskMesh';
-import { estimateVoxelSurfaceTriangleCount } from '../lib/surface';
+import { maskToAsciiPly } from '../lib/segmentation/maskMesh';
+import {
+  keepLargestMaskComponentInWorker,
+  splitMaskComponentsInWorker,
+} from '../lib/segmentation/runMaskWorker';
+import {
+  generateSurfaceInWorker,
+  type SurfaceGenerationQuality,
+} from '../lib/surface';
+import type { SurfaceMeshPreview } from '../lib/volume/three-preview';
 import { VolumeAxis, type SliceImage } from '../types';
 import { cn } from '../utils/cn';
 
@@ -55,6 +68,13 @@ interface MaskSnapshot {
   masks: StudyState['masks'];
   activeMaskId?: string;
   buffers: MaskBufferMap;
+}
+
+interface MaskEditSession {
+  snapshot: MaskSnapshot;
+  maskId: string;
+  buffer: Uint8Array;
+  touched: Set<number>;
 }
 
 function cloneMaskBuffers(buffers: MaskBufferMap): MaskBufferMap {
@@ -81,6 +101,167 @@ function byteRangeToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
+function clampIndex(value: number, max: number): number {
+  return Math.min(max, Math.max(0, value));
+}
+
+function axisPointToVoxel(
+  axis: VolumeAxis,
+  point: { xRatio: number; yRatio: number },
+  cursor: { x: number; y: number; z: number },
+  dimensions: [number, number, number],
+): [number, number, number] {
+  const [width, height, depth] = dimensions;
+  if (axis === VolumeAxis.Axial) {
+    return [
+      clampIndex(Math.round(point.xRatio * (width - 1)), width - 1),
+      clampIndex(Math.round(point.yRatio * (height - 1)), height - 1),
+      cursor.z,
+    ];
+  }
+  if (axis === VolumeAxis.Coronal) {
+    return [
+      clampIndex(Math.round(point.xRatio * (width - 1)), width - 1),
+      cursor.y,
+      clampIndex(Math.round((1 - point.yRatio) * (depth - 1)), depth - 1),
+    ];
+  }
+  return [
+    cursor.x,
+    clampIndex(Math.round(point.xRatio * (height - 1)), height - 1),
+    clampIndex(Math.round((1 - point.yRatio) * (depth - 1)), depth - 1),
+  ];
+}
+
+function pointInPolygon(
+  point: { xRatio: number; yRatio: number },
+  polygon: Array<{ xRatio: number; yRatio: number }>,
+): boolean {
+  let inside = false;
+  for (
+    let index = 0, previous = polygon.length - 1;
+    index < polygon.length;
+    previous = index, index += 1
+  ) {
+    const currentPoint = polygon[index];
+    const previousPoint = polygon[previous];
+    if (
+      currentPoint.yRatio > point.yRatio !== previousPoint.yRatio > point.yRatio &&
+      point.xRatio <
+        ((previousPoint.xRatio - currentPoint.xRatio) *
+          (point.yRatio - currentPoint.yRatio)) /
+          (previousPoint.yRatio - currentPoint.yRatio || Number.EPSILON) +
+          currentPoint.xRatio
+    ) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function pointInMeasurementRoi(
+  point: { xRatio: number; yRatio: number },
+  roi: CompletedSliceMeasurement['densityRoi'],
+): boolean {
+  if (!roi) return false;
+  if (roi.kind === 'polygon') return pointInPolygon(point, roi.points);
+  const [first, second] = roi.points;
+  if (!first || !second) return false;
+  const centerX = (first.xRatio + second.xRatio) / 2;
+  const centerY = (first.yRatio + second.yRatio) / 2;
+  const radiusX = Math.abs(second.xRatio - first.xRatio) / 2;
+  const radiusY = Math.abs(second.yRatio - first.yRatio) / 2;
+  if (radiusX <= 0 || radiusY <= 0) return false;
+  const normalizedX = (point.xRatio - centerX) / radiusX;
+  const normalizedY = (point.yRatio - centerY) / radiusY;
+  return normalizedX * normalizedX + normalizedY * normalizedY <= 1;
+}
+
+function blankSeedOverlay(
+  axis: VolumeAxis,
+  dimensions: [number, number, number],
+  spacing: [number, number, number],
+): SliceImage {
+  const [width, height, depth] = dimensions;
+  const shape =
+    axis === VolumeAxis.Axial
+      ? { width, height }
+      : axis === VolumeAxis.Coronal
+        ? { width, height: depth }
+        : { width: height, height: depth };
+  const displayAspect =
+    axis === VolumeAxis.Axial
+      ? spacing[0] / spacing[1] || 1
+      : axis === VolumeAxis.Coronal
+        ? spacing[0] / spacing[2] || 1
+        : spacing[1] / spacing[2] || 1;
+  return {
+    ...shape,
+    data: new Uint8ClampedArray(shape.width * shape.height * 4),
+    displayAspect,
+    pixelated: true,
+  };
+}
+
+function drawMarkerPixel(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  color: [number, number, number],
+): void {
+  if (x < 0 || y < 0 || x >= width || y >= height) return;
+  const offset = (y * width + x) * 4;
+  data[offset] = color[0];
+  data[offset + 1] = color[1];
+  data[offset + 2] = color[2];
+  data[offset + 3] = 235;
+}
+
+function withWatershedSeedMarkers(
+  image: SliceImage | null,
+  axis: VolumeAxis,
+  cursor: { x: number; y: number; z: number },
+  dimensions: [number, number, number],
+  spacing: [number, number, number],
+  seeds: StudyState['maskWorkflow']['watershedSeeds'],
+): SliceImage | null {
+  if (seeds.length === 0) return image;
+  const overlay = image
+    ? { ...image, data: new Uint8ClampedArray(image.data) }
+    : blankSeedOverlay(axis, dimensions, spacing);
+  let drew = false;
+  const [, , depth] = dimensions;
+  for (const seed of seeds) {
+    const [x, y, z] = seed.point;
+    let sx: number;
+    let sy: number;
+    if (axis === VolumeAxis.Axial) {
+      if (z !== cursor.z) continue;
+      sx = x;
+      sy = y;
+    } else if (axis === VolumeAxis.Coronal) {
+      if (y !== cursor.y) continue;
+      sx = x;
+      sy = depth - 1 - z;
+    } else {
+      if (x !== cursor.x) continue;
+      sx = y;
+      sy = depth - 1 - z;
+    }
+    const color: [number, number, number] =
+      seed.kind === 'foreground' ? [34, 197, 94] : [248, 113, 113];
+    for (let delta = -3; delta <= 3; delta += 1) {
+      drawMarkerPixel(overlay.data, overlay.width, overlay.height, sx + delta, sy, color);
+      drawMarkerPixel(overlay.data, overlay.width, overlay.height, sx, sy + delta, color);
+    }
+    drawMarkerPixel(overlay.data, overlay.width, overlay.height, sx, sy, [255, 255, 255]);
+    drew = true;
+  }
+  return drew ? overlay : image;
+}
+
 export default function ViewerPage({ app }: ViewerPageProps) {
   const compactLayout = useCompactViewerLayout();
   const { t } = useTranslation();
@@ -96,7 +277,13 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [maskBuffers, setMaskBuffers] = useState<MaskBufferMap>({});
   const [surfaceBlobs, setSurfaceBlobs] = useState<SurfaceBlobMap>({});
   const [surfaceUrls, setSurfaceUrls] = useState<SurfaceUrlMap>({});
+  const [surfacePreviews, setSurfacePreviews] = useState<SurfaceMeshPreview[]>([]);
+  const [surfaceStatus, setSurfaceStatus] = useState<string | undefined>();
+  const [maskStatus, setMaskStatus] = useState<string | undefined>();
   const surfaceUrlsRef = useRef<SurfaceUrlMap>({});
+  const surfaceAbortRef = useRef<AbortController | null>(null);
+  const maskAbortRef = useRef<AbortController | null>(null);
+  const maskEditSessionRef = useRef<MaskEditSession | null>(null);
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
 
@@ -116,6 +303,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       updatedAt: 0,
     };
   }, [app.sourceLabel, app.volume]);
+  const maskSliceEditEnabled =
+    studyState.activeTool === 'mask-brush' ||
+    studyState.activeTool === 'mask-erase' ||
+    studyState.activeTool === 'mask-threshold' ||
+    studyState.activeTool === 'mask-watershed-seed';
 
   const maskOverlays = useMemo<Partial<Record<VolumeAxis, SliceImage | null>>>(
     () => {
@@ -133,33 +325,62 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         })
         .filter((layer): layer is NonNullable<typeof layer> => layer != null);
 
-      if (layers.length === 0) return {};
-
-      return {
-        [VolumeAxis.Coronal]: extractMaskOverlayImage(
+      const coronal = extractMaskOverlayImage(
           layers,
           VolumeAxis.Coronal,
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
-        ),
-        [VolumeAxis.Sagittal]: extractMaskOverlayImage(
+        );
+      const sagittal = extractMaskOverlayImage(
           layers,
           VolumeAxis.Sagittal,
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
-        ),
-        [VolumeAxis.Axial]: extractMaskOverlayImage(
+        );
+      const axial = extractMaskOverlayImage(
           layers,
           VolumeAxis.Axial,
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
+        );
+
+      return {
+        [VolumeAxis.Coronal]: withWatershedSeedMarkers(
+          coronal,
+          VolumeAxis.Coronal,
+          app.cursor,
+          app.volume.meta.dimensions,
+          app.volume.meta.spacing,
+          studyState.maskWorkflow.watershedSeeds,
+        ),
+        [VolumeAxis.Sagittal]: withWatershedSeedMarkers(
+          sagittal,
+          VolumeAxis.Sagittal,
+          app.cursor,
+          app.volume.meta.dimensions,
+          app.volume.meta.spacing,
+          studyState.maskWorkflow.watershedSeeds,
+        ),
+        [VolumeAxis.Axial]: withWatershedSeedMarkers(
+          axial,
+          VolumeAxis.Axial,
+          app.cursor,
+          app.volume.meta.dimensions,
+          app.volume.meta.spacing,
+          studyState.maskWorkflow.watershedSeeds,
         ),
       };
     },
-    [app.cursor, app.volume, maskBuffers, studyState.masks],
+    [
+      app.cursor,
+      app.volume,
+      maskBuffers,
+      studyState.maskWorkflow.watershedSeeds,
+      studyState.masks,
+    ],
   );
 
   // Push cursor changes to the 3D viewport imperatively so scrubbing never
@@ -193,6 +414,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       });
       setMaskBuffers({});
       setSurfaceBlobs({});
+      setSurfacePreviews([]);
       setSurfaceUrls((current) => {
         Object.values(current).forEach((url) => URL.revokeObjectURL(url));
         return {};
@@ -206,6 +428,29 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   useEffect(() => {
     surfaceUrlsRef.current = surfaceUrls;
   }, [surfaceUrls]);
+
+  useEffect(() => {
+    let canceled = false;
+    const surfaces = studyState.surfaces;
+    void Promise.all(
+      surfaces.map(async (surface) => {
+        const blob = surfaceBlobs[surface.id];
+        if (!blob) return null;
+        return {
+          id: surface.id,
+          stl: await blob.arrayBuffer(),
+          color: surface.color,
+          opacity: surface.opacity,
+          visible: surface.visible,
+        } satisfies SurfaceMeshPreview;
+      }),
+    ).then((items) => {
+      if (!canceled) setSurfacePreviews(items.filter((item) => item !== null));
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [studyState.surfaces, surfaceBlobs]);
 
   useEffect(
     () => () => {
@@ -333,19 +578,420 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     );
   };
 
-  const keepLargestActiveMaskComponent = () => {
-    if (!app.volume) return;
+  const keepLargestActiveMaskComponent = async () => {
+    if (!app.volume || maskStatus) return;
+    const activeMaskId = studyState.activeMaskId;
+    if (!activeMaskId || !maskBuffers[activeMaskId]) return;
     const dims = volumeMaskDims(app.volume.meta.dimensions);
-    updateActiveMaskBuffer(
-      (buffer) => keepLargestMaskComponent(buffer, dims, 26),
-      'mask-region-grow',
-    );
+    const controller = new AbortController();
+    maskAbortRef.current = controller;
+    setMaskStatus('Keeping largest component');
+    try {
+      const result = await keepLargestMaskComponentInWorker({
+        mask: maskBuffers[activeMaskId],
+        dims,
+        connectivity: 26,
+        signal: controller.signal,
+      });
+      updateActiveMaskBuffer(() => result.mask, 'mask-region-grow');
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        window.alert(error instanceof Error ? error.message : 'Mask operation failed.');
+      }
+    } finally {
+      if (maskAbortRef.current === controller) maskAbortRef.current = null;
+      setMaskStatus(undefined);
+    }
   };
 
   const fillActiveMaskHoles = () => {
     if (!app.volume) return;
     const dims = volumeMaskDims(app.volume.meta.dimensions);
     updateActiveMaskBuffer((buffer) => fillMaskHoles(buffer, dims), 'mask-brush');
+  };
+
+  const splitActiveMaskComponents = async () => {
+    const activeMaskId = studyState.activeMaskId;
+    if (
+      !app.volume ||
+      !studyState.study ||
+      !studyState.activeImageId ||
+      !activeMaskId ||
+      maskStatus
+    ) {
+      return;
+    }
+    const sourceMask = studyState.masks.find((mask) => mask.id === activeMaskId);
+    const sourceBuffer = maskBuffers[activeMaskId];
+    if (!sourceMask || !sourceBuffer) return;
+
+    const dims = volumeMaskDims(app.volume.meta.dimensions);
+    const controller = new AbortController();
+    maskAbortRef.current = controller;
+    setMaskStatus('Splitting components');
+    let components: Awaited<ReturnType<typeof splitMaskComponentsInWorker>>;
+    try {
+      components = await splitMaskComponentsInWorker({
+        mask: sourceBuffer,
+        dims,
+        connectivity: 26,
+        limit: 24,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        window.alert(error instanceof Error ? error.message : 'Mask operation failed.');
+      }
+      return;
+    } finally {
+      if (maskAbortRef.current === controller) maskAbortRef.current = null;
+      setMaskStatus(undefined);
+    }
+    if (components.length <= 1) return;
+
+    const nextMasks = studyState.masks.filter((mask) => mask.id !== activeMaskId);
+    const nextBuffers = { ...maskBuffers };
+    delete nextBuffers[activeMaskId];
+    for (const [index, component] of components.entries()) {
+      const nextMask = createStudyMask(
+        studyState.study.id,
+        studyState.activeImageId,
+        {
+          name: `${sourceMask.name} ${index + 1}`,
+          color: sourceMask.color,
+          opacity: sourceMask.opacity,
+          thresholdRange: sourceMask.thresholdRange,
+          voxelCount: component.voxels,
+        },
+      );
+      nextMasks.push({ ...nextMask, edited: true });
+      nextBuffers[nextMask.id] = component.mask;
+    }
+    commitMaskEdit(nextMasks, nextBuffers, nextMasks.at(-1)?.id, 'mask-region-grow');
+  };
+
+  const cancelMaskOperation = () => {
+    maskAbortRef.current?.abort();
+  };
+
+  const selectMask = (maskId: string) => {
+    setStudyState((current) => ({
+      ...current,
+      activeMaskId: maskId,
+    }));
+  };
+
+  const updateMaskAppearance = (
+    maskId: string,
+    patch: Partial<Pick<StudyState['masks'][number], 'color' | 'opacity'>>,
+  ) => {
+    setStudyState((current) => ({
+      ...current,
+      masks: current.masks.map((mask) =>
+        mask.id === maskId
+          ? {
+              ...mask,
+              ...patch,
+              opacity:
+                patch.opacity === undefined
+                  ? mask.opacity
+                  : Math.min(1, Math.max(0.05, patch.opacity)),
+              updatedAt: Date.now(),
+            }
+          : mask,
+      ),
+    }));
+  };
+
+  const updateMaskWorkflow = (
+    patch: Partial<StudyState['maskWorkflow']> & {
+      activeTool?: StudyState['activeTool'];
+    },
+  ) => {
+    const { activeTool, ...workflowPatch } = patch;
+    setStudyState((current) => ({
+      ...current,
+      activeTool: activeTool ?? current.activeTool,
+      maskWorkflow: {
+        ...current.maskWorkflow,
+        ...workflowPatch,
+      },
+    }));
+  };
+
+  const applyBrushAtVoxel = (
+    buffer: Uint8Array,
+    point: [number, number, number],
+    touched: Set<number>,
+  ) => {
+    if (!app.volume) return;
+    const [width, height, depth] = app.volume.meta.dimensions;
+    const [sx, sy, sz] = app.volume.meta.spacing;
+    const radiusMm = Math.max(0.25, studyState.maskWorkflow.brushSizeMm / 2);
+    const rx = Math.max(0, Math.ceil(radiusMm / Math.max(sx, 0.001)));
+    const ry = Math.max(0, Math.ceil(radiusMm / Math.max(sy, 0.001)));
+    const rz = Math.max(0, Math.ceil(radiusMm / Math.max(sz, 0.001)));
+    const [cx, cy, cz] = point;
+    const [minHu, maxHu] = studyState.maskWorkflow.thresholdRange;
+
+    for (let z = Math.max(0, cz - rz); z <= Math.min(depth - 1, cz + rz); z += 1) {
+      for (let y = Math.max(0, cy - ry); y <= Math.min(height - 1, cy + ry); y += 1) {
+        for (let x = Math.max(0, cx - rx); x <= Math.min(width - 1, cx + rx); x += 1) {
+          const dx = (x - cx) * sx;
+          const dy = (y - cy) * sy;
+          const dz = (z - cz) * sz;
+          if (
+            studyState.maskWorkflow.brushShape === 'circle' &&
+            Math.hypot(dx, dy, dz) > radiusMm
+          ) {
+            continue;
+          }
+          const index = (z * height + y) * width + x;
+          if (studyState.maskWorkflow.operation === 'erase') {
+            buffer[index] = 0;
+          } else if (studyState.maskWorkflow.operation === 'threshold') {
+            const value = app.volume.voxels[index];
+            buffer[index] = value >= minHu && value <= maxHu ? 1 : 0;
+          } else {
+            buffer[index] = 1;
+          }
+          touched.add(index);
+        }
+      }
+    }
+  };
+
+  const finishMaskEditSession = () => {
+    const session = maskEditSessionRef.current;
+    if (!session) return;
+    maskEditSessionRef.current = null;
+    if (session.touched.size === 0) return;
+
+    const voxelCount = countMaskVoxels(session.buffer);
+    const nextMasks = studyState.masks.map((mask) =>
+      mask.id === session.maskId
+        ? { ...mask, voxelCount, edited: true, updatedAt: Date.now() }
+        : mask,
+    );
+    const nextUndo = [...undoStack, session.snapshot].slice(-24);
+    setUndoStack(nextUndo);
+    setRedoStack([]);
+    setMaskBuffers((current) => ({
+      ...current,
+      [session.maskId]: session.buffer,
+    }));
+    setStudyState((current) => ({
+      ...current,
+      masks: nextMasks,
+      activeMaskId: session.maskId,
+      maskWorkflow: {
+        ...current.maskWorkflow,
+        canUndo: nextUndo.length > 0,
+        canRedo: false,
+      },
+    }));
+  };
+
+  const addWatershedSeed = (point: [number, number, number]) => {
+    setStudyState((current) => ({
+      ...current,
+      activeTool: 'mask-watershed-seed',
+      maskWorkflow: {
+        ...current.maskWorkflow,
+        watershedSeeds: [
+          ...current.maskWorkflow.watershedSeeds,
+          {
+            id: createAppId('seed'),
+            kind: current.maskWorkflow.watershedSeedKind,
+            point,
+          },
+        ],
+      },
+    }));
+  };
+
+  const addWatershedSeedAtCursor = () => {
+    if (!app.cursor) return;
+    addWatershedSeed([app.cursor.x, app.cursor.y, app.cursor.z]);
+  };
+
+  const clearWatershedSeeds = () => {
+    setStudyState((current) => ({
+      ...current,
+      maskWorkflow: {
+        ...current.maskWorkflow,
+        watershedSeeds: [],
+      },
+    }));
+  };
+
+  const applyWatershedSeeds = () => {
+    const volume = app.volume;
+    if (!volume) return;
+    const seeds = studyState.maskWorkflow.watershedSeeds;
+    if (seeds.length === 0) return;
+    const dims = volumeMaskDims(volume.meta.dimensions);
+    updateActiveMaskBuffer((buffer) => {
+      const next = new Uint8Array(buffer);
+      for (const seed of seeds) {
+        const grown = regionGrowMask(
+          volume.voxels,
+          dims,
+          seed.point,
+          studyState.maskWorkflow.thresholdRange,
+          6,
+        );
+        for (let index = 0; index < next.length; index += 1) {
+          if (!grown[index]) continue;
+          next[index] = seed.kind === 'background' || seed.kind === 'erase' ? 0 : 1;
+        }
+      }
+      return next;
+    }, 'mask-watershed-seed');
+    clearWatershedSeeds();
+  };
+
+  const editMaskOnSlice = (
+    axis: VolumeAxis,
+    point: { xRatio: number; yRatio: number },
+    phase: 'start' | 'move' | 'end',
+  ) => {
+    if (!app.volume || !app.cursor) return;
+    if (studyState.activeTool === 'mask-watershed-seed') {
+      if (phase === 'start') {
+        addWatershedSeed(
+          axisPointToVoxel(axis, point, app.cursor, app.volume.meta.dimensions),
+        );
+      }
+      return;
+    }
+    if (
+      studyState.activeTool !== 'mask-brush' &&
+      studyState.activeTool !== 'mask-erase' &&
+      studyState.activeTool !== 'mask-threshold'
+    ) {
+      return;
+    }
+
+    const activeMaskId = studyState.activeMaskId;
+    if (!activeMaskId || !maskBuffers[activeMaskId]) return;
+    if (phase === 'start' || !maskEditSessionRef.current) {
+      maskEditSessionRef.current = {
+        snapshot: snapshotMasks(),
+        maskId: activeMaskId,
+        buffer: new Uint8Array(maskBuffers[activeMaskId]),
+        touched: new Set<number>(),
+      };
+    }
+    const session = maskEditSessionRef.current;
+    if (!session || session.maskId !== activeMaskId) return;
+    applyBrushAtVoxel(
+      session.buffer,
+      axisPointToVoxel(axis, point, app.cursor, app.volume.meta.dimensions),
+      session.touched,
+    );
+    setMaskBuffers((current) => ({
+      ...current,
+      [session.maskId]: new Uint8Array(session.buffer),
+    }));
+    if (phase === 'end') finishMaskEditSession();
+  };
+
+  const addSliceMeasurement = (
+    axis: VolumeAxis,
+    measurement: CompletedSliceMeasurement,
+  ) => {
+    const volume = app.volume;
+    const cursor = app.cursor;
+    if (!volume || !cursor || !studyState.study) return;
+    const points = measurement.points.map((point) =>
+      axisPointToVoxel(axis, point, cursor, volume.meta.dimensions),
+    );
+    const nextMeasurement = createStudyMeasurement(studyState.study.id, {
+      kind: measurement.kind,
+      name:
+        measurement.kind === 'distance'
+          ? `Distance ${studyState.measurements.length + 1}`
+          : measurement.kind === 'angle'
+            ? `Angle ${studyState.measurements.length + 1}`
+            : measurement.kind === 'ellipse'
+              ? `Ellipse ROI ${studyState.measurements.length + 1}`
+              : `Polygon ROI ${studyState.measurements.length + 1}`,
+      points,
+      value: measurement.value,
+      unit: measurement.unit,
+    });
+    const densityMeasurement = (() => {
+      if (!measurement.densityRoi) return null;
+      const values: number[] = [];
+      const [width, height, depth] = volume.meta.dimensions;
+      const sliceStride = width * height;
+      const planeWidth =
+        axis === VolumeAxis.Sagittal ? height : width;
+      const planeHeight =
+        axis === VolumeAxis.Axial ? height : depth;
+      for (let v = 0; v < planeHeight; v += 1) {
+        for (let u = 0; u < planeWidth; u += 1) {
+          const ratioPoint = {
+            xRatio: planeWidth > 1 ? u / (planeWidth - 1) : 0,
+            yRatio: planeHeight > 1 ? v / (planeHeight - 1) : 0,
+          };
+          if (!pointInMeasurementRoi(ratioPoint, measurement.densityRoi)) {
+            continue;
+          }
+          const x =
+            axis === VolumeAxis.Sagittal ? cursor.x : u;
+          const y =
+            axis === VolumeAxis.Coronal
+              ? cursor.y
+              : axis === VolumeAxis.Sagittal
+                ? u
+                : v;
+          const z =
+            axis === VolumeAxis.Axial ? cursor.z : depth - 1 - v;
+          values.push(volume.voxels[z * sliceStride + y * width + x]);
+        }
+      }
+      const stats = densityStats(values);
+      if (stats.count === 0) return null;
+      return createStudyMeasurement(studyState.study.id, {
+        kind: 'density',
+        name: `${nextMeasurement.name} density (${stats.min.toFixed(0)} to ${stats.max.toFixed(0)} HU)`,
+        points,
+        value: stats.mean,
+        unit: 'HU',
+      });
+    })();
+    setStudyState((current) => ({
+      ...current,
+      measurements: [
+        ...current.measurements,
+        nextMeasurement,
+        ...(densityMeasurement ? [densityMeasurement] : []),
+      ],
+      activeMeasurementId: densityMeasurement?.id ?? nextMeasurement.id,
+      activeTool:
+        measurement.kind === 'distance'
+          ? 'measure-distance'
+          : measurement.kind === 'angle'
+            ? 'measure-angle'
+            : measurement.kind === 'ellipse'
+              ? 'measure-ellipse'
+              : 'measure-polygon',
+    }));
+  };
+
+  const deleteMeasurement = (measurementId: string) => {
+    setStudyState((current) => ({
+      ...current,
+      measurements: current.measurements.filter(
+        (measurement) => measurement.id !== measurementId,
+      ),
+      activeMeasurementId:
+        current.activeMeasurementId === measurementId
+          ? undefined
+          : current.activeMeasurementId,
+    }));
   };
 
   const undoMaskEdit = () => {
@@ -399,45 +1045,68 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }));
   };
 
-  const createSurfaceFromActiveMask = () => {
+  const createSurfaceFromActiveMask = async (
+    quality: SurfaceGenerationQuality = 'balanced',
+  ) => {
     const activeMaskId = studyState.activeMaskId;
-    if (!app.volume || !studyState.study || !activeMaskId) return;
-    const mask = maskBuffers[activeMaskId];
+    if (!app.volume || !studyState.study || !activeMaskId || surfaceStatus) return;
+    const sourceBuffer = maskBuffers[activeMaskId];
     const sourceMask = studyState.masks.find((item) => item.id === activeMaskId);
-    if (!mask || !sourceMask || !sourceMask.voxelCount) return;
+    if (!sourceBuffer || !sourceMask || !sourceMask.voxelCount) return;
 
     const dims = volumeMaskDims(app.volume.meta.dimensions);
-    const stride = sourceMask.voxelCount > 750_000 ? 2 : 1;
-    const blob = maskToBinaryStl(
-      mask,
-      dims,
-      app.volume.meta.spacing,
-      [0, 0, 0],
-      stride,
-    );
-    const surface = createStudySurface(studyState.study.id, {
-      maskId: activeMaskId,
-      name: `${sourceMask.name} surface`,
-      color: sourceMask.color,
-      triangleCount: Math.ceil(
-        estimateVoxelSurfaceTriangleCount(mask, dims) / (stride * stride),
-      ),
-      volumeMm3:
-        sourceMask.voxelCount *
-        app.volume.meta.spacing[0] *
-        app.volume.meta.spacing[1] *
-        app.volume.meta.spacing[2],
-    });
-    const url = URL.createObjectURL(blob);
+    const controller = new AbortController();
+    surfaceAbortRef.current = controller;
+    setSurfaceStatus('Preparing surface');
+    try {
+      const generated = await generateSurfaceInWorker({
+        mask: sourceBuffer,
+        dims,
+        spacing: app.volume.meta.spacing,
+        quality,
+        signal: controller.signal,
+        onProgress: (phase) => {
+          setSurfaceStatus(
+            phase === 'preprocess'
+              ? 'Preparing mask'
+              : phase === 'mesh'
+                ? 'Generating mesh'
+                : 'Measuring surface',
+          );
+        },
+      });
+      const surface = createStudySurface(studyState.study.id, {
+        maskId: activeMaskId,
+        name: `${sourceMask.name} ${quality} surface`,
+        color: sourceMask.color,
+        areaMm2: generated.areaMm2,
+        triangleCount: generated.triangleCount,
+        volumeMm3: generated.volumeMm3,
+      });
+      const url = URL.createObjectURL(generated.blob);
 
-    setSurfaceBlobs((current) => ({ ...current, [surface.id]: blob }));
-    setSurfaceUrls((current) => ({ ...current, [surface.id]: url }));
-    setStudyState((current) => ({
-      ...current,
-      surfaces: [...current.surfaces, surface],
-      activeSurfaceId: surface.id,
-      activeTool: 'surface-select',
-    }));
+      setSurfaceBlobs((current) => ({ ...current, [surface.id]: generated.blob }));
+      setSurfaceUrls((current) => ({ ...current, [surface.id]: url }));
+      setStudyState((current) => ({
+        ...current,
+        surfaces: [...current.surfaces, surface],
+        activeSurfaceId: surface.id,
+        activeTool: 'surface-select',
+      }));
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        window.alert(
+          error instanceof Error ? error.message : 'Surface generation failed.',
+        );
+      }
+    } finally {
+      if (surfaceAbortRef.current === controller) surfaceAbortRef.current = null;
+      setSurfaceStatus(undefined);
+    }
+  };
+
+  const cancelSurfaceGeneration = () => {
+    surfaceAbortRef.current?.abort();
   };
 
   const toggleSurfaceVisibility = (surfaceId: string) => {
@@ -459,6 +1128,33 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     link.href = url;
     link.download = `${surface.name.replace(/[^a-z0-9_-]+/gi, '_')}.stl`;
     link.click();
+  };
+
+  const downloadSurfacePly = (surfaceId: string) => {
+    const surface = studyState.surfaces.find((item) => item.id === surfaceId);
+    if (!app.volume || !surface?.maskId) return;
+    const mask = maskBuffers[surface.maskId];
+    if (!mask) return;
+    const sourceMask = studyState.masks.find((item) => item.id === surface.maskId);
+    const stride = (sourceMask?.voxelCount ?? 0) > 750_000 ? 2 : 1;
+    const blob = maskToAsciiPly(
+      mask,
+      volumeMaskDims(app.volume.meta.dimensions),
+      app.volume.meta.spacing,
+      [0, 0, 0],
+      stride,
+      {
+        extraction: 'iso',
+        smoothIterations: 0,
+        decimateReduction: 0,
+      },
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${surface.name.replace(/[^a-z0-9_-]+/gi, '_')}.ply`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const exportProject = async () => {
@@ -491,68 +1187,96 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  const importProject = async (file: File) => {
+  const applyProjectArchive = (archive: Awaited<ReturnType<typeof readProjectArchive>>) => {
     const volume = app.volume;
     if (!volume) return;
-    try {
-      const archive = await readProjectArchive(file);
-      const restoredImage = archive.manifest.state.images.find((image) =>
-        sameVec3(image.dimensions, volume.meta.dimensions),
+    const restoredImage = archive.manifest.state.images.find((image) =>
+      sameVec3(image.dimensions, volume.meta.dimensions),
+    );
+    if (!restoredImage) {
+      throw new Error(
+        'Project package does not match the loaded volume dimensions.',
       );
-      if (!restoredImage) {
-        throw new Error(
-          'Project package does not match the loaded volume dimensions.',
-        );
-      }
+    }
 
-      const expectedMaskBytes =
-        volume.meta.dimensions[0] *
-        volume.meta.dimensions[1] *
-        volume.meta.dimensions[2];
-      const nextMaskBuffers: MaskBufferMap = {};
-      for (const mask of archive.masks) {
-        if (mask.data.byteLength !== expectedMaskBytes) {
-          throw new Error(`Mask ${mask.id} does not match this volume.`);
-        }
-        nextMaskBuffers[mask.id] = new Uint8Array(mask.data);
+    const expectedMaskBytes =
+      volume.meta.dimensions[0] *
+      volume.meta.dimensions[1] *
+      volume.meta.dimensions[2];
+    const nextMaskBuffers: MaskBufferMap = {};
+    for (const mask of archive.masks) {
+      if (mask.data.byteLength !== expectedMaskBytes) {
+        throw new Error(`Mask ${mask.id} does not match this volume.`);
       }
+      nextMaskBuffers[mask.id] = new Uint8Array(mask.data);
+    }
 
-      setSurfaceBlobs({});
-      setSurfaceUrls((current) => {
-        Object.values(current).forEach((url) => URL.revokeObjectURL(url));
-        return {};
+    setSurfaceBlobs({});
+    setSurfaceUrls((current) => {
+      Object.values(current).forEach((url) => URL.revokeObjectURL(url));
+      return {};
+    });
+    const nextSurfaceBlobs: SurfaceBlobMap = {};
+    const nextSurfaceUrls: SurfaceUrlMap = {};
+    for (const surface of archive.surfaces) {
+      const blob = new Blob([byteRangeToArrayBuffer(surface.data)], {
+        type: 'model/stl',
       });
-      const nextSurfaceBlobs: SurfaceBlobMap = {};
-      const nextSurfaceUrls: SurfaceUrlMap = {};
-      for (const surface of archive.surfaces) {
-        const blob = new Blob([byteRangeToArrayBuffer(surface.data)], {
-          type: 'model/stl',
-        });
-        nextSurfaceBlobs[surface.id] = blob;
-        nextSurfaceUrls[surface.id] = URL.createObjectURL(blob);
-      }
+      nextSurfaceBlobs[surface.id] = blob;
+      nextSurfaceUrls[surface.id] = URL.createObjectURL(blob);
+    }
 
-      setStudyState({
-        ...archive.manifest.state,
-        study: scanStudy ?? archive.manifest.state.study,
-        images: archive.manifest.state.images.map((image) =>
-          image.id === restoredImage.id
-            ? {
-                ...image,
-                dimensions: volume.meta.dimensions,
-                spacing: volume.meta.spacing,
-              }
-            : image,
-        ),
-        activeImageId: restoredImage.id,
-      });
-      setMaskBuffers(nextMaskBuffers);
-      setSurfaceBlobs(nextSurfaceBlobs);
-      setSurfaceUrls(nextSurfaceUrls);
-      setUndoStack([]);
-      setRedoStack([]);
+    setStudyState({
+      ...archive.manifest.state,
+      study: scanStudy ?? archive.manifest.state.study,
+      images: archive.manifest.state.images.map((image) =>
+        image.id === restoredImage.id
+          ? {
+              ...image,
+              dimensions: volume.meta.dimensions,
+              spacing: volume.meta.spacing,
+            }
+          : image,
+      ),
+      activeImageId: restoredImage.id,
+    });
+    setMaskBuffers(nextMaskBuffers);
+    setSurfaceBlobs(nextSurfaceBlobs);
+    setSurfaceUrls(nextSurfaceUrls);
+    setUndoStack([]);
+    setRedoStack([]);
+  };
+
+  const importProject = async (file: File) => {
+    if (!app.volume) return;
+    try {
+      applyProjectArchive(await readProjectArchive(file));
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Project import failed.');
+    }
+  };
+
+  const saveLocalProject = async () => {
+    const surfaces = await Promise.all(
+      Object.entries(surfaceBlobs).map(async ([id, blob]) => ({
+        id,
+        data: new Uint8Array(await blob.arrayBuffer()),
+      })),
+    );
+    await saveLatestProject({
+      state: studyState,
+      masks: Object.entries(maskBuffers).map(([id, data]) => ({ id, data })),
+      surfaces,
+    });
+  };
+
+  const restoreLocalProject = async () => {
+    try {
+      const archive = await loadLatestProject();
+      if (!archive) throw new Error('No local project has been saved yet.');
+      applyProjectArchive(archive);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Local restore failed.');
     }
   };
 
@@ -619,6 +1343,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                     onSidebarVisibleChange={app.setSidebarVisible}
                     onDownsampledChange={app.setDownsampled3D}
                     labels={volume3DLabels}
+                    surfaces={surfacePreviews}
                   />
                 </ViewportFrame>
               </div>
@@ -636,6 +1361,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   selectedAxis={app.selectedAxis}
                   theme={appViewerTheme}
                   labels={axisLabels}
+                  onEditAxis={maskSliceEditEnabled ? editMaskOnSlice : undefined}
+                  onMeasurementComplete={addSliceMeasurement}
                   onZoomChange={app.setMprZoom}
                   onSelectedAxisChange={app.setSelectedAxis}
                   onSelectAxis={app.updateCursor}
@@ -651,6 +1378,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               sourceLabel={app.sourceLabel}
               dimensions={app.dimensions}
               spacing={app.spacing}
+              maskStatus={maskStatus}
+              surfaceStatus={surfaceStatus}
               windowBounds={app.windowBounds}
               levelBounds={app.levelBounds}
               windowLevelDraft={app.windowLevelDraft}
@@ -662,13 +1391,26 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               seriesChoices={app.seriesChoices}
               onWindowChange={app.handleWindowChange}
               onWindowCommit={app.handleWindowCommit}
+              onCancelMaskOperation={cancelMaskOperation}
+              onCancelSurfaceGeneration={cancelSurfaceGeneration}
               onCreateThresholdMask={createThresholdMask}
               onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
+              onDeleteMeasurement={deleteMeasurement}
               onDownloadSurface={downloadSurface}
+              onDownloadSurfacePly={downloadSurfacePly}
               onExportProject={() => void exportProject()}
               onFillMaskHoles={fillActiveMaskHoles}
               onImportProject={(file) => void importProject(file)}
+              onSaveLocalProject={() => void saveLocalProject()}
+              onRestoreLocalProject={() => void restoreLocalProject()}
               onKeepLargestMaskComponent={keepLargestActiveMaskComponent}
+              onSelectMask={selectMask}
+              onSplitMaskComponents={splitActiveMaskComponents}
+              onUpdateMaskAppearance={updateMaskAppearance}
+              onUpdateMaskWorkflow={updateMaskWorkflow}
+              onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
+              onApplyWatershedSeeds={applyWatershedSeeds}
+              onClearWatershedSeeds={clearWatershedSeeds}
               onLevelChange={app.handleLevelChange}
               onLevelCommit={app.handleLevelCommit}
               onRedoMaskEdit={redoMaskEdit}
@@ -714,6 +1456,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   sourceLabel={app.sourceLabel}
                   dimensions={app.dimensions}
                   spacing={app.spacing}
+                  maskStatus={maskStatus}
+                  surfaceStatus={surfaceStatus}
                   windowBounds={app.windowBounds}
                   levelBounds={app.levelBounds}
                   windowLevelDraft={app.windowLevelDraft}
@@ -725,13 +1469,26 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   seriesChoices={app.seriesChoices}
                   onWindowChange={app.handleWindowChange}
                   onWindowCommit={app.handleWindowCommit}
+                  onCancelMaskOperation={cancelMaskOperation}
+                  onCancelSurfaceGeneration={cancelSurfaceGeneration}
                   onCreateThresholdMask={createThresholdMask}
                   onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
+                  onDeleteMeasurement={deleteMeasurement}
                   onDownloadSurface={downloadSurface}
+                  onDownloadSurfacePly={downloadSurfacePly}
                   onExportProject={() => void exportProject()}
                   onFillMaskHoles={fillActiveMaskHoles}
                   onImportProject={(file) => void importProject(file)}
+                  onSaveLocalProject={() => void saveLocalProject()}
+                  onRestoreLocalProject={() => void restoreLocalProject()}
                   onKeepLargestMaskComponent={keepLargestActiveMaskComponent}
+                  onSelectMask={selectMask}
+                  onSplitMaskComponents={splitActiveMaskComponents}
+                  onUpdateMaskAppearance={updateMaskAppearance}
+                  onUpdateMaskWorkflow={updateMaskWorkflow}
+                  onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
+                  onApplyWatershedSeeds={applyWatershedSeeds}
+                  onClearWatershedSeeds={clearWatershedSeeds}
                   onLevelChange={app.handleLevelChange}
                   onLevelCommit={app.handleLevelCommit}
                   onRedoMaskEdit={redoMaskEdit}

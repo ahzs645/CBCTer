@@ -40,6 +40,14 @@ export interface VolumeRenderOptions {
   colormap: VolumeColormap;
 }
 
+export interface SurfaceMeshPreview {
+  id: string;
+  stl: ArrayBuffer;
+  color: string;
+  opacity: number;
+  visible: boolean;
+}
+
 export type VolumeViewPreset =
   | 'front'
   | 'back'
@@ -53,6 +61,7 @@ export interface ThreePreviewInstance {
   focusCursor: (cursor: import('../../types').VolumeCursor | null) => void;
   setPlanesVisible: (visible: boolean) => void;
   setGridVisible: (visible: boolean) => void;
+  setSurfaceMeshes: (surfaces: SurfaceMeshPreview[]) => void;
   setRenderOptions: (options: Partial<VolumeRenderOptions>) => void;
   setView: (preset: VolumeViewPreset) => void;
   resetView: () => void;
