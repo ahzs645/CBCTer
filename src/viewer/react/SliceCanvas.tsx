@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent } from 'react';
 import type { SliceImage } from '../../types';
 import { cn } from '../../utils/cn';
 import { Badge } from '../../components/Badge';
@@ -29,6 +30,7 @@ interface SliceCanvasProps {
   zoom?: number;
   onZoomChange?: (nextZoom: number) => void;
   onSelect?: (point: { xRatio: number; yRatio: number }) => void;
+  onProbe?: (point: { xRatio: number; yRatio: number } | null) => void;
   onEdit?: (
     point: { xRatio: number; yRatio: number },
     phase: 'start' | 'move' | 'end',
@@ -44,6 +46,25 @@ interface SliceCanvasProps {
   exportName?: string;
   /** Override the measurement toolbar tooltips (English defaults otherwise). */
   measurementLabels?: MeasurementLabels;
+  cropRect?: {
+    min: { xRatio: number; yRatio: number };
+    max: { xRatio: number; yRatio: number };
+    enabled: boolean;
+  };
+  onCropRectChange?: (rect: {
+    min: { xRatio: number; yRatio: number };
+    max: { xRatio: number; yRatio: number };
+    enabled: boolean;
+  }) => void;
+  annotations?: Array<{
+    id: string;
+    point: { xRatio: number; yRatio: number };
+    label: string;
+    color: string;
+    selected?: boolean;
+  }>;
+  onAnnotationSelect?: (id: string) => void;
+  onAnnotationMove?: (id: string, point: { xRatio: number; yRatio: number }) => void;
 }
 
 const FALLBACK_RECT: Rect = {
@@ -84,12 +105,18 @@ export function SliceCanvas({
   zoom = 1,
   onZoomChange,
   onSelect,
+  onProbe,
   onEdit,
   onWindowLevelDrag,
   onMeasurementComplete,
   mmPerPixel,
   exportName = 'slice',
   measurementLabels,
+  cropRect,
+  onCropRectChange,
+  annotations = [],
+  onAnnotationSelect,
+  onAnnotationMove,
 }: SliceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -254,8 +281,52 @@ export function SliceCanvas({
     onEdit,
     onWindowLevelDrag,
     onSelect,
+    onProbe,
     onZoomChange,
   });
+
+  const dragCropHandle = (
+    event: PointerEvent<HTMLButtonElement>,
+    handle: 'min' | 'max',
+  ) => {
+    if (!cropRect || event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      const rect = surfaceRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const point = {
+        xRatio: clamp((moveEvent.clientX - rect.left - imageRect.left) / Math.max(1, imageRect.width), 0, 1),
+        yRatio: clamp((moveEvent.clientY - rect.top - imageRect.top) / Math.max(1, imageRect.height), 0, 1),
+      };
+      const next =
+        handle === 'min'
+          ? {
+              ...cropRect,
+              min: {
+                xRatio: Math.min(point.xRatio, cropRect.max.xRatio - 0.01),
+                yRatio: Math.min(point.yRatio, cropRect.max.yRatio - 0.01),
+              },
+            }
+          : {
+              ...cropRect,
+              max: {
+                xRatio: Math.max(point.xRatio, cropRect.min.xRatio + 0.01),
+                yRatio: Math.max(point.yRatio, cropRect.min.yRatio + 0.01),
+              },
+            };
+      onCropRectChange?.(next);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+  };
 
   return (
     <div className={cn('h-full min-h-0', className)}>
@@ -333,6 +404,78 @@ export function SliceCanvas({
                 opacity: 0.78,
               }}
             />
+          </div>
+        ) : null}
+        {cropRect?.enabled ? (
+          <div
+            className="pointer-events-none absolute border border-emerald-300/90 bg-emerald-300/5"
+            style={{
+              left: `${imageRect.left + cropRect.min.xRatio * imageRect.width}px`,
+              top: `${imageRect.top + cropRect.min.yRatio * imageRect.height}px`,
+              width: `${(cropRect.max.xRatio - cropRect.min.xRatio) * imageRect.width}px`,
+              height: `${(cropRect.max.yRatio - cropRect.min.yRatio) * imageRect.height}px`,
+            }}
+          >
+            {onCropRectChange ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Move crop minimum"
+                  className="pointer-events-auto absolute -left-1.5 -top-1.5 h-3 w-3 rounded-sm border border-emerald-100 bg-emerald-400"
+                  onPointerDown={(event) => dragCropHandle(event, 'min')}
+                />
+                <button
+                  type="button"
+                  aria-label="Move crop maximum"
+                  className="pointer-events-auto absolute -bottom-1.5 -right-1.5 h-3 w-3 rounded-sm border border-emerald-100 bg-emerald-400"
+                  onPointerDown={(event) => dragCropHandle(event, 'max')}
+                />
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {annotations.length > 0 ? (
+          <div className="pointer-events-none absolute inset-0">
+            {annotations.map((annotation) => {
+              const left = imageRect.left + annotation.point.xRatio * imageRect.width;
+              const top = imageRect.top + annotation.point.yRatio * imageRect.height;
+              return (
+                <button
+                  key={annotation.id}
+                  type="button"
+                  className={cn(
+                    'pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 rounded-full border bg-slate-950/80 px-1.5 py-0.5 text-[10px] shadow',
+                    annotation.selected
+                      ? 'border-white text-white'
+                      : 'border-white/40 text-slate-100',
+                  )}
+                  style={{ left, top, color: annotation.color }}
+                  onPointerDown={(event) => {
+                    if (event.pointerType === 'mouse' && event.button !== 0) return;
+                    event.stopPropagation();
+                    onAnnotationSelect?.(annotation.id);
+                    const move = (moveEvent: globalThis.PointerEvent) => {
+                      const rect = surfaceRef.current?.getBoundingClientRect();
+                      if (!rect) return;
+                      onAnnotationMove?.(annotation.id, {
+                        xRatio: clamp((moveEvent.clientX - rect.left - imageRect.left) / Math.max(1, imageRect.width), 0, 1),
+                        yRatio: clamp((moveEvent.clientY - rect.top - imageRect.top) / Math.max(1, imageRect.height), 0, 1),
+                      });
+                    };
+                    const stop = () => {
+                      window.removeEventListener('pointermove', move);
+                      window.removeEventListener('pointerup', stop);
+                      window.removeEventListener('pointercancel', stop);
+                    };
+                    window.addEventListener('pointermove', move);
+                    window.addEventListener('pointerup', stop);
+                    window.addEventListener('pointercancel', stop);
+                  }}
+                >
+                  {annotation.label}
+                </button>
+              );
+            })}
           </div>
         ) : null}
         {mmPerPixel ? (

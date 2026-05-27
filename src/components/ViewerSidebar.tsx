@@ -93,6 +93,16 @@ interface ViewerSidebarProps {
       >
     >,
   ) => void;
+  onUpdateSegment: (
+    groupId: string,
+    segmentId: string,
+    patch: Partial<
+      Pick<
+        StudyState['segmentGroups'][number]['segments'][number],
+        'color' | 'opacity' | 'visible' | 'locked'
+      >
+    >,
+  ) => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -147,6 +157,7 @@ export function ViewerSidebar({
   onUpdateMaskAppearance,
   onUpdateMaskWorkflow,
   onUpdateStudyViewState,
+  onUpdateSegment,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -271,6 +282,7 @@ export function ViewerSidebar({
           onUpdateMaskAppearance={onUpdateMaskAppearance}
           onUpdateMaskWorkflow={onUpdateMaskWorkflow}
           onUpdateStudyViewState={onUpdateStudyViewState}
+          onUpdateSegment={onUpdateSegment}
           onAddWatershedSeedAtCursor={onAddWatershedSeedAtCursor}
           onApplyWatershedSeeds={onApplyWatershedSeeds}
           onClearWatershedSeeds={onClearWatershedSeeds}

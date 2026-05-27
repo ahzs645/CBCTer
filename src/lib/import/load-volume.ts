@@ -2,7 +2,7 @@ import { i18n } from '../../i18n';
 import type { ImportProgress, ScanFolderSource } from '../../types';
 import { ImportStage } from '../../types';
 import { importFormatAdapters } from './adapters';
-import { expandArchiveEntries } from './archive';
+import { importDataSources, scanFolderDataSource } from './dataSource';
 import type {
   ImportFailure,
   ImportParseOptions,
@@ -15,7 +15,9 @@ export async function loadVolumeFromFolder(
   onProgress?: (progress: ImportProgress) => void,
   options?: ImportParseOptions,
 ): Promise<LoadedImport> {
-  const expandedSource = await expandArchiveEntries(source);
+  const { source: expandedSource } = await importDataSources(
+    scanFolderDataSource(source),
+  );
   onProgress?.({
     stage: ImportStage.Scanning,
     detailKey: 'importStatus.progress.scanningSelectedFolder',

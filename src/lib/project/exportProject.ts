@@ -55,7 +55,7 @@ interface ProjectArchiveManifestV1 {
 export interface ProjectArchiveDataSource {
   id: string;
   kind: 'embedded';
-  role: 'mask' | 'surface';
+  role: 'mask' | 'labelmap' | 'surface';
   path: string;
   bytes: number;
 }
@@ -215,7 +215,7 @@ export async function buildProjectArchive({
       ...labelmapEntries.map((entry) => ({
         ...entry,
         kind: 'embedded' as const,
-        role: 'mask' as const,
+        role: 'labelmap' as const,
       })),
       ...surfaceEntries.map((entry) => ({
         ...entry,

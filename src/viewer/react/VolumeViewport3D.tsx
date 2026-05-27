@@ -26,6 +26,7 @@ import {
   type VolumeViewPreset,
 } from '../core';
 import type { PreparedVolumeFor3D, VolumeCursor } from '../../types';
+import type { CropBounds } from '../../domain/types';
 import { cn } from '../../utils/cn';
 import { Button } from '../../components/Button';
 import { RangeField } from '../../components/RangeField';
@@ -63,6 +64,7 @@ interface VolumeViewport3DProps {
   /** Extra classes merged onto the root element. */
   className?: string;
   surfaces?: SurfaceMeshPreview[];
+  cropBounds?: CropBounds;
 }
 
 export interface VolumeViewport3DHandle {
@@ -86,6 +88,7 @@ export const VolumeViewport3D = memo(
         labels = defaultVolumeViewport3DLabels,
         className,
         surfaces = [],
+        cropBounds,
       },
       ref,
     ) {
@@ -247,6 +250,11 @@ export const VolumeViewport3D = memo(
         className="absolute inset-0 h-full min-h-0 overflow-hidden"
       />
       <div className="absolute inset-0 z-20 pointer-events-none">
+        {cropBounds?.enabled ? (
+          <div className="absolute left-2 bottom-14 rounded border border-emerald-300/40 bg-slate-950/75 px-2 py-1 text-[11px] text-emerald-100">
+            Crop {cropBounds.min.join(',')} to {cropBounds.max.join(',')}
+          </div>
+        ) : null}
         <div className="pointer-events-auto absolute left-2 top-2 flex flex-col gap-1.5">
           <div className="flex items-center gap-0.5 rounded-lg bg-slate-950/70 p-1 ring-1 ring-white/10">
             {VIEW_PRESETS.map((view) => (

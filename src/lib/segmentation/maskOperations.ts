@@ -176,6 +176,20 @@ export interface MaskOverlayLayer {
   visible: boolean;
 }
 
+export interface LabelmapOverlaySegment {
+  value: number;
+  color: string;
+  opacity: number;
+  visible: boolean;
+}
+
+export interface LabelmapOverlayLayer {
+  labelmap: Uint16Array;
+  opacity: number;
+  visible: boolean;
+  segments: LabelmapOverlaySegment[];
+}
+
 function parseHexColor(color: string): [number, number, number] {
   const normalized = color.replace('#', '');
   if (!/^[0-9a-f]{6}$/i.test(normalized)) return [56, 189, 248];
@@ -295,6 +309,82 @@ export function extractMaskOverlayImage(
             if (layer.mask[base + y * width]) {
               blendPixel(data, output * 4, color, alpha);
             }
+            output += 1;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  return {
+    ...shape,
+    data,
+    displayAspect: overlayDisplayAspect(axis, spacing),
+    pixelated: true,
+  };
+}
+
+export function extractLabelmapOverlayImage(
+  layers: LabelmapOverlayLayer[],
+  axis: VolumeAxis,
+  cursor: VolumeCursor,
+  dimensions: Vec3,
+  spacing: Vec3,
+): SliceImage | null {
+  const visibleLayers = layers.filter((layer) => layer.visible);
+  if (visibleLayers.length === 0) return null;
+
+  const [width, height, depth] = dimensions;
+  const shape = overlayShape(axis, dimensions);
+  const data = new Uint8ClampedArray(shape.width * shape.height * 4);
+  const sliceStride = width * height;
+
+  for (const layer of visibleLayers) {
+    const segmentByValue = new Map(
+      layer.segments
+        .filter((segment) => segment.visible)
+        .map((segment) => [segment.value, segment]),
+    );
+    if (segmentByValue.size === 0) continue;
+
+    let output = 0;
+    const drawValue = (value: number) => {
+      const segment = segmentByValue.get(value);
+      if (!segment) return;
+      const alpha = Math.round(
+        Math.max(0, Math.min(1, segment.opacity * layer.opacity)) * 180,
+      );
+      blendPixel(data, output * 4, parseHexColor(segment.color), alpha);
+    };
+
+    switch (axis) {
+      case VolumeAxis.Axial: {
+        const base = cursor.z * sliceStride;
+        for (let y = 0; y < height; y += 1) {
+          const row = base + y * width;
+          for (let x = 0; x < width; x += 1) {
+            drawValue(layer.labelmap[row + x]);
+            output += 1;
+          }
+        }
+        break;
+      }
+      case VolumeAxis.Coronal: {
+        for (let z = depth - 1; z >= 0; z -= 1) {
+          const base = z * sliceStride + cursor.y * width;
+          for (let x = 0; x < width; x += 1) {
+            drawValue(layer.labelmap[base + x]);
+            output += 1;
+          }
+        }
+        break;
+      }
+      case VolumeAxis.Sagittal: {
+        for (let z = depth - 1; z >= 0; z -= 1) {
+          const base = z * sliceStride + cursor.x;
+          for (let y = 0; y < height; y += 1) {
+            drawValue(layer.labelmap[base + y * width]);
             output += 1;
           }
         }

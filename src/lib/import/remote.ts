@@ -14,7 +14,8 @@ export interface RemoteManifestEntry {
 
 export interface RemoteManifest {
   name?: string;
-  files: RemoteManifestEntry[];
+  files?: RemoteManifestEntry[];
+  resources?: RemoteManifestEntry[];
 }
 
 type RemoteScanFolderSource = ReturnType<typeof filesToScanFolderSource>;
@@ -46,14 +47,23 @@ export function filenameFromContentDisposition(
 }
 
 function isRemoteManifest(value: unknown): value is RemoteManifest {
+  const entries = (value as RemoteManifest | null)?.files ??
+    (value as RemoteManifest | null)?.resources;
   return (
     Boolean(value) &&
     typeof value === 'object' &&
-    Array.isArray((value as RemoteManifest).files) &&
-    (value as RemoteManifest).files.every(
-      (entry) => typeof entry.url === 'string',
+    Array.isArray(entries) &&
+    entries.every(
+      (entry) =>
+        Boolean(entry) &&
+        typeof entry === 'object' &&
+        typeof (entry as RemoteManifestEntry).url === 'string',
     )
   );
+}
+
+function manifestEntries(manifest: RemoteManifest): RemoteManifestEntry[] {
+  return manifest.files ?? manifest.resources ?? [];
 }
 
 async function fetchRemoteFile(
@@ -96,7 +106,9 @@ export async function loadRemoteImport(url: string): Promise<LoadedRemoteImport>
       const parsed = JSON.parse(await first.file.text()) as unknown;
       if (isRemoteManifest(parsed)) {
         const files = await Promise.all(
-          parsed.files.map((entry, index) => fetchRemoteFile(entry, index)),
+          manifestEntries(parsed).map((entry, index) =>
+            fetchRemoteFile(entry, index),
+          ),
         );
         const label =
           parsed.name || first.name.replace(/\.json$/i, '') || 'remote manifest';

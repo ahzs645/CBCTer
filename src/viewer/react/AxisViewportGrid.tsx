@@ -15,6 +15,28 @@ interface AxisViewportGridProps {
   spacing: Vec3;
   mprZoom: number;
   overlays?: Partial<Record<VolumeAxis, SliceImage | null>>;
+  cropRects?: Partial<
+    Record<
+      VolumeAxis,
+      {
+        min: { xRatio: number; yRatio: number };
+        max: { xRatio: number; yRatio: number };
+        enabled: boolean;
+      }
+    >
+  >;
+  annotations?: Partial<
+    Record<
+      VolumeAxis,
+      Array<{
+        id: string;
+        point: { xRatio: number; yRatio: number };
+        label: string;
+        color: string;
+        selected?: boolean;
+      }>
+    >
+  >;
   selectedAxis?: VolumeAxis;
   slices: ViewerSlices;
   hasVolume: boolean;
@@ -32,6 +54,24 @@ interface AxisViewportGridProps {
     axis: VolumeAxis,
     point: { xRatio: number; yRatio: number },
     phase: 'start' | 'move' | 'end',
+  ) => void;
+  onProbeAxis?: (
+    axis: VolumeAxis,
+    point: { xRatio: number; yRatio: number } | null,
+  ) => void;
+  onCropAxis?: (
+    axis: VolumeAxis,
+    rect: {
+      min: { xRatio: number; yRatio: number };
+      max: { xRatio: number; yRatio: number };
+      enabled: boolean;
+    },
+  ) => void;
+  onAnnotationSelect?: (annotationId: string) => void;
+  onAnnotationMove?: (
+    axis: VolumeAxis,
+    annotationId: string,
+    point: { xRatio: number; yRatio: number },
   ) => void;
   onMeasurementComplete?: (
     axis: VolumeAxis,
@@ -58,6 +98,8 @@ interface AxisViewportDefinition {
   crosshairColors: { vertical: string; horizontal: string };
   mmPerPixel?: { x: number; y: number };
   overlay?: SliceImage | null;
+  cropRect?: NonNullable<AxisViewportGridProps['cropRects']>[VolumeAxis];
+  annotations?: NonNullable<AxisViewportGridProps['annotations']>[VolumeAxis];
   exportName: string;
 }
 
@@ -67,6 +109,7 @@ interface AxisViewportPaneProps {
   compact: boolean;
   mprZoom: number;
   onSelect: (point: { xRatio: number; yRatio: number }) => void;
+  onProbe?: (point: { xRatio: number; yRatio: number } | null) => void;
   onEdit?: (
     point: { xRatio: number; yRatio: number },
     phase: 'start' | 'move' | 'end',
@@ -75,6 +118,12 @@ interface AxisViewportPaneProps {
   onWindowLevelDrag?: (
     delta: { x: number; y: number },
     phase: 'start' | 'move' | 'end',
+  ) => void;
+  onCropRectChange?: NonNullable<AxisViewportGridProps['onCropAxis']>;
+  onAnnotationSelect?: (annotationId: string) => void;
+  onAnnotationMove?: (
+    annotationId: string,
+    point: { xRatio: number; yRatio: number },
   ) => void;
   onZoomChange: (zoom: number) => void;
 }
@@ -86,8 +135,12 @@ function AxisViewportPane({
   mprZoom,
   onEdit,
   onMeasurementComplete,
+  onProbe,
   onSelect,
   onWindowLevelDrag,
+  onCropRectChange,
+  onAnnotationSelect,
+  onAnnotationMove,
   onZoomChange,
 }: AxisViewportPaneProps) {
   const subtitleLabelClass =
@@ -137,8 +190,14 @@ function AxisViewportPane({
         onZoomChange={onZoomChange}
         onEdit={onEdit}
         onWindowLevelDrag={onWindowLevelDrag}
+        onProbe={onProbe}
         onMeasurementComplete={onMeasurementComplete}
         onSelect={onSelect}
+        cropRect={definition.cropRect}
+        onCropRectChange={(rect) => onCropRectChange?.(definition.axis, rect)}
+        annotations={definition.annotations}
+        onAnnotationSelect={onAnnotationSelect}
+        onAnnotationMove={onAnnotationMove}
         mmPerPixel={definition.mmPerPixel}
         exportName={definition.exportName}
       />
@@ -155,6 +214,8 @@ function resolveAxisDefinitions(
   theme: ViewerTheme,
   labels: AxisViewportLabels,
   overlays?: Partial<Record<VolumeAxis, SliceImage | null>>,
+  cropRects?: AxisViewportGridProps['cropRects'],
+  annotations?: AxisViewportGridProps['annotations'],
 ): Record<VolumeAxis, AxisViewportDefinition> {
   const planeColors = theme.planeColors;
   return {
@@ -166,6 +227,8 @@ function resolveAxisDefinitions(
       orientation: labels.coronal.orientation,
       image: slices.coronal,
       overlay: overlays?.[VolumeAxis.Coronal],
+      cropRect: cropRects?.[VolumeAxis.Coronal],
+      annotations: annotations?.[VolumeAxis.Coronal],
       status: cursor
         ? labels.status(
             VolumeAxis.Coronal,
@@ -192,6 +255,8 @@ function resolveAxisDefinitions(
       orientation: labels.sagittal.orientation,
       image: slices.sagittal,
       overlay: overlays?.[VolumeAxis.Sagittal],
+      cropRect: cropRects?.[VolumeAxis.Sagittal],
+      annotations: annotations?.[VolumeAxis.Sagittal],
       status: cursor
         ? labels.status(
             VolumeAxis.Sagittal,
@@ -218,6 +283,8 @@ function resolveAxisDefinitions(
       orientation: labels.axial.orientation,
       image: slices.axial,
       overlay: overlays?.[VolumeAxis.Axial],
+      cropRect: cropRects?.[VolumeAxis.Axial],
+      annotations: annotations?.[VolumeAxis.Axial],
       status: cursor
         ? labels.status(
             VolumeAxis.Axial,
@@ -244,6 +311,8 @@ export function AxisViewportGrid({
   spacing,
   mprZoom,
   overlays,
+  cropRects,
+  annotations,
   selectedAxis = VolumeAxis.Coronal,
   slices,
   hasVolume,
@@ -252,6 +321,10 @@ export function AxisViewportGrid({
   className,
   onSelectAxis,
   onEditAxis,
+  onProbeAxis,
+  onCropAxis,
+  onAnnotationSelect,
+  onAnnotationMove,
   onMeasurementComplete,
   onSelectedAxisChange,
   onWindowLevelDrag,
@@ -282,6 +355,8 @@ export function AxisViewportGrid({
     theme,
     labels,
     overlays,
+    cropRects,
+    annotations,
   );
   const axes = [VolumeAxis.Coronal, VolumeAxis.Sagittal, VolumeAxis.Axial];
 
@@ -295,10 +370,16 @@ export function AxisViewportGrid({
           mprZoom={mprZoom}
           onZoomChange={onZoomChange}
           onEdit={(point, phase) => onEditAxis?.(selectedAxis, point, phase)}
+          onProbe={(point) => onProbeAxis?.(selectedAxis, point)}
           onMeasurementComplete={(measurement) =>
             onMeasurementComplete?.(selectedAxis, measurement)
           }
           onWindowLevelDrag={onWindowLevelDrag}
+          onCropRectChange={onCropAxis}
+          onAnnotationSelect={onAnnotationSelect}
+          onAnnotationMove={(annotationId, point) =>
+            onAnnotationMove?.(selectedAxis, annotationId, point)
+          }
           onSelect={onSelectAxis(selectedAxis)}
         />
       </div>
@@ -320,10 +401,16 @@ export function AxisViewportGrid({
           mprZoom={mprZoom}
           onZoomChange={onZoomChange}
           onEdit={(point, phase) => onEditAxis?.(axis, point, phase)}
+          onProbe={(point) => onProbeAxis?.(axis, point)}
           onMeasurementComplete={(measurement) =>
             onMeasurementComplete?.(axis, measurement)
           }
           onWindowLevelDrag={onWindowLevelDrag}
+          onCropRectChange={onCropAxis}
+          onAnnotationSelect={onAnnotationSelect}
+          onAnnotationMove={(annotationId, point) =>
+            onAnnotationMove?.(axis, annotationId, point)
+          }
           onSelect={onSelectAxis(axis)}
         />
       ))}

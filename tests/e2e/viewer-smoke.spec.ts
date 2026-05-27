@@ -15,3 +15,20 @@ test('loads the bundled sample and renders nonblank MPR canvases', async ({
     fullPage: true,
   });
 });
+
+test('shows VolView-inspired study controls and crop overlay', async ({ page }) => {
+  const app = new CBCTerPage(page);
+  await app.open();
+  await app.loadSample();
+
+  await app.openWorkflowTab('Study');
+  await expect(page.getByText('DICOM engine')).toBeVisible();
+  await expect(page.getByText('Layout')).toBeVisible();
+
+  await page.getByLabel('Crop bounds').check();
+  await expect(page.getByText(/Crop 0,0,0 to/)).toBeVisible();
+  await expect(page).toHaveScreenshot('viewer-crop-controls.png', {
+    animations: 'disabled',
+    fullPage: true,
+  });
+});

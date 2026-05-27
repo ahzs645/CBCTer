@@ -83,6 +83,7 @@ describe('project archive export', () => {
     expect(archive.manifest.labelmaps[0].path).toBe(
       'labelmaps/labels_primary.uint16.raw',
     );
+    expect(archive.manifest.dataSources[0].role).toBe('labelmap');
     expect([...archive.labelmaps[0].data]).toEqual([1, 0, 2, 0]);
   });
 

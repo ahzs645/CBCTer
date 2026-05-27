@@ -90,6 +90,16 @@ interface StudyWorkflowPanelProps {
       >
     >,
   ) => void;
+  onUpdateSegment: (
+    groupId: string,
+    segmentId: string,
+    patch: Partial<
+      Pick<
+        StudyState['segmentGroups'][number]['segments'][number],
+        'color' | 'opacity' | 'visible' | 'locked'
+      >
+    >,
+  ) => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -136,6 +146,7 @@ export function StudyWorkflowPanel({
   onUpdateMaskAppearance,
   onUpdateMaskWorkflow,
   onUpdateStudyViewState,
+  onUpdateSegment,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -510,14 +521,47 @@ export function StudyWorkflowPanel({
                             key={segment.id}
                             className="inline-flex max-w-full items-center gap-1 rounded border border-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
                           >
-                            <span
-                              className="h-2 w-2 shrink-0 rounded-sm"
-                              style={{ backgroundColor: segment.color }}
-                              aria-hidden="true"
+                            <input
+                              type="color"
+                              className="h-3 w-3 shrink-0 cursor-pointer rounded-sm border border-white/20 bg-transparent p-0"
+                              value={segment.color}
+                              aria-label="Segment color"
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) =>
+                                onUpdateSegment(group.id, segment.id, {
+                                  color: event.currentTarget.value,
+                                })
+                              }
                             />
                             <span className="truncate">
                               {segment.value}: {segment.name}
                             </span>
+                            <button
+                              type="button"
+                              className="rounded px-1 text-slate-500 hover:bg-slate-800 hover:text-slate-100"
+                              aria-label={segment.visible ? t('common.hide') : t('common.show')}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onUpdateSegment(group.id, segment.id, {
+                                  visible: !segment.visible,
+                                });
+                              }}
+                            >
+                              {segment.visible ? 'V' : 'H'}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded px-1 text-slate-500 hover:bg-slate-800 hover:text-slate-100"
+                              aria-label={segment.locked ? 'Unlock segment' : 'Lock segment'}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onUpdateSegment(group.id, segment.id, {
+                                  locked: !segment.locked,
+                                });
+                              }}
+                            >
+                              {segment.locked ? 'L' : 'U'}
+                            </button>
                           </span>
                         ))}
                       </div>

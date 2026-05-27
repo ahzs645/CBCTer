@@ -52,4 +52,8 @@ export class CBCTerPage {
     }
     throw new Error('Expected at least one nonblank 2D canvas');
   }
+
+  async openWorkflowTab(name: string) {
+    await this.page.getByRole('button', { name }).click();
+  }
 }

@@ -85,6 +85,7 @@ export interface SliceInteractionParams {
   cursorHeight: number;
   surfaceHeight: number;
   onSelect?: (point: { xRatio: number; yRatio: number }) => void;
+  onProbe?: (point: { xRatio: number; yRatio: number } | null) => void;
   onEdit?: (
     point: { xRatio: number; yRatio: number },
     phase: 'start' | 'move' | 'end',
@@ -104,6 +105,7 @@ export interface SliceInteraction {
     onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
     onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
     onPointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
+    onPointerLeave: () => void;
     onWheel: (event: WheelEvent<HTMLDivElement>) => void;
   };
 }
@@ -121,6 +123,7 @@ export function useSliceInteraction({
   cursorHeight,
   surfaceHeight,
   onSelect,
+  onProbe,
   onEdit,
   onWindowLevelDrag,
   onZoomChange,
@@ -393,6 +396,8 @@ export function useSliceInteraction({
         dragRef.current.pointerId !== event.pointerId ||
         (!onSelect && !onEdit && !onWindowLevelDrag)
       ) {
+        const point = pointFromEvent(event);
+        onProbe?.(toSelectionPoint(point.x, point.y));
         return;
       }
 
@@ -497,6 +502,10 @@ export function useSliceInteraction({
     onZoomChange(nextZoom);
   };
 
+  const onPointerLeave = () => {
+    onProbe?.(null);
+  };
+
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse') {
       if (
@@ -595,8 +604,9 @@ export function useSliceInteraction({
       onPointerDown,
       onPointerMove,
       onPointerUp,
-      onPointerCancel,
-      onWheel,
+    onPointerCancel,
+    onPointerLeave,
+    onWheel,
     },
   };
 }

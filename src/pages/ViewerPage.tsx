@@ -43,6 +43,7 @@ import {
 } from '../lib/project';
 import {
   countMaskVoxels,
+  extractLabelmapOverlayImage,
   extractMaskOverlayImage,
   fillMaskHoles,
   regionGrowMask,
@@ -69,6 +70,12 @@ type MaskBufferMap = Record<string, Uint8Array>;
 type SurfaceBlobMap = Record<string, Blob>;
 type SurfaceUrlMap = Record<string, string>;
 type LabelmapBufferMap = Record<string, Uint8Array>;
+type SliceProbe = {
+  axis: VolumeAxis;
+  voxel: [number, number, number];
+  value: number;
+  label?: string;
+} | null;
 
 interface MaskSnapshot {
   masks: StudyState['masks'];
@@ -136,6 +143,14 @@ function buildLabelmapBuffers(
     labelmaps[group.id] = uint16ArrayToBytes(labelmap);
   }
   return labelmaps;
+}
+
+function maskToLabelmap(mask: Uint8Array, value: number): Uint16Array {
+  const labelmap = new Uint16Array(mask.length);
+  for (let index = 0; index < mask.length; index += 1) {
+    if (mask[index]) labelmap[index] = value;
+  }
+  return labelmap;
 }
 
 function clampIndex(value: number, max: number): number {
@@ -312,11 +327,13 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     createEmptyStudyState(),
   );
   const [maskBuffers, setMaskBuffers] = useState<MaskBufferMap>({});
+  const [labelmapBuffers, setLabelmapBuffers] = useState<LabelmapBufferMap>({});
   const [surfaceBlobs, setSurfaceBlobs] = useState<SurfaceBlobMap>({});
   const [surfaceUrls, setSurfaceUrls] = useState<SurfaceUrlMap>({});
   const [surfacePreviews, setSurfacePreviews] = useState<SurfaceMeshPreview[]>([]);
   const [surfaceStatus, setSurfaceStatus] = useState<string | undefined>();
   const [maskStatus, setMaskStatus] = useState<string | undefined>();
+  const [sliceProbe, setSliceProbe] = useState<SliceProbe>(null);
   const surfaceUrlsRef = useRef<SurfaceUrlMap>({});
   const dicomImportEngineRef = useRef(app.dicomImportEngine);
   const surfaceAbortRef = useRef<AbortController | null>(null);
@@ -354,6 +371,27 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const maskOverlays = useMemo<Partial<Record<VolumeAxis, SliceImage | null>>>(
     () => {
       if (!app.cursor || !app.volume) return {};
+      const labelmapLayers = studyState.segmentGroups
+        .map((group) => {
+          const buffer = labelmapBuffers[group.id];
+          if (!buffer) return null;
+          return {
+            labelmap: new Uint16Array(
+              buffer.buffer,
+              buffer.byteOffset,
+              buffer.byteLength / 2,
+            ),
+            opacity: group.opacity,
+            visible: group.visible,
+            segments: group.segments.map((segment) => ({
+              value: segment.value,
+              color: segment.color,
+              opacity: segment.opacity,
+              visible: segment.visible,
+            })),
+          };
+        })
+        .filter((layer): layer is NonNullable<typeof layer> => layer != null);
       const layers = studyState.masks
         .map((mask) => {
           const buffer = maskBuffers[mask.id];
@@ -367,21 +405,45 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         })
         .filter((layer): layer is NonNullable<typeof layer> => layer != null);
 
-      const coronal = extractMaskOverlayImage(
+      const coronal = labelmapLayers.length
+        ? extractLabelmapOverlayImage(
+          labelmapLayers,
+          VolumeAxis.Coronal,
+          app.cursor,
+          app.volume.meta.dimensions,
+          app.volume.meta.spacing,
+        )
+        : extractMaskOverlayImage(
           layers,
           VolumeAxis.Coronal,
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
         );
-      const sagittal = extractMaskOverlayImage(
+      const sagittal = labelmapLayers.length
+        ? extractLabelmapOverlayImage(
+          labelmapLayers,
+          VolumeAxis.Sagittal,
+          app.cursor,
+          app.volume.meta.dimensions,
+          app.volume.meta.spacing,
+        )
+        : extractMaskOverlayImage(
           layers,
           VolumeAxis.Sagittal,
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
         );
-      const axial = extractMaskOverlayImage(
+      const axial = labelmapLayers.length
+        ? extractLabelmapOverlayImage(
+          labelmapLayers,
+          VolumeAxis.Axial,
+          app.cursor,
+          app.volume.meta.dimensions,
+          app.volume.meta.spacing,
+        )
+        : extractMaskOverlayImage(
           layers,
           VolumeAxis.Axial,
           app.cursor,
@@ -420,10 +482,97 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       app.cursor,
       app.volume,
       maskBuffers,
+      labelmapBuffers,
       studyState.maskWorkflow.watershedSeeds,
       studyState.masks,
+      studyState.segmentGroups,
     ],
   );
+
+  const cropRects = useMemo(() => {
+    const crop = studyState.cropBounds;
+    if (!crop || !app.volume) return {};
+    const [width, height, depth] = app.volume.meta.dimensions;
+    return {
+      [VolumeAxis.Axial]: {
+        enabled: crop.enabled,
+        min: {
+          xRatio: crop.min[0] / Math.max(1, width - 1),
+          yRatio: crop.min[1] / Math.max(1, height - 1),
+        },
+        max: {
+          xRatio: crop.max[0] / Math.max(1, width - 1),
+          yRatio: crop.max[1] / Math.max(1, height - 1),
+        },
+      },
+      [VolumeAxis.Coronal]: {
+        enabled: crop.enabled,
+        min: {
+          xRatio: crop.min[0] / Math.max(1, width - 1),
+          yRatio: 1 - crop.max[2] / Math.max(1, depth - 1),
+        },
+        max: {
+          xRatio: crop.max[0] / Math.max(1, width - 1),
+          yRatio: 1 - crop.min[2] / Math.max(1, depth - 1),
+        },
+      },
+      [VolumeAxis.Sagittal]: {
+        enabled: crop.enabled,
+        min: {
+          xRatio: crop.min[1] / Math.max(1, height - 1),
+          yRatio: 1 - crop.max[2] / Math.max(1, depth - 1),
+        },
+        max: {
+          xRatio: crop.max[1] / Math.max(1, height - 1),
+          yRatio: 1 - crop.min[2] / Math.max(1, depth - 1),
+        },
+      },
+    };
+  }, [app.volume, studyState.cropBounds]);
+
+  const annotationOverlays = useMemo(() => {
+    if (!app.cursor || !app.volume) return {};
+    const [width, height, depth] = app.volume.meta.dimensions;
+    const visible = studyState.annotations.filter((annotation) => annotation.visible);
+    return {
+      [VolumeAxis.Axial]: visible
+        .filter((annotation) => annotation.point[2] === app.cursor?.z)
+        .map((annotation) => ({
+          id: annotation.id,
+          point: {
+            xRatio: annotation.point[0] / Math.max(1, width - 1),
+            yRatio: annotation.point[1] / Math.max(1, height - 1),
+          },
+          label: annotation.name,
+          color: annotation.color,
+          selected: annotation.id === studyState.activeAnnotationId,
+        })),
+      [VolumeAxis.Coronal]: visible
+        .filter((annotation) => annotation.point[1] === app.cursor?.y)
+        .map((annotation) => ({
+          id: annotation.id,
+          point: {
+            xRatio: annotation.point[0] / Math.max(1, width - 1),
+            yRatio: 1 - annotation.point[2] / Math.max(1, depth - 1),
+          },
+          label: annotation.name,
+          color: annotation.color,
+          selected: annotation.id === studyState.activeAnnotationId,
+        })),
+      [VolumeAxis.Sagittal]: visible
+        .filter((annotation) => annotation.point[0] === app.cursor?.x)
+        .map((annotation) => ({
+          id: annotation.id,
+          point: {
+            xRatio: annotation.point[1] / Math.max(1, height - 1),
+            yRatio: 1 - annotation.point[2] / Math.max(1, depth - 1),
+          },
+          label: annotation.name,
+          color: annotation.color,
+          selected: annotation.id === studyState.activeAnnotationId,
+        })),
+    };
+  }, [app.cursor, app.volume, studyState.activeAnnotationId, studyState.annotations]);
 
   // Push cursor changes to the 3D viewport imperatively so scrubbing never
   // re-renders (and re-serializes) the heavy prepared-volume prop.
@@ -457,6 +606,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         cropBounds: createFullCropBounds(app.volume.meta.dimensions),
       });
       setMaskBuffers({});
+      setLabelmapBuffers({});
       setSurfaceBlobs({});
       setSurfacePreviews([]);
       setSurfaceUrls((current) => {
@@ -576,6 +726,103 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }
   };
 
+  const updateCropFromAxis = (
+    axis: VolumeAxis,
+    rect: {
+      min: { xRatio: number; yRatio: number };
+      max: { xRatio: number; yRatio: number };
+      enabled: boolean;
+    },
+  ) => {
+    if (!app.volume) return;
+    const volume = app.volume;
+    const [width, height, depth] = volume.meta.dimensions;
+    setStudyState((current) => {
+      const crop =
+        current.cropBounds ?? createFullCropBounds(volume.meta.dimensions, true);
+      const next = {
+        ...crop,
+        enabled: rect.enabled,
+        min: [...crop.min] as [number, number, number],
+        max: [...crop.max] as [number, number, number],
+      };
+      if (axis === VolumeAxis.Axial) {
+        next.min[0] = clampIndex(Math.round(rect.min.xRatio * (width - 1)), width - 1);
+        next.max[0] = clampIndex(Math.round(rect.max.xRatio * (width - 1)), width - 1);
+        next.min[1] = clampIndex(Math.round(rect.min.yRatio * (height - 1)), height - 1);
+        next.max[1] = clampIndex(Math.round(rect.max.yRatio * (height - 1)), height - 1);
+      } else if (axis === VolumeAxis.Coronal) {
+        next.min[0] = clampIndex(Math.round(rect.min.xRatio * (width - 1)), width - 1);
+        next.max[0] = clampIndex(Math.round(rect.max.xRatio * (width - 1)), width - 1);
+        next.max[2] = clampIndex(Math.round((1 - rect.min.yRatio) * (depth - 1)), depth - 1);
+        next.min[2] = clampIndex(Math.round((1 - rect.max.yRatio) * (depth - 1)), depth - 1);
+      } else {
+        next.min[1] = clampIndex(Math.round(rect.min.xRatio * (height - 1)), height - 1);
+        next.max[1] = clampIndex(Math.round(rect.max.xRatio * (height - 1)), height - 1);
+        next.max[2] = clampIndex(Math.round((1 - rect.min.yRatio) * (depth - 1)), depth - 1);
+        next.min[2] = clampIndex(Math.round((1 - rect.max.yRatio) * (depth - 1)), depth - 1);
+      }
+      return { ...current, cropBounds: next };
+    });
+  };
+
+  const updateProbeFromAxis = (
+    axis: VolumeAxis,
+    point: { xRatio: number; yRatio: number } | null,
+  ) => {
+    if (!point || !app.volume || !app.cursor) {
+      setSliceProbe(null);
+      return;
+    }
+    const voxel = axisPointToVoxel(axis, point, app.cursor, app.volume.meta.dimensions);
+    const [x, y, z] = voxel;
+    const [width, height] = app.volume.meta.dimensions;
+    const index = (z * height + y) * width + x;
+    const label = studyState.segmentGroups
+      .flatMap((group) => {
+        const bytes = labelmapBuffers[group.id];
+        if (!bytes) return [];
+        const labelmap = new Uint16Array(
+          bytes.buffer,
+          bytes.byteOffset,
+          bytes.byteLength / 2,
+        );
+        const value = labelmap[index];
+        return group.segments
+          .filter((segment) => segment.value === value)
+          .map((segment) => segment.name);
+      })[0];
+    setSliceProbe({ axis, voxel, value: app.volume.voxels[index], label });
+  };
+
+  const selectAnnotation = (annotationId: string) => {
+    setStudyState((current) => ({
+      ...current,
+      activeAnnotationId: annotationId,
+      annotations: current.annotations.map((annotation) => ({
+        ...annotation,
+        selected: annotation.id === annotationId,
+      })),
+    }));
+  };
+
+  const moveAnnotation = (
+    axis: VolumeAxis,
+    annotationId: string,
+    point: { xRatio: number; yRatio: number },
+  ) => {
+    if (!app.volume || !app.cursor) return;
+    const voxel = axisPointToVoxel(axis, point, app.cursor, app.volume.meta.dimensions);
+    setStudyState((current) => ({
+      ...current,
+      annotations: current.annotations.map((annotation) =>
+        annotation.id === annotationId
+          ? { ...annotation, point: voxel, updatedAt: Date.now() }
+          : annotation,
+      ),
+    }));
+  };
+
 
   const createThresholdMask = (preset: {
     label: string;
@@ -614,6 +861,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         thresholdRange: preset.range,
       },
     }));
+    if (nextGroup) {
+      setLabelmapBuffers((current) => ({
+        ...current,
+        [nextGroup.id]: uint16ArrayToBytes(maskToLabelmap(mask, 1)),
+      }));
+    }
   };
 
   const regionGrowFromCursor = (preset: {
@@ -649,6 +902,10 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       'mask-region-grow',
     );
     if (nextGroup) {
+      setLabelmapBuffers((current) => ({
+        ...current,
+        [nextGroup.id]: uint16ArrayToBytes(maskToLabelmap(mask, 1)),
+      }));
       setStudyState((current) => ({
         ...current,
         segmentGroups: [...current.segmentGroups, nextGroup],
@@ -682,6 +939,10 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     if (!app.volume || maskStatus) return;
     const activeMaskId = studyState.activeMaskId;
     if (!activeMaskId || !maskBuffers[activeMaskId]) return;
+    const activeSegment = studyState.segmentGroups
+      .flatMap((group) => group.segments)
+      .find((segment) => segment.maskId === activeMaskId);
+    if (activeSegment?.locked) return;
     const dims = volumeMaskDims(app.volume.meta.dimensions);
     const controller = new AbortController();
     maskAbortRef.current = controller;
@@ -772,6 +1033,15 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }
     commitMaskEdit(nextMasks, nextBuffers, nextMasks.at(-1)?.id, 'mask-region-grow');
     if (nextGroups.length > 0) {
+      setLabelmapBuffers((current) => {
+        const next = { ...current };
+        for (const [index, group] of nextGroups.entries()) {
+          next[group.id] = uint16ArrayToBytes(
+            maskToLabelmap(components[index].mask, 1),
+          );
+        }
+        return next;
+      });
       setStudyState((current) => ({
         ...current,
         segmentGroups: [
@@ -832,6 +1102,34 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         ...current.maskWorkflow,
         ...workflowPatch,
       },
+    }));
+  };
+
+  const updateSegment = (
+    groupId: string,
+    segmentId: string,
+    patch: Partial<
+      Pick<
+        StudyState['segmentGroups'][number]['segments'][number],
+        'color' | 'opacity' | 'visible' | 'locked'
+      >
+    >,
+  ) => {
+    setStudyState((current) => ({
+      ...current,
+      segmentGroups: current.segmentGroups.map((group) =>
+        group.id === groupId
+          ? {
+              ...group,
+              updatedAt: Date.now(),
+              segments: group.segments.map((segment) =>
+                segment.id === segmentId
+                  ? { ...segment, ...patch, updatedAt: Date.now() }
+                  : segment,
+              ),
+            }
+          : group,
+      ),
     }));
   };
 
@@ -927,6 +1225,18 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       ...current,
       [session.maskId]: session.buffer,
     }));
+    const group = studyState.segmentGroups.find((item) =>
+      item.segments.some((segment) => segment.maskId === session.maskId),
+    );
+    const segment = group?.segments.find((item) => item.maskId === session.maskId);
+    if (group && segment) {
+      setLabelmapBuffers((current) => ({
+        ...current,
+        [group.id]: uint16ArrayToBytes(
+          maskToLabelmap(session.buffer, segment.value),
+        ),
+      }));
+    }
     setStudyState((current) => ({
       ...current,
       masks: nextMasks,
@@ -1368,13 +1678,14 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         id,
         data,
       })),
-      labelmaps: Object.entries(
-        buildLabelmapBuffers(
+      labelmaps: Object.entries({
+        ...buildLabelmapBuffers(
           studyState.segmentGroups,
           maskBuffers,
           volume.voxels.length,
         ),
-      ).map(([id, data]) => ({ id, data })),
+        ...labelmapBuffers,
+      }).map(([id, data]) => ({ id, data })),
       surfaces,
     });
     const url = URL.createObjectURL(archive);
@@ -1413,6 +1724,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         throw new Error(`Labelmap ${labelmap.id} does not match this volume.`);
       }
     }
+    const nextLabelmapBuffers: LabelmapBufferMap = Object.fromEntries(
+      archive.labelmaps.map((labelmap) => [
+        labelmap.id,
+        new Uint8Array(labelmap.data),
+      ]),
+    );
 
     setSurfaceBlobs({});
     setSurfaceUrls((current) => {
@@ -1446,6 +1763,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       activeImageId: restoredImage.id,
     });
     setMaskBuffers(nextMaskBuffers);
+    setLabelmapBuffers(nextLabelmapBuffers);
     setSurfaceBlobs(nextSurfaceBlobs);
     setSurfaceUrls(nextSurfaceUrls);
     setUndoStack([]);
@@ -1553,7 +1871,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                     onSidebarVisibleChange={app.setSidebarVisible}
                     onDownsampledChange={app.setDownsampled3D}
                     labels={volume3DLabels}
-                    surfaces={surfacePreviews}
+                  surfaces={surfacePreviews}
+                  cropBounds={studyState.cropBounds}
                   />
                 </ViewportFrame>
                 </div>
@@ -1569,10 +1888,16 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   slices={app.slices}
                   mprZoom={app.mprZoom}
                   overlays={maskOverlays}
+                  cropRects={cropRects}
+                  annotations={annotationOverlays}
                   selectedAxis={app.selectedAxis}
                   theme={appViewerTheme}
                   labels={axisLabels}
                   onEditAxis={maskSliceEditEnabled ? editMaskOnSlice : undefined}
+                  onProbeAxis={updateProbeFromAxis}
+                  onCropAxis={updateCropFromAxis}
+                  onAnnotationSelect={selectAnnotation}
+                  onAnnotationMove={moveAnnotation}
                   onMeasurementComplete={addSliceMeasurement}
                   onZoomChange={app.setMprZoom}
                   onSelectedAxisChange={app.setSelectedAxis}
@@ -1625,6 +1950,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onUpdateMaskAppearance={updateMaskAppearance}
               onUpdateMaskWorkflow={updateMaskWorkflow}
               onUpdateStudyViewState={updateStudyViewState}
+              onUpdateSegment={updateSegment}
               onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
               onApplyWatershedSeeds={applyWatershedSeeds}
               onClearWatershedSeeds={clearWatershedSeeds}
@@ -1704,6 +2030,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onUpdateMaskAppearance={updateMaskAppearance}
                   onUpdateMaskWorkflow={updateMaskWorkflow}
                   onUpdateStudyViewState={updateStudyViewState}
+                  onUpdateSegment={updateSegment}
                   onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
                   onApplyWatershedSeeds={applyWatershedSeeds}
                   onClearWatershedSeeds={clearWatershedSeeds}
@@ -1722,6 +2049,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                 />
               </div>
             </div>
+          </div>
+        ) : null}
+        {sliceProbe ? (
+          <div className="pointer-events-none absolute left-3 bottom-3 z-30 rounded border border-slate-700 bg-slate-950/85 px-2.5 py-1.5 text-xs text-slate-200 shadow">
+            {sliceProbe.axis} [{sliceProbe.voxel.join(', ')}] {sliceProbe.value} HU
+            {sliceProbe.label ? ` · ${sliceProbe.label}` : ''}
           </div>
         ) : null}
       </div>
