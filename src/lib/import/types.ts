@@ -66,6 +66,7 @@ export interface LoadedImport {
 
 export interface ParsedImportResult {
   meta: ParsedVolumeMeta;
+  loaded?: LoadedImport;
 }
 
 export interface ImportParseOptions {

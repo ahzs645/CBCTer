@@ -32,6 +32,18 @@ export async function loadVolumeFromFolder(
   }
 
   const parsed = await adapter.parse(expandedSource, options);
+  if (parsed.loaded) {
+    onProgress?.({
+      stage: ImportStage.Ready,
+      detailKey: 'importStatus.progress.loadedScan',
+      detailValues: {
+        scanId: parsed.loaded.meta.scanId,
+      },
+      completed: 1,
+      total: 1,
+    });
+    return parsed.loaded;
+  }
   onProgress?.({
     stage: ImportStage.ParsingMeta,
     detailKey: 'importStatus.progress.parsedMetadata',
