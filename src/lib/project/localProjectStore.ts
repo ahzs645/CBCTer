@@ -1,6 +1,10 @@
 import { db, type LocalProjectRecord } from '../../local-dexie/db';
-import type { ProjectArchive } from './exportProject';
+import {
+  PROJECT_ARCHIVE_VERSION,
+  type ProjectArchive,
+} from './exportProject';
 import type { StudyState } from '../../domain/types';
+import { sanitizePathSegment } from '../import/fileTypes';
 
 export interface LocalProjectInput {
   state: StudyState;
@@ -34,17 +38,34 @@ export async function loadLatestProject(): Promise<ProjectArchive | null> {
   if (!record) return null;
   return {
     manifest: {
-      version: 1,
+      version: PROJECT_ARCHIVE_VERSION,
+      app: 'CBCTer',
       exportedAt: new Date(record.updatedAt).toISOString(),
+      dataSources: [
+        ...record.masks.map((mask) => ({
+          id: mask.id,
+          kind: 'embedded' as const,
+          role: 'mask' as const,
+          path: `masks/${sanitizePathSegment(mask.id)}.bin`,
+          bytes: mask.data.byteLength,
+        })),
+        ...record.surfaces.map((surface) => ({
+          id: surface.id,
+          kind: 'embedded' as const,
+          role: 'surface' as const,
+          path: `surfaces/${sanitizePathSegment(surface.id)}.stl`,
+          bytes: surface.data.byteLength,
+        })),
+      ],
       state: record.state,
       masks: record.masks.map((mask) => ({
         id: mask.id,
-        path: `masks/${mask.id}.bin`,
+        path: `masks/${sanitizePathSegment(mask.id)}.bin`,
         bytes: mask.data.byteLength,
       })),
       surfaces: record.surfaces.map((surface) => ({
         id: surface.id,
-        path: `surfaces/${surface.id}.stl`,
+        path: `surfaces/${sanitizePathSegment(surface.id)}.stl`,
         bytes: surface.data.byteLength,
       })),
     },

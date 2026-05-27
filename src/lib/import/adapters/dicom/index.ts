@@ -3,6 +3,7 @@ export { parseDicomFolder } from './parser';
 export {
   computeDicomSliceLocation,
   findDicomEntries,
+  findDicomEntriesByMagic,
   isNativeLittleEndianDicom,
   parseEnhancedMultiframeDicom,
   parseImplicitLittleEndianDicom,

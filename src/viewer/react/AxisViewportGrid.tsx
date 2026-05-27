@@ -37,6 +37,10 @@ interface AxisViewportGridProps {
     axis: VolumeAxis,
     measurement: CompletedSliceMeasurement,
   ) => void;
+  onWindowLevelDrag?: (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
   onSelectedAxisChange?: (axis: VolumeAxis) => void;
   onZoomChange: (zoom: number) => void;
 }
@@ -68,6 +72,10 @@ interface AxisViewportPaneProps {
     phase: 'start' | 'move' | 'end',
   ) => void;
   onMeasurementComplete?: (measurement: CompletedSliceMeasurement) => void;
+  onWindowLevelDrag?: (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
   onZoomChange: (zoom: number) => void;
 }
 
@@ -79,6 +87,7 @@ function AxisViewportPane({
   onEdit,
   onMeasurementComplete,
   onSelect,
+  onWindowLevelDrag,
   onZoomChange,
 }: AxisViewportPaneProps) {
   const subtitleLabelClass =
@@ -127,6 +136,7 @@ function AxisViewportPane({
         zoom={mprZoom}
         onZoomChange={onZoomChange}
         onEdit={onEdit}
+        onWindowLevelDrag={onWindowLevelDrag}
         onMeasurementComplete={onMeasurementComplete}
         onSelect={onSelect}
         mmPerPixel={definition.mmPerPixel}
@@ -244,6 +254,7 @@ export function AxisViewportGrid({
   onEditAxis,
   onMeasurementComplete,
   onSelectedAxisChange,
+  onWindowLevelDrag,
   onZoomChange,
 }: AxisViewportGridProps) {
   const axisSelector = (
@@ -287,6 +298,7 @@ export function AxisViewportGrid({
           onMeasurementComplete={(measurement) =>
             onMeasurementComplete?.(selectedAxis, measurement)
           }
+          onWindowLevelDrag={onWindowLevelDrag}
           onSelect={onSelectAxis(selectedAxis)}
         />
       </div>
@@ -311,6 +323,7 @@ export function AxisViewportGrid({
           onMeasurementComplete={(measurement) =>
             onMeasurementComplete?.(axis, measurement)
           }
+          onWindowLevelDrag={onWindowLevelDrag}
           onSelect={onSelectAxis(axis)}
         />
       ))}

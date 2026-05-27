@@ -4,6 +4,7 @@ import type {
   ScanFolderSource,
   Vec3,
 } from '../../../../types';
+import { hasDicomMagic } from '../../fileTypes';
 
 const DICM_MAGIC = 'DICM';
 const HEADER_READ_BYTES = 8192;
@@ -932,7 +933,20 @@ export function sortDicomSlices(entries: DicomSliceEntry[]): DicomSliceEntry[] {
 }
 
 export function findDicomEntries(source: ScanFolderSource): ScanFolderEntry[] {
-  return source.entries.filter((entry) => /\.dcm$/i.test(entry.name));
+  return source.entries.filter((entry) => /\.(dcm|dicom)$/i.test(entry.name));
+}
+
+export async function findDicomEntriesByMagic(
+  source: ScanFolderSource,
+): Promise<ScanFolderEntry[]> {
+  const candidates = await Promise.all(
+    source.entries.map(async (entry) =>
+      /\.(dcm|dicom)$/i.test(entry.name) || (await hasDicomMagic(entry))
+        ? entry
+        : null,
+    ),
+  );
+  return candidates.filter((entry): entry is ScanFolderEntry => Boolean(entry));
 }
 
 export function isNativeLittleEndianDicom(header: DicomHeader): boolean {

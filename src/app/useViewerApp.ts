@@ -50,6 +50,10 @@ export interface ViewerApp {
   handleLevelCommit: (value: number) => void;
   handleWindowChange: (value: number) => void;
   handleWindowCommit: (value: number) => void;
+  handleWindowLevelDrag: (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
   openDirectory: () => Promise<void>;
   openSample: () => Promise<void>;
   openNifti: (file: File) => Promise<void>;
@@ -275,6 +279,7 @@ export function useViewerApp({
     handleLevelCommit: viewer.handleLevelCommit,
     handleWindowChange: viewer.handleWindowChange,
     handleWindowCommit: viewer.handleWindowCommit,
+    handleWindowLevelDrag: viewer.handleWindowLevelDrag,
     openDirectory,
     openSample,
     openNifti,

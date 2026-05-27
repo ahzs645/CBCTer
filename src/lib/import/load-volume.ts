@@ -2,6 +2,7 @@ import { i18n } from '../../i18n';
 import type { ImportProgress, ScanFolderSource } from '../../types';
 import { ImportStage } from '../../types';
 import { importFormatAdapters } from './adapters';
+import { expandArchiveEntries } from './archive';
 import type {
   ImportFailure,
   ImportParseOptions,
@@ -14,6 +15,7 @@ export async function loadVolumeFromFolder(
   onProgress?: (progress: ImportProgress) => void,
   options?: ImportParseOptions,
 ): Promise<LoadedImport> {
+  const expandedSource = await expandArchiveEntries(source);
   onProgress?.({
     stage: ImportStage.Scanning,
     detailKey: 'importStatus.progress.scanningSelectedFolder',
@@ -21,13 +23,13 @@ export async function loadVolumeFromFolder(
     total: 1,
   });
   const adapter = importFormatAdapters.find((candidate) =>
-    candidate.matches(source),
+    candidate.matches(expandedSource),
   );
   if (!adapter) {
     throw makeError('E_FORMAT', i18n.t('errors.unsupportedFolderLayout'));
   }
 
-  const parsed = await adapter.parse(source, options);
+  const parsed = await adapter.parse(expandedSource, options);
   onProgress?.({
     stage: ImportStage.ParsingMeta,
     detailKey: 'importStatus.progress.parsedMetadata',
@@ -42,7 +44,7 @@ export async function loadVolumeFromFolder(
     new URL('../../workers/volume.worker.ts', import.meta.url),
     { type: 'module' },
   );
-  const payload = await adapter.buildWorkerRequest(source, parsed);
+  const payload = await adapter.buildWorkerRequest(expandedSource, parsed);
 
   return await new Promise<LoadedImport>((resolve, reject) => {
     worker.onmessage = (event: MessageEvent<VolumeWorkerEvent>) => {

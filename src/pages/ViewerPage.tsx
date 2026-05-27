@@ -1365,6 +1365,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onMeasurementComplete={addSliceMeasurement}
                   onZoomChange={app.setMprZoom}
                   onSelectedAxisChange={app.setSelectedAxis}
+                  onWindowLevelDrag={
+                    studyState.activeTool === 'window-level'
+                      ? app.handleWindowLevelDrag
+                      : undefined
+                  }
                   onSelectAxis={app.updateCursor}
                 />
               ) : null}

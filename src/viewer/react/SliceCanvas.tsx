@@ -33,6 +33,10 @@ interface SliceCanvasProps {
     point: { xRatio: number; yRatio: number },
     phase: 'start' | 'move' | 'end',
   ) => void;
+  onWindowLevelDrag?: (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
   onMeasurementComplete?: (measurement: CompletedSliceMeasurement) => void;
   /** In-plane mm per image pixel [x, y]; enables measurement + export tools. */
   mmPerPixel?: { x: number; y: number };
@@ -81,6 +85,7 @@ export function SliceCanvas({
   onZoomChange,
   onSelect,
   onEdit,
+  onWindowLevelDrag,
   onMeasurementComplete,
   mmPerPixel,
   exportName = 'slice',
@@ -247,6 +252,7 @@ export function SliceCanvas({
     cursorHeight,
     surfaceHeight: surfaceSize.height,
     onEdit,
+    onWindowLevelDrag,
     onSelect,
     onZoomChange,
   });
@@ -258,7 +264,13 @@ export function SliceCanvas({
         className="relative h-full min-h-0 w-full overflow-hidden bg-black"
         {...handlers}
         style={{
-          cursor: onEdit ? 'crosshair' : onSelect ? scrubCursor : undefined,
+          cursor: onWindowLevelDrag
+            ? 'nwse-resize'
+            : onEdit
+              ? 'crosshair'
+              : onSelect
+                ? scrubCursor
+                : undefined,
           touchAction: onZoomChange ? 'none' : undefined,
         }}
       >

@@ -89,6 +89,10 @@ export interface SliceInteractionParams {
     point: { xRatio: number; yRatio: number },
     phase: 'start' | 'move' | 'end',
   ) => void;
+  onWindowLevelDrag?: (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
   onZoomChange?: (nextZoom: number) => void;
 }
 
@@ -118,6 +122,7 @@ export function useSliceInteraction({
   surfaceHeight,
   onSelect,
   onEdit,
+  onWindowLevelDrag,
   onZoomChange,
 }: SliceInteractionParams): SliceInteraction {
   const [scrubCursor, setScrubCursor] = useState<ScrubCursor>(
@@ -306,11 +311,23 @@ export function useSliceInteraction({
     if (!image) return;
 
     if (event.pointerType === 'mouse') {
-      if (event.button !== 0 || (!onSelect && !onEdit)) return;
+      if (event.button !== 0 || (!onSelect && !onEdit && !onWindowLevelDrag)) {
+        return;
+      }
 
       event.currentTarget.setPointerCapture(event.pointerId);
       const point = pointFromEvent(event);
       const selection = toSelectionPoint(point.x, point.y);
+      if (onWindowLevelDrag) {
+        dragRef.current.active = true;
+        dragRef.current.pointerId = event.pointerId;
+        dragRef.current.pointerType = ScrubPointerType.Mouse;
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        setScrubCursor(ScrubCursor.NwseResize);
+        onWindowLevelDrag({ x: 0, y: 0 }, 'start');
+        return;
+      }
       if (onEdit) {
         dragRef.current.active = true;
         dragRef.current.pointerId = event.pointerId;
@@ -343,7 +360,15 @@ export function useSliceInteraction({
         return;
       }
 
-      if (onEdit) {
+      if (onWindowLevelDrag) {
+        const point = pointFromEvent(event);
+        dragRef.current.active = true;
+        dragRef.current.pointerId = event.pointerId;
+        dragRef.current.pointerType = ScrubPointerType.Touch;
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onWindowLevelDrag({ x: 0, y: 0 }, 'start');
+      } else if (onEdit) {
         const point = pointFromEvent(event);
         dragRef.current.active = true;
         dragRef.current.pointerId = event.pointerId;
@@ -366,13 +391,23 @@ export function useSliceInteraction({
       if (
         !dragRef.current.active ||
         dragRef.current.pointerId !== event.pointerId ||
-        (!onSelect && !onEdit)
+        (!onSelect && !onEdit && !onWindowLevelDrag)
       ) {
         return;
       }
 
       event.preventDefault();
       const point = pointFromEvent(event);
+      if (onWindowLevelDrag) {
+        const delta = {
+          x: point.x - dragRef.current.lastX,
+          y: point.y - dragRef.current.lastY,
+        };
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onWindowLevelDrag(delta, 'move');
+        return;
+      }
       if (onEdit) {
         dragRef.current.lastX = point.x;
         dragRef.current.lastY = point.y;
@@ -406,10 +441,20 @@ export function useSliceInteraction({
       dragRef.current.active &&
       dragRef.current.pointerId === event.pointerId &&
       dragRef.current.pointerType === ScrubPointerType.Touch &&
-      (onSelect || onEdit)
+      (onSelect || onEdit || onWindowLevelDrag)
     ) {
       event.preventDefault();
       const point = pointFromEvent(event);
+      if (onWindowLevelDrag) {
+        const delta = {
+          x: point.x - dragRef.current.lastX,
+          y: point.y - dragRef.current.lastY,
+        };
+        dragRef.current.lastX = point.x;
+        dragRef.current.lastY = point.y;
+        onWindowLevelDrag(delta, 'move');
+        return;
+      }
       if (onEdit) {
         dragRef.current.lastX = point.x;
         dragRef.current.lastY = point.y;
@@ -458,7 +503,9 @@ export function useSliceInteraction({
         dragRef.current.active &&
         dragRef.current.pointerId === event.pointerId
       ) {
-        if (onEdit) {
+        if (onWindowLevelDrag) {
+          onWindowLevelDrag({ x: 0, y: 0 }, 'end');
+        } else if (onEdit) {
           const point = pointFromEvent(event);
           onEdit(toSelectionPoint(point.x, point.y), 'end');
         } else if (
@@ -479,7 +526,9 @@ export function useSliceInteraction({
       const wasScrubbing =
         dragRef.current.active && dragRef.current.pointerId === event.pointerId;
       if (wasScrubbing) {
-        if (onEdit) {
+        if (onWindowLevelDrag) {
+          onWindowLevelDrag({ x: 0, y: 0 }, 'end');
+        } else if (onEdit) {
           const point = pointFromEvent(event);
           onEdit(toSelectionPoint(point.x, point.y), 'end');
         } else if (

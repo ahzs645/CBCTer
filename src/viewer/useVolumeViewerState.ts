@@ -1,5 +1,5 @@
 import debounce from 'lodash/debounce';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   extractAxialImage,
   extractCoronalImage,
@@ -93,6 +93,10 @@ export interface VolumeViewerState {
   handleWindowCommit: (value: number) => void;
   handleLevelChange: (value: number) => void;
   handleLevelCommit: (value: number) => void;
+  handleWindowLevelDrag: (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => void;
 }
 
 export function useVolumeViewerState(
@@ -106,6 +110,7 @@ export function useVolumeViewerState(
     useState<SliceWindowLevel>(initialWindowLevel);
   const [windowLevel, setWindowLevel] =
     useState<SliceWindowLevel>(initialWindowLevel);
+  const dragWindowLevelRef = useRef<SliceWindowLevel>(initialWindowLevel);
   const [mprZoom, setMprZoom] = useState(DEFAULT_MPR_ZOOM);
   const [selectedAxis, setSelectedAxis] = useState<VolumeAxis>(
     volume?.meta.nativeAxis ?? VolumeAxis.Coronal,
@@ -193,12 +198,14 @@ export function useVolumeViewerState(
     };
 
   const updateWindowLevelDraft = (next: SliceWindowLevel) => {
+    dragWindowLevelRef.current = next;
     setWindowLevelDraft(next);
     debouncedCommitWindowLevel(next);
   };
 
   const flushWindowLevelDraft = (next: SliceWindowLevel) => {
     debouncedCommitWindowLevel.cancel();
+    dragWindowLevelRef.current = next;
     setWindowLevelDraft(next);
     setWindowLevel(next);
   };
@@ -211,6 +218,36 @@ export function useVolumeViewerState(
     updateWindowLevelDraft({ ...windowLevelDraft, level: value });
   const handleLevelCommit = (value: number) =>
     flushWindowLevelDraft({ ...windowLevelDraft, level: value });
+  const handleWindowLevelDrag = (
+    delta: { x: number; y: number },
+    phase: 'start' | 'move' | 'end',
+  ) => {
+    if (phase === 'start') {
+      dragWindowLevelRef.current = windowLevelDraft;
+      return;
+    }
+    if (phase === 'end') {
+      flushWindowLevelDraft(dragWindowLevelRef.current);
+      return;
+    }
+    const windowRange = Math.max(1, windowBounds.max - windowBounds.min);
+    const levelRange = Math.max(1, levelBounds.max - levelBounds.min);
+    const current = dragWindowLevelRef.current;
+    const next = {
+      window: clamp(
+        Math.round(current.window - delta.y * (windowRange / 300)),
+        windowBounds.min,
+        windowBounds.max,
+      ),
+      level: clamp(
+        Math.round(current.level + delta.x * (levelRange / 300)),
+        levelBounds.min,
+        levelBounds.max,
+      ),
+    };
+    dragWindowLevelRef.current = next;
+    updateWindowLevelDraft(next);
+  };
 
   return {
     cursor,
@@ -231,5 +268,6 @@ export function useVolumeViewerState(
     handleWindowCommit,
     handleLevelChange,
     handleLevelCommit,
+    handleWindowLevelDrag,
   };
 }
