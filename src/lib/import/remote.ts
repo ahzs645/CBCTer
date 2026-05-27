@@ -5,6 +5,7 @@ import {
   type LoadedDataSourceFile,
 } from './dataSource';
 import { getExtension, inferMimeType, normalizeArchivePath } from './fileTypes';
+import { fetchRemoteRange } from './remoteRange';
 
 export interface RemoteManifestEntry {
   url: string;
@@ -23,6 +24,8 @@ type RemoteScanFolderSource = ReturnType<typeof filesToScanFolderSource>;
 export type LoadedRemoteImport =
   | { type: 'scan-folder'; label: string; source: RemoteScanFolderSource }
   | { type: 'nifti'; label: string; file: File };
+
+export { fetchRemoteRange };
 
 function filenameFromUrl(url: string): string {
   try {
@@ -70,6 +73,7 @@ async function fetchRemoteFile(
   entry: RemoteManifestEntry,
   index = 0,
 ): Promise<LoadedDataSourceFile> {
+  await fetchRemoteRange(entry.url, 0, 511).catch(() => null);
   const response = await fetch(entry.url);
   if (!response.ok) {
     throw new Error(`Remote import failed for ${entry.url}: ${response.status}`);

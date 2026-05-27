@@ -1,4 +1,5 @@
 import type { PreparedVolumeFor3D, VolumeCursor } from '../../../types';
+import type { CropBounds } from '../../../domain/types';
 import type {
   ThreeModule,
   ThreePreviewInstance,
@@ -73,6 +74,7 @@ function buildPreview(
     false,
   );
   renderer.outputColorSpace = three.SRGBColorSpace;
+  renderer.localClippingEnabled = true;
   renderer.setClearColor(0x050b13, 1);
   host.appendChild(renderer.domElement);
 
@@ -110,6 +112,47 @@ function buildPreview(
 
   const axisScale = resolveAxisScale(volume.spacing);
   mesh.scale.set(axisScale[0], axisScale[1], axisScale[2]);
+
+  const applyCropBounds = (bounds: CropBounds | null | undefined) => {
+    if (!bounds?.enabled) {
+      material.clippingPlanes = [];
+      for (const child of surfaceRoot.children) {
+        const surfaceMaterial = (child as { material?: unknown }).material;
+        if (surfaceMaterial && !Array.isArray(surfaceMaterial)) {
+          (surfaceMaterial as { clippingPlanes?: unknown[] }).clippingPlanes = [];
+        }
+      }
+      material.needsUpdate = true;
+      return;
+    }
+    const min = [
+      bounds.min[0] * axisScale[0],
+      bounds.min[1] * axisScale[1],
+      bounds.min[2] * axisScale[2],
+    ];
+    const max = [
+      bounds.max[0] * axisScale[0],
+      bounds.max[1] * axisScale[1],
+      bounds.max[2] * axisScale[2],
+    ];
+    const planes = [
+      new three.Plane(new three.Vector3(1, 0, 0), -min[0]),
+      new three.Plane(new three.Vector3(-1, 0, 0), max[0]),
+      new three.Plane(new three.Vector3(0, 1, 0), -min[1]),
+      new three.Plane(new three.Vector3(0, -1, 0), max[1]),
+      new three.Plane(new three.Vector3(0, 0, 1), -min[2]),
+      new three.Plane(new three.Vector3(0, 0, -1), max[2]),
+    ];
+    material.clippingPlanes = planes;
+    material.needsUpdate = true;
+    for (const child of surfaceRoot.children) {
+      const surfaceMaterial = (child as { material?: unknown }).material;
+      if (surfaceMaterial && !Array.isArray(surfaceMaterial)) {
+        (surfaceMaterial as { clippingPlanes?: typeof planes; needsUpdate?: boolean }).clippingPlanes = planes;
+        (surfaceMaterial as { needsUpdate?: boolean }).needsUpdate = true;
+      }
+    }
+  };
 
   const worldSize = [
     Math.max(1, volume.dimensions[0] - 1) * axisScale[0],
@@ -223,6 +266,10 @@ function buildPreview(
               metalness: 0.02,
               side: three.DoubleSide,
             });
+            material.clippingPlanes =
+              Array.isArray((mesh.material as { clippingPlanes?: unknown }).clippingPlanes)
+                ? (mesh.material as { clippingPlanes: typeof material.clippingPlanes }).clippingPlanes
+                : [];
             const surfaceMesh = new three.Mesh(geometry, material);
             surfaceMesh.name = `surface-${surface.id}`;
             surfaceRoot.add(surfaceMesh);
@@ -235,6 +282,9 @@ function buildPreview(
         .catch(() => {
           // Surface preview is secondary; downloads remain available.
         });
+    },
+    setCropBounds(bounds) {
+      applyCropBounds(bounds);
     },
     setRenderOptions(options) {
       const uniforms = material.uniforms as VolumeShaderUniforms;

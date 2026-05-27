@@ -52,7 +52,6 @@
   "devDependencies": {
     "@convex-dev/eslint-plugin": "^2.0.0",
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.57.0",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^24.12.3",

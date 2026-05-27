@@ -49,6 +49,11 @@ import {
   regionGrowMask,
   thresholdVolume,
 } from '../lib/segmentation/maskOperations';
+import {
+  axisPointToVoxel,
+  labelmapToMask,
+  paintLabelmapStroke,
+} from '../lib/segmentation/paintBrush';
 import { maskToAsciiPly } from '../lib/segmentation/maskMesh';
 import {
   keepLargestMaskComponentInWorker,
@@ -79,14 +84,19 @@ type SliceProbe = {
 
 interface MaskSnapshot {
   masks: StudyState['masks'];
+  segmentGroups: StudyState['segmentGroups'];
   activeMaskId?: string;
   buffers: MaskBufferMap;
+  labelmaps: LabelmapBufferMap;
 }
 
 interface MaskEditSession {
   snapshot: MaskSnapshot;
   maskId: string;
   buffer: Uint8Array;
+  labelmapGroupId?: string;
+  labelmap?: Uint16Array;
+  segmentValue?: number;
   touched: Set<number>;
   lastVoxel?: [number, number, number];
 }
@@ -124,6 +134,11 @@ function uint16ArrayToBytes(values: Uint16Array): Uint8Array {
   );
 }
 
+function bytesToUint16Array(bytes: Uint8Array): Uint16Array {
+  const copy = new Uint8Array(bytes);
+  return new Uint16Array(copy.buffer);
+}
+
 function buildLabelmapBuffers(
   groups: StudyState['segmentGroups'],
   maskBuffers: MaskBufferMap,
@@ -155,34 +170,6 @@ function maskToLabelmap(mask: Uint8Array, value: number): Uint16Array {
 
 function clampIndex(value: number, max: number): number {
   return Math.min(max, Math.max(0, value));
-}
-
-function axisPointToVoxel(
-  axis: VolumeAxis,
-  point: { xRatio: number; yRatio: number },
-  cursor: { x: number; y: number; z: number },
-  dimensions: [number, number, number],
-): [number, number, number] {
-  const [width, height, depth] = dimensions;
-  if (axis === VolumeAxis.Axial) {
-    return [
-      clampIndex(Math.round(point.xRatio * (width - 1)), width - 1),
-      clampIndex(Math.round(point.yRatio * (height - 1)), height - 1),
-      cursor.z,
-    ];
-  }
-  if (axis === VolumeAxis.Coronal) {
-    return [
-      clampIndex(Math.round(point.xRatio * (width - 1)), width - 1),
-      cursor.y,
-      clampIndex(Math.round((1 - point.yRatio) * (depth - 1)), depth - 1),
-    ];
-  }
-  return [
-    cursor.x,
-    clampIndex(Math.round(point.xRatio * (height - 1)), height - 1),
-    clampIndex(Math.round((1 - point.yRatio) * (depth - 1)), depth - 1),
-  ];
 }
 
 function pointInPolygon(
@@ -574,6 +561,51 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     };
   }, [app.cursor, app.volume, studyState.activeAnnotationId, studyState.annotations]);
 
+  const brushPreviews = useMemo(() => {
+    if (!app.volume || !maskSliceEditEnabled) return {};
+    const [width, height, depth] = app.volume.meta.dimensions;
+    const [sx, sy, sz] = app.volume.meta.spacing;
+    const radiusMm = Math.max(0.25, studyState.maskWorkflow.brushSizeMm / 2);
+    const activeGroup = studyState.segmentGroups.find(
+      (group) => group.id === studyState.activeSegmentGroupId,
+    );
+    const activeSegment = activeGroup?.segments.find(
+      (segment) => segment.value === activeGroup.activeSegmentValue,
+    );
+    const activeMask = studyState.masks.find(
+      (mask) => mask.id === studyState.activeMaskId,
+    );
+    const color = activeSegment?.color ?? activeMask?.color ?? '#38bdf8';
+    return {
+      [VolumeAxis.Axial]: {
+        visible: true,
+        color,
+        radiusXRatio: radiusMm / Math.max(0.001, sx) / Math.max(1, width - 1),
+        radiusYRatio: radiusMm / Math.max(0.001, sy) / Math.max(1, height - 1),
+      },
+      [VolumeAxis.Coronal]: {
+        visible: true,
+        color,
+        radiusXRatio: radiusMm / Math.max(0.001, sx) / Math.max(1, width - 1),
+        radiusYRatio: radiusMm / Math.max(0.001, sz) / Math.max(1, depth - 1),
+      },
+      [VolumeAxis.Sagittal]: {
+        visible: true,
+        color,
+        radiusXRatio: radiusMm / Math.max(0.001, sy) / Math.max(1, height - 1),
+        radiusYRatio: radiusMm / Math.max(0.001, sz) / Math.max(1, depth - 1),
+      },
+    };
+  }, [
+    app.volume,
+    maskSliceEditEnabled,
+    studyState.activeMaskId,
+    studyState.activeSegmentGroupId,
+    studyState.maskWorkflow.brushSizeMm,
+    studyState.masks,
+    studyState.segmentGroups,
+  ]);
+
   // Push cursor changes to the 3D viewport imperatively so scrubbing never
   // re-renders (and re-serializes) the heavy prepared-volume prop.
   useEffect(() => {
@@ -657,8 +689,13 @@ export default function ViewerPage({ app }: ViewerPageProps) {
 
   const snapshotMasks = (): MaskSnapshot => ({
     masks: studyState.masks.map((mask) => ({ ...mask })),
+    segmentGroups: studyState.segmentGroups.map((group) => ({
+      ...group,
+      segments: group.segments.map((segment) => ({ ...segment })),
+    })),
     activeMaskId: studyState.activeMaskId,
     buffers: cloneMaskBuffers(maskBuffers),
+    labelmaps: cloneMaskBuffers(labelmapBuffers),
   });
 
   const commitMaskEdit = (
@@ -1064,7 +1101,153 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setStudyState((current) => ({
       ...current,
       activeMaskId: maskId,
+      activeSegmentGroupId:
+        current.segmentGroups.find((group) =>
+          group.segments.some((segment) => segment.maskId === maskId),
+        )?.id ?? current.activeSegmentGroupId,
+      segmentGroups: current.segmentGroups.map((group) => {
+        const segment = group.segments.find((item) => item.maskId === maskId);
+        return segment
+          ? { ...group, activeSegmentValue: segment.value, updatedAt: Date.now() }
+          : group;
+      }),
     }));
+  };
+
+  const selectSegment = (groupId: string, segmentId: string) => {
+    setStudyState((current) => {
+      const group = current.segmentGroups.find((item) => item.id === groupId);
+      const segment = group?.segments.find((item) => item.id === segmentId);
+      if (!group || !segment) return current;
+      return {
+        ...current,
+        activeMaskId: segment.maskId ?? current.activeMaskId,
+        activeSegmentGroupId: groupId,
+        segmentGroups: current.segmentGroups.map((item) =>
+          item.id === groupId
+            ? { ...item, activeSegmentValue: segment.value, updatedAt: Date.now() }
+            : item,
+        ),
+      };
+    });
+  };
+
+  const addSegment = (groupId: string) => {
+    if (!studyState.study || !studyState.activeImageId || !app.volume) return;
+    const group = studyState.segmentGroups.find((item) => item.id === groupId);
+    if (!group) return;
+    const voxelCount = app.volume.voxels.length;
+    const nextValue =
+      Math.max(0, ...group.segments.map((segment) => segment.value)) + 1;
+    const colors = ['#38bdf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa', '#f97316'];
+    const color = colors[(nextValue - 1) % colors.length];
+    const mask = createStudyMask(studyState.study.id, studyState.activeImageId, {
+      name: `Segment ${nextValue}`,
+      color,
+      voxelCount: 0,
+    });
+    const segment = createStudySegment({
+      value: nextValue,
+      name: mask.name,
+      color,
+      maskId: mask.id,
+      voxelCount: 0,
+    });
+    const nextUndo = [...undoStack, snapshotMasks()].slice(-24);
+    setUndoStack(nextUndo);
+    setRedoStack([]);
+    setMaskBuffers((current) => ({
+      ...current,
+      [mask.id]: new Uint8Array(voxelCount),
+    }));
+    setLabelmapBuffers((current) => ({
+      ...current,
+      [groupId]: current[groupId] ?? uint16ArrayToBytes(new Uint16Array(voxelCount)),
+    }));
+    setStudyState((current) => ({
+      ...current,
+      masks: [...current.masks, mask],
+      activeMaskId: mask.id,
+      activeSegmentGroupId: groupId,
+      segmentGroups: current.segmentGroups.map((item) =>
+        item.id === groupId
+          ? {
+              ...item,
+              activeSegmentValue: segment.value,
+              updatedAt: Date.now(),
+              segments: [...item.segments, segment],
+            }
+          : item,
+      ),
+      maskWorkflow: {
+        ...current.maskWorkflow,
+        canUndo: nextUndo.length > 0,
+        canRedo: false,
+      },
+    }));
+  };
+
+  const deleteSegment = (groupId: string, segmentId: string) => {
+    const group = studyState.segmentGroups.find((item) => item.id === groupId);
+    const segment = group?.segments.find((item) => item.id === segmentId);
+    if (!group || !segment) return;
+    const nextUndo = [...undoStack, snapshotMasks()].slice(-24);
+    setUndoStack(nextUndo);
+    setRedoStack([]);
+    setLabelmapBuffers((current) => {
+      const bytes = current[groupId];
+      if (!bytes) return current;
+      const labelmap = bytesToUint16Array(bytes);
+      for (let index = 0; index < labelmap.length; index += 1) {
+        if (labelmap[index] === segment.value) labelmap[index] = 0;
+      }
+      return { ...current, [groupId]: uint16ArrayToBytes(labelmap) };
+    });
+    setMaskBuffers((current) => {
+      if (!segment.maskId) return current;
+      const next = { ...current };
+      delete next[segment.maskId];
+      return next;
+    });
+    setStudyState((current) => {
+      const nextGroups = current.segmentGroups.map((item) => {
+        if (item.id !== groupId) return item;
+        const segments = item.segments.filter((entry) => entry.id !== segmentId);
+        return {
+          ...item,
+          segments,
+          activeSegmentValue:
+            item.activeSegmentValue === segment.value
+              ? segments[0]?.value
+              : item.activeSegmentValue,
+          updatedAt: Date.now(),
+        };
+      });
+      const nextActiveSegment = nextGroups
+        .find((item) => item.id === groupId)
+        ?.segments.find(
+          (item) =>
+            item.value ===
+            nextGroups.find((nextGroup) => nextGroup.id === groupId)
+              ?.activeSegmentValue,
+        );
+      return {
+        ...current,
+        masks: segment.maskId
+          ? current.masks.filter((mask) => mask.id !== segment.maskId)
+          : current.masks,
+        activeMaskId:
+          current.activeMaskId === segment.maskId
+            ? nextActiveSegment?.maskId
+            : current.activeMaskId,
+        segmentGroups: nextGroups,
+        maskWorkflow: {
+          ...current.maskWorkflow,
+          canUndo: nextUndo.length > 0,
+          canRedo: false,
+        },
+      };
+    });
   };
 
   const updateMaskAppearance = (
@@ -1133,79 +1316,6 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }));
   };
 
-  const applyBrushAtVoxel = (
-    buffer: Uint8Array,
-    point: [number, number, number],
-    touched: Set<number>,
-  ) => {
-    if (!app.volume) return;
-    const [width, height, depth] = app.volume.meta.dimensions;
-    const [sx, sy, sz] = app.volume.meta.spacing;
-    const radiusMm = Math.max(0.25, studyState.maskWorkflow.brushSizeMm / 2);
-    const rx = Math.max(0, Math.ceil(radiusMm / Math.max(sx, 0.001)));
-    const ry = Math.max(0, Math.ceil(radiusMm / Math.max(sy, 0.001)));
-    const rz = Math.max(0, Math.ceil(radiusMm / Math.max(sz, 0.001)));
-    const [cx, cy, cz] = point;
-    const [minHu, maxHu] = studyState.maskWorkflow.thresholdRange;
-
-    for (let z = Math.max(0, cz - rz); z <= Math.min(depth - 1, cz + rz); z += 1) {
-      for (let y = Math.max(0, cy - ry); y <= Math.min(height - 1, cy + ry); y += 1) {
-        for (let x = Math.max(0, cx - rx); x <= Math.min(width - 1, cx + rx); x += 1) {
-          const dx = (x - cx) * sx;
-          const dy = (y - cy) * sy;
-          const dz = (z - cz) * sz;
-          if (
-            studyState.maskWorkflow.brushShape === 'circle' &&
-            Math.hypot(dx, dy, dz) > radiusMm
-          ) {
-            continue;
-          }
-          const index = (z * height + y) * width + x;
-          if (studyState.maskWorkflow.operation === 'erase') {
-            buffer[index] = 0;
-          } else if (studyState.maskWorkflow.operation === 'threshold') {
-            const value = app.volume.voxels[index];
-            buffer[index] = value >= minHu && value <= maxHu ? 1 : 0;
-          } else {
-            buffer[index] = 1;
-          }
-          touched.add(index);
-        }
-      }
-    }
-  };
-
-  const applyBrushStroke = (
-    buffer: Uint8Array,
-    from: [number, number, number] | undefined,
-    to: [number, number, number],
-    touched: Set<number>,
-  ) => {
-    if (!from) {
-      applyBrushAtVoxel(buffer, to, touched);
-      return;
-    }
-
-    const steps = Math.max(
-      Math.abs(to[0] - from[0]),
-      Math.abs(to[1] - from[1]),
-      Math.abs(to[2] - from[2]),
-      1,
-    );
-    for (let step = 0; step <= steps; step += 1) {
-      const ratio = step / steps;
-      applyBrushAtVoxel(
-        buffer,
-        [
-          Math.round(from[0] + (to[0] - from[0]) * ratio),
-          Math.round(from[1] + (to[1] - from[1]) * ratio),
-          Math.round(from[2] + (to[2] - from[2]) * ratio),
-        ],
-        touched,
-      );
-    }
-  };
-
   const finishMaskEditSession = () => {
     const session = maskEditSessionRef.current;
     if (!session) return;
@@ -1221,20 +1331,20 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     const nextUndo = [...undoStack, session.snapshot].slice(-24);
     setUndoStack(nextUndo);
     setRedoStack([]);
-    setMaskBuffers((current) => ({
-      ...current,
-      [session.maskId]: session.buffer,
-    }));
-    const group = studyState.segmentGroups.find((item) =>
-      item.segments.some((segment) => segment.maskId === session.maskId),
-    );
-    const segment = group?.segments.find((item) => item.maskId === session.maskId);
-    if (group && segment) {
+    if (session.labelmapGroupId && session.labelmap && session.segmentValue) {
+      const mask = labelmapToMask(session.labelmap, session.segmentValue);
+      setMaskBuffers((current) => ({
+        ...current,
+        [session.maskId]: mask,
+      }));
       setLabelmapBuffers((current) => ({
         ...current,
-        [group.id]: uint16ArrayToBytes(
-          maskToLabelmap(session.buffer, segment.value),
-        ),
+        [session.labelmapGroupId as string]: uint16ArrayToBytes(session.labelmap as Uint16Array),
+      }));
+    } else {
+      setMaskBuffers((current) => ({
+        ...current,
+        [session.maskId]: session.buffer,
       }));
     }
     setStudyState((current) => ({
@@ -1340,33 +1450,88 @@ export default function ViewerPage({ app }: ViewerPageProps) {
 
     const activeMaskId = studyState.activeMaskId;
     if (!activeMaskId || !maskBuffers[activeMaskId]) return;
+    const activeGroup =
+      studyState.segmentGroups.find(
+        (group) => group.id === studyState.activeSegmentGroupId,
+      ) ??
+      studyState.segmentGroups.find((group) =>
+        group.segments.some((segment) => segment.maskId === activeMaskId),
+      );
+    const activeSegment =
+      activeGroup?.segments.find((segment) => segment.maskId === activeMaskId) ??
+      activeGroup?.segments.find(
+        (segment) => segment.value === activeGroup.activeSegmentValue,
+      ) ??
+      activeGroup?.segments[0];
+    if (activeSegment?.locked) return;
+    const segmentValue = activeSegment?.value ?? 1;
+    const groupId = activeGroup?.id;
     if (phase === 'start' || !maskEditSessionRef.current) {
+      const labelmap =
+        groupId && labelmapBuffers[groupId]
+          ? bytesToUint16Array(labelmapBuffers[groupId])
+          : maskToLabelmap(maskBuffers[activeMaskId], segmentValue);
       maskEditSessionRef.current = {
         snapshot: snapshotMasks(),
         maskId: activeMaskId,
         buffer: new Uint8Array(maskBuffers[activeMaskId]),
+        labelmapGroupId: groupId,
+        labelmap,
+        segmentValue,
         touched: new Set<number>(),
       };
     }
     const session = maskEditSessionRef.current;
     if (!session || session.maskId !== activeMaskId) return;
+    if (!session.labelmap || session.segmentValue !== segmentValue) return;
     const voxel = axisPointToVoxel(
       axis,
       point,
       app.cursor,
       app.volume.meta.dimensions,
     );
-    applyBrushStroke(
-      session.buffer,
+    paintLabelmapStroke(
+      session.labelmap,
       session.lastVoxel,
       voxel,
       session.touched,
+      {
+        axis,
+        cursor: app.cursor,
+        dimensions: app.volume.meta.dimensions,
+        spacing: app.volume.meta.spacing,
+        voxels: app.volume.voxels,
+        brushSizeMm: studyState.maskWorkflow.brushSizeMm,
+        brushShape: studyState.maskWorkflow.brushShape,
+        operation:
+          studyState.activeTool === 'mask-erase'
+            ? 'erase'
+            : studyState.activeTool === 'mask-threshold'
+              ? 'threshold'
+              : 'draw',
+        thresholdRange: studyState.maskWorkflow.thresholdRange,
+        segmentValue,
+        lockedValues: new Set(
+          activeGroup?.segments
+            .filter((segment) => segment.locked)
+            .map((segment) => segment.value) ?? [],
+        ),
+      },
     );
+    session.buffer = labelmapToMask(session.labelmap, segmentValue);
     session.lastVoxel = voxel;
     setMaskBuffers((current) => ({
       ...current,
       [session.maskId]: new Uint8Array(session.buffer),
     }));
+    if (session.labelmapGroupId) {
+      setLabelmapBuffers((current) => ({
+        ...current,
+        [session.labelmapGroupId as string]: uint16ArrayToBytes(
+          session.labelmap as Uint16Array,
+        ),
+      }));
+    }
     if (phase === 'end') finishMaskEditSession();
   };
 
@@ -1501,9 +1666,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setUndoStack(nextUndo);
     setRedoStack(nextRedo);
     setMaskBuffers(cloneMaskBuffers(previous.buffers));
+    setLabelmapBuffers(cloneMaskBuffers(previous.labelmaps));
     setStudyState((current) => ({
       ...current,
       masks: previous.masks,
+      segmentGroups: previous.segmentGroups,
       activeMaskId: previous.activeMaskId,
       maskWorkflow: {
         ...current.maskWorkflow,
@@ -1521,9 +1688,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setUndoStack(nextUndo);
     setRedoStack(nextRedo);
     setMaskBuffers(cloneMaskBuffers(next.buffers));
+    setLabelmapBuffers(cloneMaskBuffers(next.labelmaps));
     setStudyState((current) => ({
       ...current,
       masks: next.masks,
+      segmentGroups: next.segmentGroups,
       activeMaskId: next.activeMaskId,
       maskWorkflow: {
         ...current.maskWorkflow,
@@ -1549,8 +1718,23 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   ) => {
     const activeMaskId = studyState.activeMaskId;
     if (!app.volume || !studyState.study || !activeMaskId || surfaceStatus) return;
-    const sourceBuffer = maskBuffers[activeMaskId];
-    const sourceMask = studyState.masks.find((item) => item.id === activeMaskId);
+    const activeGroup = studyState.segmentGroups.find(
+      (group) => group.id === studyState.activeSegmentGroupId,
+    );
+    const activeSegment = activeGroup?.segments.find(
+      (segment) =>
+        segment.maskId === activeMaskId ||
+        segment.value === activeGroup.activeSegmentValue,
+    );
+    const labelmapBytes = activeGroup ? labelmapBuffers[activeGroup.id] : undefined;
+    const labelmapMask =
+      labelmapBytes && activeSegment
+        ? labelmapToMask(bytesToUint16Array(labelmapBytes), activeSegment.value)
+        : undefined;
+    const sourceBuffer = labelmapMask ?? maskBuffers[activeMaskId];
+    const sourceMask =
+      studyState.masks.find((item) => item.id === activeSegment?.maskId) ??
+      studyState.masks.find((item) => item.id === activeMaskId);
     if (!sourceBuffer || !sourceMask || !sourceMask.voxelCount) return;
 
     const dims = volumeMaskDims(app.volume.meta.dimensions);
@@ -1576,8 +1760,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       });
       const surface = createStudySurface(studyState.study.id, {
         maskId: activeMaskId,
-        name: `${sourceMask.name} ${quality} surface`,
-        color: sourceMask.color,
+        name: `${activeSegment?.name ?? sourceMask.name} ${quality} surface`,
+        color: activeSegment?.color ?? sourceMask.color,
         areaMm2: generated.areaMm2,
         triangleCount: generated.triangleCount,
         volumeMm3: generated.volumeMm3,
@@ -1890,6 +2074,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   overlays={maskOverlays}
                   cropRects={cropRects}
                   annotations={annotationOverlays}
+                  brushPreviews={brushPreviews}
                   selectedAxis={app.selectedAxis}
                   theme={appViewerTheme}
                   labels={axisLabels}
@@ -1951,6 +2136,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onUpdateMaskWorkflow={updateMaskWorkflow}
               onUpdateStudyViewState={updateStudyViewState}
               onUpdateSegment={updateSegment}
+              onAddSegment={addSegment}
+              onDeleteSegment={deleteSegment}
+              onSelectSegment={selectSegment}
               onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
               onApplyWatershedSeeds={applyWatershedSeeds}
               onClearWatershedSeeds={clearWatershedSeeds}
@@ -2031,6 +2219,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onUpdateMaskWorkflow={updateMaskWorkflow}
                   onUpdateStudyViewState={updateStudyViewState}
                   onUpdateSegment={updateSegment}
+                  onAddSegment={addSegment}
+                  onDeleteSegment={deleteSegment}
+                  onSelectSegment={selectSegment}
                   onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
                   onApplyWatershedSeeds={applyWatershedSeeds}
                   onClearWatershedSeeds={clearWatershedSeeds}

@@ -103,6 +103,9 @@ interface ViewerSidebarProps {
       >
     >,
   ) => void;
+  onAddSegment: (groupId: string) => void;
+  onDeleteSegment: (groupId: string, segmentId: string) => void;
+  onSelectSegment: (groupId: string, segmentId: string) => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -158,6 +161,9 @@ export function ViewerSidebar({
   onUpdateMaskWorkflow,
   onUpdateStudyViewState,
   onUpdateSegment,
+  onAddSegment,
+  onDeleteSegment,
+  onSelectSegment,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -283,6 +289,9 @@ export function ViewerSidebar({
           onUpdateMaskWorkflow={onUpdateMaskWorkflow}
           onUpdateStudyViewState={onUpdateStudyViewState}
           onUpdateSegment={onUpdateSegment}
+          onAddSegment={onAddSegment}
+          onDeleteSegment={onDeleteSegment}
+          onSelectSegment={onSelectSegment}
           onAddWatershedSeedAtCursor={onAddWatershedSeedAtCursor}
           onApplyWatershedSeeds={onApplyWatershedSeeds}
           onClearWatershedSeeds={onClearWatershedSeeds}

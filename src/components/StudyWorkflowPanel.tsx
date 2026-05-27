@@ -100,6 +100,9 @@ interface StudyWorkflowPanelProps {
       >
     >,
   ) => void;
+  onAddSegment: (groupId: string) => void;
+  onDeleteSegment: (groupId: string, segmentId: string) => void;
+  onSelectSegment: (groupId: string, segmentId: string) => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -147,6 +150,9 @@ export function StudyWorkflowPanel({
   onUpdateMaskWorkflow,
   onUpdateStudyViewState,
   onUpdateSegment,
+  onAddSegment,
+  onDeleteSegment,
+  onSelectSegment,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -499,27 +505,44 @@ export function StudyWorkflowPanel({
                 </div>
                 <div className="space-y-1">
                   {state.segmentGroups.map((group) => (
-                    <button
+                    <div
                       key={group.id}
-                      type="button"
                       className={cn(
                         'w-full rounded border px-2 py-1.5 text-left',
                         state.activeSegmentGroupId === group.id
                           ? 'border-sky-500/70 bg-sky-500/10'
                           : 'border-slate-800 bg-slate-950 hover:border-slate-700',
                       )}
-                      onClick={() =>
-                        onUpdateStudyViewState({ activeSegmentGroupId: group.id })
-                      }
                     >
-                      <div className="truncate text-xs font-medium text-slate-200">
-                        {group.name}
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          className="min-w-0 truncate text-left text-xs font-medium text-slate-200"
+                          onClick={() =>
+                            onUpdateStudyViewState({ activeSegmentGroupId: group.id })
+                          }
+                        >
+                          {group.name}
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onAddSegment(group.id)}
+                        >
+                          <Brush className="h-3.5 w-3.5" aria-hidden="true" />
+                          Add
+                        </Button>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {group.segments.map((segment) => (
                           <span
                             key={segment.id}
-                            className="inline-flex max-w-full items-center gap-1 rounded border border-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+                            className={cn(
+                              'inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 text-[10px]',
+                              group.activeSegmentValue === segment.value
+                                ? 'border-sky-500/70 bg-sky-500/10 text-sky-100'
+                                : 'border-slate-800 text-slate-400',
+                            )}
                           >
                             <input
                               type="color"
@@ -534,7 +557,16 @@ export function StudyWorkflowPanel({
                               }
                             />
                             <span className="truncate">
-                              {segment.value}: {segment.name}
+                              <button
+                                type="button"
+                                className="truncate text-left hover:text-slate-100"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onSelectSegment(group.id, segment.id);
+                                }}
+                              >
+                                {segment.value}: {segment.name}
+                              </button>
                             </span>
                             <button
                               type="button"
@@ -562,10 +594,21 @@ export function StudyWorkflowPanel({
                             >
                               {segment.locked ? 'L' : 'U'}
                             </button>
+                            <button
+                              type="button"
+                              className="rounded px-1 text-slate-500 hover:bg-slate-800 hover:text-rose-200"
+                              aria-label="Delete segment"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteSegment(group.id, segment.id);
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" aria-hidden="true" />
+                            </button>
                           </span>
                         ))}
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>

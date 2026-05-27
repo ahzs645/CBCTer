@@ -106,6 +106,7 @@ export const VolumeViewport3D = memo(
   const [gridVisible, setGridVisible] = useState(false);
   const gridVisibleRef = useRef(gridVisible);
   const surfacesRef = useRef<SurfaceMeshPreview[]>(surfaces);
+  const cropBoundsRef = useRef<CropBounds | undefined>(cropBounds);
   const renderOptsRef = useRef<Partial<VolumeRenderOptions>>(
     RENDER_PRESETS.default,
   );
@@ -153,6 +154,11 @@ export const VolumeViewport3D = memo(
     surfacesRef.current = surfaces;
     instanceRef.current?.setSurfaceMeshes(surfaces);
   }, [surfaces]);
+
+  useEffect(() => {
+    cropBoundsRef.current = cropBounds;
+    instanceRef.current?.setCropBounds(cropBounds);
+  }, [cropBounds]);
 
   useEffect(() => {
     onDownsampledChange?.(Boolean(volume?.downsampled));
@@ -203,6 +209,7 @@ export const VolumeViewport3D = memo(
           instance.setPlanesVisible(planesVisibleRef.current);
           instance.setGridVisible(gridVisibleRef.current);
           instance.setSurfaceMeshes(surfacesRef.current);
+          instance.setCropBounds(cropBoundsRef.current);
           instance.setRenderOptions(renderOptsRef.current);
           cleanup = instance.dispose;
         })

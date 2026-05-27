@@ -37,6 +37,17 @@ interface AxisViewportGridProps {
       }>
     >
   >;
+  brushPreviews?: Partial<
+    Record<
+      VolumeAxis,
+      {
+        radiusXRatio: number;
+        radiusYRatio: number;
+        color: string;
+        visible: boolean;
+      }
+    >
+  >;
   selectedAxis?: VolumeAxis;
   slices: ViewerSlices;
   hasVolume: boolean;
@@ -100,6 +111,7 @@ interface AxisViewportDefinition {
   overlay?: SliceImage | null;
   cropRect?: NonNullable<AxisViewportGridProps['cropRects']>[VolumeAxis];
   annotations?: NonNullable<AxisViewportGridProps['annotations']>[VolumeAxis];
+  brushPreview?: NonNullable<AxisViewportGridProps['brushPreviews']>[VolumeAxis];
   exportName: string;
 }
 
@@ -196,6 +208,7 @@ function AxisViewportPane({
         cropRect={definition.cropRect}
         onCropRectChange={(rect) => onCropRectChange?.(definition.axis, rect)}
         annotations={definition.annotations}
+        brushPreview={definition.brushPreview}
         onAnnotationSelect={onAnnotationSelect}
         onAnnotationMove={onAnnotationMove}
         mmPerPixel={definition.mmPerPixel}
@@ -216,6 +229,7 @@ function resolveAxisDefinitions(
   overlays?: Partial<Record<VolumeAxis, SliceImage | null>>,
   cropRects?: AxisViewportGridProps['cropRects'],
   annotations?: AxisViewportGridProps['annotations'],
+  brushPreviews?: AxisViewportGridProps['brushPreviews'],
 ): Record<VolumeAxis, AxisViewportDefinition> {
   const planeColors = theme.planeColors;
   return {
@@ -229,6 +243,7 @@ function resolveAxisDefinitions(
       overlay: overlays?.[VolumeAxis.Coronal],
       cropRect: cropRects?.[VolumeAxis.Coronal],
       annotations: annotations?.[VolumeAxis.Coronal],
+      brushPreview: brushPreviews?.[VolumeAxis.Coronal],
       status: cursor
         ? labels.status(
             VolumeAxis.Coronal,
@@ -257,6 +272,7 @@ function resolveAxisDefinitions(
       overlay: overlays?.[VolumeAxis.Sagittal],
       cropRect: cropRects?.[VolumeAxis.Sagittal],
       annotations: annotations?.[VolumeAxis.Sagittal],
+      brushPreview: brushPreviews?.[VolumeAxis.Sagittal],
       status: cursor
         ? labels.status(
             VolumeAxis.Sagittal,
@@ -285,6 +301,7 @@ function resolveAxisDefinitions(
       overlay: overlays?.[VolumeAxis.Axial],
       cropRect: cropRects?.[VolumeAxis.Axial],
       annotations: annotations?.[VolumeAxis.Axial],
+      brushPreview: brushPreviews?.[VolumeAxis.Axial],
       status: cursor
         ? labels.status(
             VolumeAxis.Axial,
@@ -313,6 +330,7 @@ export function AxisViewportGrid({
   overlays,
   cropRects,
   annotations,
+  brushPreviews,
   selectedAxis = VolumeAxis.Coronal,
   slices,
   hasVolume,
@@ -357,6 +375,7 @@ export function AxisViewportGrid({
     overlays,
     cropRects,
     annotations,
+    brushPreviews,
   );
   const axes = [VolumeAxis.Coronal, VolumeAxis.Sagittal, VolumeAxis.Axial];
 

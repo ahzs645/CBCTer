@@ -6,6 +6,7 @@ import type {
   Vector2,
   Vector3,
 } from 'three';
+import type { CropBounds } from '../../domain/types';
 
 export type ThreeModule = typeof import('three');
 export type TrackballControlsModule =
@@ -62,6 +63,7 @@ export interface ThreePreviewInstance {
   setPlanesVisible: (visible: boolean) => void;
   setGridVisible: (visible: boolean) => void;
   setSurfaceMeshes: (surfaces: SurfaceMeshPreview[]) => void;
+  setCropBounds: (bounds: CropBounds | null | undefined) => void;
   setRenderOptions: (options: Partial<VolumeRenderOptions>) => void;
   setView: (preset: VolumeViewPreset) => void;
   resetView: () => void;

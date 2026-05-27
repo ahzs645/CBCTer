@@ -65,6 +65,12 @@ interface SliceCanvasProps {
   }>;
   onAnnotationSelect?: (id: string) => void;
   onAnnotationMove?: (id: string, point: { xRatio: number; yRatio: number }) => void;
+  brushPreview?: {
+    radiusXRatio: number;
+    radiusYRatio: number;
+    color: string;
+    visible: boolean;
+  };
 }
 
 const FALLBACK_RECT: Rect = {
@@ -117,6 +123,7 @@ export function SliceCanvas({
   annotations = [],
   onAnnotationSelect,
   onAnnotationMove,
+  brushPreview,
 }: SliceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -124,6 +131,7 @@ export function SliceCanvas({
   const imageDataRef = useRef<ImageData | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayImageDataRef = useRef<ImageData | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<{ xRatio: number; yRatio: number } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -281,7 +289,10 @@ export function SliceCanvas({
     onEdit,
     onWindowLevelDrag,
     onSelect,
-    onProbe,
+    onProbe: (point) => {
+      setHoverPoint(point);
+      onProbe?.(point);
+    },
     onZoomChange,
   });
 
@@ -433,6 +444,20 @@ export function SliceCanvas({
               </>
             ) : null}
           </div>
+        ) : null}
+        {brushPreview?.visible && hoverPoint ? (
+          <div
+            className="pointer-events-none absolute rounded-full border bg-transparent"
+            aria-hidden="true"
+            style={{
+              left: `${imageRect.left + (hoverPoint.xRatio - brushPreview.radiusXRatio) * imageRect.width}px`,
+              top: `${imageRect.top + (hoverPoint.yRatio - brushPreview.radiusYRatio) * imageRect.height}px`,
+              width: `${brushPreview.radiusXRatio * 2 * imageRect.width}px`,
+              height: `${brushPreview.radiusYRatio * 2 * imageRect.height}px`,
+              borderColor: brushPreview.color,
+              boxShadow: `0 0 0 1px ${brushPreview.color}55`,
+            }}
+          />
         ) : null}
         {annotations.length > 0 ? (
           <div className="pointer-events-none absolute inset-0">
