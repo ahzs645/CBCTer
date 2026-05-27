@@ -26,6 +26,8 @@
     "sampleTitle": "Try the bundled sample",
     "sampleDescription": "Load the bundled CBCT volume to explore the viewer and tooth extraction without importing a folder.",
     "loadSample": "Load sample CBCT",
+    "openRemote": "Open URL",
+    "remoteUrlPlaceholder": "https://example.org/scan.zip or manifest.json",
     "openNifti": "Open NIfTI file",
     "openTeeth": "Open tooth extraction",
     "supportedFoldersTitle": "Supported folders",
@@ -130,7 +132,16 @@
       "images": "{{count}} image layer",
       "dimensions": "{{dimensions}} voxels",
       "spacing": "{{spacing}} mm",
-      "activeTool": "Active tool: {{tool}}"
+      "activeTool": "Active tool: {{tool}}",
+      "dicomEngine": "DICOM engine",
+      "dicomEngineCustom": "Custom parser",
+      "dicomEngineItk": "ITK/GDCM optional",
+      "layout": "Layout",
+      "layoutMpr3d": "3D + MPR",
+      "layoutMprOnly": "MPR only",
+      "layoutSingle": "3D only",
+      "crop": "Crop bounds",
+      "cropFullVolume": "Full volume"
     },
     "masks": {
       "threshold": "Threshold mask",
@@ -156,7 +167,8 @@
       "undo": "Undo",
       "redo": "Redo",
       "empty": "No masks yet. Create a threshold mask to start a client-side layer.",
-      "manual": "Manual mask"
+      "manual": "Manual mask",
+      "segmentGroups": "Segment groups"
     },
     "surfaces": {
       "pipeline": "Surface pipeline",

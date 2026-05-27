@@ -26,6 +26,8 @@
     "sampleTitle": "Спробуйте вбудований зразок",
     "sampleDescription": "Завантажте вбудований CBCT-об'єм, щоб дослідити переглядач і виділення зубів без імпорту папки.",
     "loadSample": "Завантажити зразок CBCT",
+    "openRemote": "Відкрити URL",
+    "remoteUrlPlaceholder": "https://example.org/scan.zip або manifest.json",
     "openTeeth": "Відкрити виділення зубів",
     "supportedFoldersTitle": "Підтримувані папки",
     "supportedFolders": {
@@ -129,7 +131,16 @@
       "images": "{{count}} шар зображення",
       "dimensions": "{{dimensions}} вокселів",
       "spacing": "{{spacing}} мм",
-      "activeTool": "Активний інструмент: {{tool}}"
+      "activeTool": "Активний інструмент: {{tool}}",
+      "dicomEngine": "DICOM рушій",
+      "dicomEngineCustom": "Власний парсер",
+      "dicomEngineItk": "ITK/GDCM опційно",
+      "layout": "Компонування",
+      "layoutMpr3d": "3D + MPR",
+      "layoutMprOnly": "Лише MPR",
+      "layoutSingle": "Лише 3D",
+      "crop": "Межі обрізання",
+      "cropFullVolume": "Повний об'єм"
     },
     "masks": {
       "threshold": "Порогова маска",
@@ -155,7 +166,8 @@
       "undo": "Скасувати",
       "redo": "Повторити",
       "empty": "Масок ще немає. Створіть порогову маску, щоб почати клієнтський шар.",
-      "manual": "Ручна маска"
+      "manual": "Ручна маска",
+      "segmentGroups": "Групи сегментів"
     },
     "surfaces": {
       "pipeline": "Конвеєр поверхонь",

@@ -81,6 +81,18 @@ interface ViewerSidebarProps {
   onUpdateMaskWorkflow: (
     patch: Partial<StudyState['maskWorkflow']> & { activeTool?: StudyTool },
   ) => void;
+  onUpdateStudyViewState: (
+    patch: Partial<
+      Pick<
+        StudyState,
+        | 'dicomImportEngine'
+        | 'cropBounds'
+        | 'layoutPreset'
+        | 'activeSegmentGroupId'
+        | 'activeAnnotationId'
+      >
+    >,
+  ) => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -134,6 +146,7 @@ export function ViewerSidebar({
   onSplitMaskComponents,
   onUpdateMaskAppearance,
   onUpdateMaskWorkflow,
+  onUpdateStudyViewState,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -257,6 +270,7 @@ export function ViewerSidebar({
           onSplitMaskComponents={onSplitMaskComponents}
           onUpdateMaskAppearance={onUpdateMaskAppearance}
           onUpdateMaskWorkflow={onUpdateMaskWorkflow}
+          onUpdateStudyViewState={onUpdateStudyViewState}
           onAddWatershedSeedAtCursor={onAddWatershedSeedAtCursor}
           onApplyWatershedSeeds={onApplyWatershedSeeds}
           onClearWatershedSeeds={onClearWatershedSeeds}

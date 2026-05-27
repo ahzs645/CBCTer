@@ -1,6 +1,8 @@
 import type { AppId } from "./ids";
 
 export type StorageMode = "local" | "convex";
+export type DicomImportEngine = "custom" | "itk-gdcm";
+export type ViewerLayoutPreset = "mpr-3d" | "mpr-only" | "single";
 
 export type ScanImportStatus = "queued" | "indexed" | "failed";
 
@@ -78,6 +80,33 @@ export type StudyMask = {
   updatedAt: number;
 };
 
+export type StudySegment = {
+  id: AppId;
+  value: number;
+  name: string;
+  color: string;
+  opacity: number;
+  visible: boolean;
+  locked: boolean;
+  maskId?: AppId;
+  voxelCount?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type StudySegmentGroup = {
+  id: AppId;
+  studyId: AppId;
+  imageId: AppId;
+  name: string;
+  visible: boolean;
+  opacity: number;
+  activeSegmentValue?: number;
+  segments: StudySegment[];
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type StudySurface = {
   id: AppId;
   studyId: AppId;
@@ -117,12 +146,22 @@ export type StudyMeasurement = {
 export type StudyAnnotation = {
   id: AppId;
   studyId: AppId;
+  kind: "point" | "measurement";
   name: string;
   point: [number, number, number];
   text: string;
+  measurementId?: AppId;
+  color: string;
   visible: boolean;
+  selected: boolean;
   createdAt: number;
   updatedAt: number;
+};
+
+export type CropBounds = {
+  min: [number, number, number];
+  max: [number, number, number];
+  enabled: boolean;
 };
 
 export type MaskWorkflowState = {
@@ -144,15 +183,21 @@ export type StudyState = {
   study: ScanStudy | null;
   images: StudyImageLayer[];
   masks: StudyMask[];
+  segmentGroups: StudySegmentGroup[];
   surfaces: StudySurface[];
   measurements: StudyMeasurement[];
   annotations: StudyAnnotation[];
   activeTool: StudyTool;
   activeImageId?: AppId;
   activeMaskId?: AppId;
+  activeSegmentGroupId?: AppId;
   activeSurfaceId?: AppId;
   activeMeasurementId?: AppId;
+  activeAnnotationId?: AppId;
   displayPreset?: ViewerPreset;
+  dicomImportEngine: DicomImportEngine;
+  cropBounds?: CropBounds;
+  layoutPreset: ViewerLayoutPreset;
   maskWorkflow: MaskWorkflowState;
 };
 

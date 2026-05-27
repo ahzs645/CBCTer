@@ -308,6 +308,13 @@ export async function parseDicomFolder(
   source: ScanFolderSource,
   options?: ImportParseOptions,
 ): Promise<ParsedImportResult> {
+  if (options?.dicomEngine === 'itk-gdcm') {
+    throw makeError(
+      'E_DICOM_ENGINE_UNAVAILABLE',
+      'The ITK/GDCM DICOM engine is enabled, but the optional itk-wasm runtime is not installed in this build. Switch back to the custom DICOM engine or install the ITK/GDCM adapter package.',
+    );
+  }
+
   const dicomEntries = findDicomEntries(source);
   if (dicomEntries.length < 2) {
     throw makeError('E_DICOM_COUNT', 'expected at least two DICOM slices');

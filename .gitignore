@@ -12,9 +12,13 @@ outputs/
 *.png
 !public/**/*.png
 !src/**/*.png
+!tests/e2e/**/*.png
+playwright-report/
+test-results/
 
 # Generated sample data published for local demos.
 public/sample-cbct/
+public/e2e-sample-cbct/
 public/sample-dicom/
 public/sample-segmentation*/
 models/source-check/

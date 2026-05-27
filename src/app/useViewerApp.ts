@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react';
 import { IDLE_PROGRESS } from '../constants';
 import { loadVolumeFromFolder } from '../lib/import/load-volume';
+import { loadRemoteImport } from '../lib/import/remote';
 import type { ScanFolderPicker } from '../lib/import/source-picker';
 import type { ImportParseOptions } from '../lib/import/types';
+import type { DicomImportEngine } from '../domain/types';
 import { loadSample as loadSampleVolume } from './sources/sampleBridge';
 import { loadNifti } from './sources/niftiLoader';
 import { ImportStage } from '../types';
@@ -46,6 +48,7 @@ export interface ViewerApp {
   volume: LoadedVolume | null;
   windowBounds: RangeBounds;
   windowLevelDraft: SliceWindowLevel;
+  dicomImportEngine: DicomImportEngine;
   handleLevelChange: (value: number) => void;
   handleLevelCommit: (value: number) => void;
   handleWindowChange: (value: number) => void;
@@ -55,6 +58,7 @@ export interface ViewerApp {
     phase: 'start' | 'move' | 'end',
   ) => void;
   openDirectory: () => Promise<void>;
+  openRemote: (url: string) => Promise<void>;
   openSample: () => Promise<void>;
   openNifti: (file: File) => Promise<void>;
   resetViewer: () => void;
@@ -63,6 +67,7 @@ export interface ViewerApp {
   setMprZoom: (zoom: number) => void;
   setSelectedAxis: (axis: VolumeAxis) => void;
   setSidebarVisible: (visible: boolean) => void;
+  setDicomImportEngine: (engine: DicomImportEngine) => void;
   selectSeries: (seriesId: string) => Promise<void>;
   updateCursor: (
     axis: VolumeAxis,
@@ -90,6 +95,8 @@ export function useViewerApp({
   );
   const [axisViewsVisible, setAxisViewsVisible] = useState(true);
   const [sidebarVisible, setSidebarVisible] = useState(defaultSidebarVisible);
+  const [dicomImportEngine, setDicomImportEngine] =
+    useState<DicomImportEngine>('custom');
 
   // All volume-derived viewer state (cursor, window/level, zoom, slices, ...)
   // lives in the reusable headless hook and re-initializes when `volume`
@@ -118,7 +125,10 @@ export function useViewerApp({
       setSourceLabel(source.label);
 
       try {
-        const loaded = await loadVolumeFromFolder(source, setProgress, options);
+        const loaded = await loadVolumeFromFolder(source, setProgress, {
+          ...options,
+          dicomEngine: options?.dicomEngine ?? dicomImportEngine,
+        });
 
         setIssue(null);
         setVolume(loaded.volume);
@@ -144,7 +154,7 @@ export function useViewerApp({
         });
       }
     },
-    [resetViewer],
+    [dicomImportEngine, resetViewer],
   );
 
   const dimensions = viewer.dimensions;
@@ -175,7 +185,12 @@ export function useViewerApp({
     });
 
     try {
-      const loaded = await loadSampleVolume();
+      const samplePath =
+        typeof window === 'undefined'
+          ? undefined
+          : new URLSearchParams(window.location.search).get('sample') ||
+            undefined;
+      const loaded = await loadSampleVolume(samplePath);
 
       setIssue(null);
       setVolume(loaded.volume);
@@ -238,12 +253,41 @@ export function useViewerApp({
     }
   };
 
+  const openRemote = async (url: string) => {
+    resetViewer();
+    setSourceLabel(url);
+    setProgress({
+      stage: ImportStage.Scanning,
+      detailKey: 'importStatus.progress.scanningSelectedFolder',
+      completed: 0,
+      total: 1,
+    });
+
+    try {
+      const remote = await loadRemoteImport(url);
+      setSourceLabel(remote.label);
+      if (remote.type === 'nifti') {
+        await openNifti(remote.file);
+        return;
+      }
+      await loadSource(remote.source);
+    } catch (error) {
+      setIssue(makeImportIssue(error));
+      setProgress({
+        stage: ImportStage.Error,
+        detailKey: 'importStatus.progress.importFailed',
+        completed: 0,
+        total: 1,
+      });
+    }
+  };
+
   const selectSeries = async (seriesId: string) => {
     if (!currentSource || busy) return;
 
-    await loadSource(currentSource, {
-      preferredSeriesId: seriesId,
-    });
+      await loadSource(currentSource, {
+        preferredSeriesId: seriesId,
+      });
   };
 
   return {
@@ -253,6 +297,7 @@ export function useViewerApp({
     directorySupported,
     dimensions,
     downsampled3D,
+    dicomImportEngine,
     issue,
     levelBounds: viewer.levelBounds,
     mprZoom: viewer.mprZoom,
@@ -265,6 +310,7 @@ export function useViewerApp({
     seriesChoices,
     setAxisViewsVisible,
     setDownsampled3D,
+    setDicomImportEngine,
     setMprZoom: viewer.setMprZoom,
     setSelectedAxis: viewer.setSelectedAxis,
     setSidebarVisible,
@@ -281,6 +327,7 @@ export function useViewerApp({
     handleWindowCommit: viewer.handleWindowCommit,
     handleWindowLevelDrag: viewer.handleWindowLevelDrag,
     openDirectory,
+    openRemote,
     openSample,
     openNifti,
     updateCursor: viewer.updateCursor,

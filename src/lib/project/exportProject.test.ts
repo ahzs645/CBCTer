@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { StudyState } from '../../domain/types';
+import { createEmptyStudyState } from '../../domain/studyState';
+import type { ScanStudy, StudyState } from '../../domain/types';
 import {
   buildProjectArchive,
   parseProjectManifest,
@@ -8,34 +9,18 @@ import {
   readProjectArchive,
 } from './exportProject';
 
-const state: StudyState = {
-  study: {
-    id: 'study-1',
-    name: 'Patient: Demo/CBCT',
-    source: 'local-folder',
-    fileCount: 2,
-    totalBytes: 10,
-    status: 'indexed',
-    createdAt: 1,
-    updatedAt: 2,
-  },
-  images: [],
-  masks: [],
-  surfaces: [],
-  measurements: [],
-  annotations: [],
-  activeTool: 'crosshair',
-  maskWorkflow: {
-    brushShape: 'circle',
-    brushSizeMm: 1,
-    operation: 'draw',
-    thresholdRange: [0, 1],
-    watershedSeedKind: 'foreground',
-    watershedSeeds: [],
-    canUndo: false,
-    canRedo: false,
-  },
+const study: ScanStudy = {
+  id: 'study-1',
+  name: 'Patient: Demo/CBCT',
+  source: 'local-folder',
+  fileCount: 2,
+  totalBytes: 10,
+  status: 'indexed',
+  createdAt: 1,
+  updatedAt: 2,
 };
+
+const state: StudyState = createEmptyStudyState(study);
 
 describe('project archive export', () => {
   it('writes a versioned manifest with safe, deduplicated embedded paths', async () => {
@@ -56,6 +41,7 @@ describe('project archive export', () => {
 
     expect(manifest.version).toBe(PROJECT_ARCHIVE_VERSION);
     expect(manifest.app).toBe('CBCTer');
+    expect(manifest.labelmaps).toEqual([]);
     expect(manifest.masks.map((entry) => entry.path)).toEqual([
       'masks/Mask_left_right.bin',
       'masks/Mask_left_right_2.bin',
@@ -83,6 +69,23 @@ describe('project archive export', () => {
     expect([...archive.surfaces[0].data]).toEqual([4]);
   });
 
+  it('round-trips embedded labelmaps', async () => {
+    const blob = await buildProjectArchive({
+      state,
+      masks: [],
+      labelmaps: [{ id: 'labels:primary', data: new Uint8Array([1, 0, 2, 0]) }],
+      surfaces: [],
+    });
+    const file = new File([blob], 'demo.cbcter.zip');
+
+    const archive = await readProjectArchive(file);
+
+    expect(archive.manifest.labelmaps[0].path).toBe(
+      'labelmaps/labels_primary.uint16.raw',
+    );
+    expect([...archive.labelmaps[0].data]).toEqual([1, 0, 2, 0]);
+  });
+
   it('migrates version 1 manifests into the current archive shape', () => {
     const manifest = parseProjectManifest(
       JSON.stringify({
@@ -96,6 +99,7 @@ describe('project archive export', () => {
 
     expect(manifest.version).toBe(PROJECT_ARCHIVE_VERSION);
     expect(manifest.app).toBe('CBCTer');
+    expect(manifest.labelmaps).toEqual([]);
     expect(manifest.dataSources).toEqual([
       {
         id: 'mask',

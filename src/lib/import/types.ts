@@ -6,6 +6,7 @@ import type {
   ScanFolderSource,
   ScanFormat,
 } from '../../types';
+import type { DicomImportEngine } from '../../domain/types';
 
 export enum VolumeWorkerRequestType {
   AssembleVolume = 'assemble-volume',
@@ -69,6 +70,7 @@ export interface ParsedImportResult {
 
 export interface ImportParseOptions {
   preferredSeriesId?: string;
+  dicomEngine?: DicomImportEngine;
 }
 
 export interface ImportFormatAdapter {

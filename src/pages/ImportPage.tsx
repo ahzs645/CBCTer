@@ -1,5 +1,5 @@
 import { Activity, FileUp, Layers3 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import logoUrl from '../assets/voxel-viewer-logo.svg';
@@ -20,6 +20,7 @@ export default function ImportPage({ app }: ImportPageProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const niftiInputRef = useRef<HTMLInputElement | null>(null);
+  const [remoteUrl, setRemoteUrl] = useState('');
   const codeClass =
     'rounded bg-slate-900 px-1 py-0.5 font-mono text-[0.9em] text-slate-200';
 
@@ -72,6 +73,31 @@ export default function ImportPage({ app }: ImportPageProps) {
                 <p className="mt-2 max-w-2xl text-sm text-slate-400">
                   {t('importPage.description')}
                 </p>
+                <form
+                  className="mt-3 flex max-w-2xl flex-col gap-2 sm:flex-row"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const url = remoteUrl.trim();
+                    if (url) void app.openRemote(url);
+                  }}
+                >
+                  <input
+                    type="url"
+                    value={remoteUrl}
+                    onChange={(event) => setRemoteUrl(event.target.value)}
+                    placeholder={t('importPage.remoteUrlPlaceholder')}
+                    className="min-h-10 min-w-0 flex-1 rounded border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 outline-none transition focus:border-sky-500"
+                    disabled={app.busy}
+                  />
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    disabled={app.busy || remoteUrl.trim().length === 0}
+                  >
+                    <FileUp className="h-4 w-4" aria-hidden="true" />
+                    {t('importPage.openRemote')}
+                  </Button>
+                </form>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button
                     variant="primary"

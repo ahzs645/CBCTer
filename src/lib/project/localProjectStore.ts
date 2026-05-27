@@ -4,6 +4,7 @@ import {
   type ProjectArchive,
 } from './exportProject';
 import type { StudyState } from '../../domain/types';
+import { normalizeStudyState } from '../../domain/studyState';
 import { sanitizePathSegment } from '../import/fileTypes';
 
 export interface LocalProjectInput {
@@ -57,12 +58,13 @@ export async function loadLatestProject(): Promise<ProjectArchive | null> {
           bytes: surface.data.byteLength,
         })),
       ],
-      state: record.state,
+      state: normalizeStudyState(record.state),
       masks: record.masks.map((mask) => ({
         id: mask.id,
         path: `masks/${sanitizePathSegment(mask.id)}.bin`,
         bytes: mask.data.byteLength,
       })),
+      labelmaps: [],
       surfaces: record.surfaces.map((surface) => ({
         id: surface.id,
         path: `surfaces/${sanitizePathSegment(surface.id)}.stl`,
@@ -70,6 +72,7 @@ export async function loadLatestProject(): Promise<ProjectArchive | null> {
       })),
     },
     masks: record.masks,
+    labelmaps: [],
     surfaces: record.surfaces,
   };
 }

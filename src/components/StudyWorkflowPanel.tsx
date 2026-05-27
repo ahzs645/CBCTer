@@ -16,11 +16,14 @@ import {
 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type {
+  DicomImportEngine,
   MaskOperation,
   StudyState,
   StudyTool,
+  ViewerLayoutPreset,
   WatershedSeedKind,
 } from '../domain/types';
+import { createFullCropBounds } from '../domain/studyState';
 import { useTranslation } from '../i18n';
 import { SURFACE_GENERATION_PRESETS } from '../lib/surface';
 import type { SurfaceGenerationQuality } from '../lib/surface';
@@ -75,6 +78,18 @@ interface StudyWorkflowPanelProps {
   onUpdateMaskWorkflow: (
     patch: Partial<StudyState['maskWorkflow']> & { activeTool?: StudyTool },
   ) => void;
+  onUpdateStudyViewState: (
+    patch: Partial<
+      Pick<
+        StudyState,
+        | 'dicomImportEngine'
+        | 'cropBounds'
+        | 'layoutPreset'
+        | 'activeSegmentGroupId'
+        | 'activeAnnotationId'
+      >
+    >,
+  ) => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -120,6 +135,7 @@ export function StudyWorkflowPanel({
   onSplitMaskComponents,
   onUpdateMaskAppearance,
   onUpdateMaskWorkflow,
+  onUpdateStudyViewState,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -192,12 +208,80 @@ export function StudyWorkflowPanel({
       </div>
 
       {tab === 'study' ? (
-        <div className="mt-3 space-y-2 text-xs text-slate-400">
+        <div className="mt-3 space-y-3 text-xs text-slate-400">
           <div className="font-medium text-slate-100">{state.study?.name}</div>
           <div>{t('workflow.study.images', { count: state.images.length })}</div>
           <div>{t('workflow.study.dimensions', { dimensions: dimensions.join(' x ') })}</div>
           <div>{t('workflow.study.spacing', { spacing: spacing.map((item) => item.toFixed(2)).join(' x ') })}</div>
           <div>{t('workflow.study.activeTool', { tool: state.activeTool })}</div>
+          <label className="block space-y-1">
+            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              {t('workflow.study.dicomEngine')}
+            </span>
+            <Select
+              block
+              size="sm"
+              value={state.dicomImportEngine}
+              onChange={(value) =>
+                onUpdateStudyViewState({
+                  dicomImportEngine: value as DicomImportEngine,
+                })
+              }
+              options={[
+                {
+                  value: 'custom',
+                  label: t('workflow.study.dicomEngineCustom'),
+                },
+                {
+                  value: 'itk-gdcm',
+                  label: t('workflow.study.dicomEngineItk'),
+                },
+              ]}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              {t('workflow.study.layout')}
+            </span>
+            <Select
+              block
+              size="sm"
+              value={state.layoutPreset}
+              onChange={(value) =>
+                onUpdateStudyViewState({
+                  layoutPreset: value as ViewerLayoutPreset,
+                })
+              }
+              options={[
+                { value: 'mpr-3d', label: t('workflow.study.layoutMpr3d') },
+                { value: 'mpr-only', label: t('workflow.study.layoutMprOnly') },
+                { value: 'single', label: t('workflow.study.layoutSingle') },
+              ]}
+            />
+          </label>
+          <div className="rounded border border-slate-800 bg-slate-950 p-2">
+            <label className="flex items-center gap-2 text-slate-300">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-sky-400"
+                checked={Boolean(state.cropBounds?.enabled)}
+                onChange={(event) =>
+                  onUpdateStudyViewState({
+                    cropBounds: {
+                      ...(state.cropBounds ?? createFullCropBounds(dimensions)),
+                      enabled: event.currentTarget.checked,
+                    },
+                  })
+                }
+              />
+              {t('workflow.study.crop')}
+            </label>
+            <div className="mt-1 text-[11px] text-slate-500">
+              {state.cropBounds
+                ? `${state.cropBounds.min.join(', ')} to ${state.cropBounds.max.join(', ')}`
+                : t('workflow.study.cropFullVolume')}
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -397,6 +481,51 @@ export function StudyWorkflowPanel({
           </div>
 
           <div className="space-y-1.5">
+            {state.segmentGroups.length > 0 ? (
+              <div className="rounded border border-slate-800 bg-slate-950 p-2">
+                <div className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  {t('workflow.masks.segmentGroups')}
+                </div>
+                <div className="space-y-1">
+                  {state.segmentGroups.map((group) => (
+                    <button
+                      key={group.id}
+                      type="button"
+                      className={cn(
+                        'w-full rounded border px-2 py-1.5 text-left',
+                        state.activeSegmentGroupId === group.id
+                          ? 'border-sky-500/70 bg-sky-500/10'
+                          : 'border-slate-800 bg-slate-950 hover:border-slate-700',
+                      )}
+                      onClick={() =>
+                        onUpdateStudyViewState({ activeSegmentGroupId: group.id })
+                      }
+                    >
+                      <div className="truncate text-xs font-medium text-slate-200">
+                        {group.name}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {group.segments.map((segment) => (
+                          <span
+                            key={segment.id}
+                            className="inline-flex max-w-full items-center gap-1 rounded border border-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+                          >
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-sm"
+                              style={{ backgroundColor: segment.color }}
+                              aria-hidden="true"
+                            />
+                            <span className="truncate">
+                              {segment.value}: {segment.name}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {state.masks.length === 0 ? (
               <div className="rounded border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-500">
                 {t('workflow.masks.empty')}
@@ -601,6 +730,34 @@ export function StudyWorkflowPanel({
           <div>{t('workflow.measures.angle')}</div>
           <div>{t('workflow.measures.roi')}</div>
           <div className="mt-3 space-y-1.5">
+            {state.annotations.length > 0 ? (
+              <div className="mb-2 space-y-1.5">
+                {state.annotations.map((annotation) => (
+                  <button
+                    key={annotation.id}
+                    type="button"
+                    className={cn(
+                      'w-full rounded border bg-slate-950 px-2.5 py-2 text-left',
+                      state.activeAnnotationId === annotation.id
+                        ? 'border-sky-500/70'
+                        : 'border-slate-800',
+                    )}
+                    onClick={() =>
+                      onUpdateStudyViewState({
+                        activeAnnotationId: annotation.id,
+                      })
+                    }
+                  >
+                    <div className="truncate font-medium text-slate-200">
+                      {annotation.name}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      {annotation.text} · {annotation.point.join(', ')}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {state.measurements.length === 0 ? (
               <div className="rounded border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs text-slate-500">
                 {t('workflow.measures.empty')}

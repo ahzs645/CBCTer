@@ -1,10 +1,16 @@
 import type { StudyState } from '../../domain/types';
+import { normalizeStudyState } from '../../domain/studyState';
 import {
   normalizeArchivePath,
   sanitizePathSegment,
 } from '../import/fileTypes';
 
 export interface ProjectMaskExport {
+  id: string;
+  data: Uint8Array;
+}
+
+export interface ProjectLabelmapExport {
   id: string;
   data: Uint8Array;
 }
@@ -17,6 +23,7 @@ export interface ProjectSurfaceExport {
 export interface ProjectExportInput {
   state: StudyState;
   masks: ProjectMaskExport[];
+  labelmaps?: ProjectLabelmapExport[];
   surfaces: ProjectSurfaceExport[];
 }
 
@@ -33,6 +40,7 @@ export interface ProjectArchiveManifest {
   dataSources: ProjectArchiveDataSource[];
   state: StudyState;
   masks: ProjectArchiveManifestEntry[];
+  labelmaps: ProjectArchiveManifestEntry[];
   surfaces: ProjectArchiveManifestEntry[];
 }
 
@@ -55,6 +63,7 @@ export interface ProjectArchiveDataSource {
 export interface ProjectArchive {
   manifest: ProjectArchiveManifest;
   masks: ProjectMaskExport[];
+  labelmaps: ProjectLabelmapExport[];
   surfaces: ProjectSurfaceExport[];
 }
 
@@ -120,6 +129,7 @@ function migrateProjectManifestV1(
     ],
     state: manifest.state,
     masks: manifest.masks,
+    labelmaps: [],
     surfaces: manifest.surfaces,
   };
 }
@@ -142,6 +152,15 @@ export function parseProjectManifest(input: string): ProjectArchiveManifest {
   if (!Array.isArray(parsed.masks) || !parsed.masks.every(isManifestEntry)) {
     throw new Error('Project package has invalid mask entries.');
   }
+  if (parsed.labelmaps === undefined) {
+    parsed.labelmaps = [];
+  }
+  if (
+    !Array.isArray(parsed.labelmaps) ||
+    !parsed.labelmaps.every(isManifestEntry)
+  ) {
+    throw new Error('Project package has invalid labelmap entries.');
+  }
   if (
     !Array.isArray(parsed.surfaces) ||
     !parsed.surfaces.every(isManifestEntry)
@@ -153,7 +172,9 @@ export function parseProjectManifest(input: string): ProjectArchiveManifest {
   }
 
   parsed.masks.forEach((entry) => assertSafeArchivePath(entry.path));
+  parsed.labelmaps.forEach((entry) => assertSafeArchivePath(entry.path));
   parsed.surfaces.forEach((entry) => assertSafeArchivePath(entry.path));
+  parsed.state = normalizeStudyState(parsed.state as Partial<StudyState>);
 
   return parsed as ProjectArchiveManifest;
 }
@@ -161,6 +182,7 @@ export function parseProjectManifest(input: string): ProjectArchiveManifest {
 export async function buildProjectArchive({
   state,
   masks,
+  labelmaps = [],
   surfaces,
 }: ProjectExportInput): Promise<Blob> {
   const { zipSync } = await import('fflate');
@@ -175,12 +197,22 @@ export async function buildProjectArchive({
     path: allocateArchivePath('surfaces', surface.id, 'stl', usedPaths),
     bytes: surface.data.byteLength,
   }));
+  const labelmapEntries = labelmaps.map((labelmap) => ({
+    id: labelmap.id,
+    path: allocateArchivePath('labelmaps', labelmap.id, 'uint16.raw', usedPaths),
+    bytes: labelmap.data.byteLength,
+  }));
   const manifest = {
     version: PROJECT_ARCHIVE_VERSION,
     app: 'CBCTer',
     exportedAt: new Date().toISOString(),
     dataSources: [
       ...maskEntries.map((entry) => ({
+        ...entry,
+        kind: 'embedded' as const,
+        role: 'mask' as const,
+      })),
+      ...labelmapEntries.map((entry) => ({
         ...entry,
         kind: 'embedded' as const,
         role: 'mask' as const,
@@ -193,6 +225,7 @@ export async function buildProjectArchive({
     ],
     state,
     masks: maskEntries,
+    labelmaps: labelmapEntries,
     surfaces: surfaceEntries,
   } satisfies ProjectArchiveManifest;
 
@@ -204,6 +237,9 @@ export async function buildProjectArchive({
 
   for (let index = 0; index < masks.length; index += 1) {
     files[maskEntries[index].path] = masks[index].data;
+  }
+  for (let index = 0; index < labelmaps.length; index += 1) {
+    files[labelmapEntries[index].path] = labelmaps[index].data;
   }
   for (let index = 0; index < surfaces.length; index += 1) {
     files[surfaceEntries[index].path] = surfaces[index].data;
@@ -230,6 +266,14 @@ export async function readProjectArchive(file: File): Promise<ProjectArchive> {
   return {
     manifest,
     masks: manifest.masks.map((entry) => {
+      const data = files[entry.path];
+      if (!data) throw new Error(`Project package is missing ${entry.path}.`);
+      if (data.byteLength !== entry.bytes) {
+        throw new Error(`Project package has an invalid ${entry.path}.`);
+      }
+      return { id: entry.id, data };
+    }),
+    labelmaps: manifest.labelmaps.map((entry) => {
       const data = files[entry.path];
       if (!data) throw new Error(`Project package is missing ${entry.path}.`);
       if (data.byteLength !== entry.bytes) {
