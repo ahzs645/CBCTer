@@ -20,6 +20,17 @@ const COLORS = [
   0xf28a4d, 0x9bd45f, 0xf2f2f2,
 ];
 
+function disposeMesh(object: THREE.Object3D) {
+  if (!(object instanceof THREE.Mesh)) return;
+  object.geometry.dispose();
+  const material = object.material;
+  if (Array.isArray(material)) {
+    material.forEach((entry) => entry.dispose());
+  } else {
+    material.dispose();
+  }
+}
+
 export function ToothArchViewport({
   items,
   selectedLabel,
@@ -27,6 +38,10 @@ export function ToothArchViewport({
   onSelect,
 }: ToothArchViewportProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
   const sceneRef = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
@@ -77,7 +92,7 @@ export function ToothArchViewport({
       const hit = raycaster.intersectObjects(group.children, false)[0];
       const label = hit?.object.userData.label;
       if (typeof label === "number") {
-        onSelect(label);
+        onSelectRef.current(label);
       }
     };
     renderer.domElement.addEventListener("click", handleClick);
@@ -120,24 +135,15 @@ export function ToothArchViewport({
       controls.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
-      group.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-          const material = object.material;
-          if (Array.isArray(material)) {
-            material.forEach((entry) => entry.dispose());
-          } else {
-            material.dispose();
-          }
-        }
-      });
+      group.traverse(disposeMesh);
     };
-  }, [onSelect]);
+  }, []);
 
   useEffect(() => {
     const current = sceneRef.current;
     if (!current) return;
 
+    current.group.children.forEach(disposeMesh);
     current.group.clear();
     if (!items.length) return;
 

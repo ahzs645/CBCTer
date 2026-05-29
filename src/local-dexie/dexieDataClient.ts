@@ -56,9 +56,10 @@ export function createDexieDataClient() {
         return next;
       },
       async delete(id: AppId) {
+        const timestamp = now();
         await db.studies.update(id, {
-          deletedAt: now(),
-          updatedAt: now(),
+          deletedAt: timestamp,
+          updatedAt: timestamp,
         });
       },
     },
@@ -86,9 +87,10 @@ export function createDexieDataClient() {
         return preset;
       },
       async delete(id: AppId) {
+        const timestamp = now();
         await db.presets.update(id, {
-          deletedAt: now(),
-          updatedAt: now(),
+          deletedAt: timestamp,
+          updatedAt: timestamp,
         });
       },
     },

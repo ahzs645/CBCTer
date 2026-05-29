@@ -8,7 +8,6 @@ import {
 import { maskToBinaryStl, type MaskMeshOptions } from '../lib/segmentation/maskMesh';
 import {
   estimateVoxelSurfaceAreaMm2,
-  estimateVoxelSurfaceTriangleCount,
   SURFACE_GENERATION_PRESETS,
   type SurfaceGenerationQuality,
 } from '../lib/surface';
@@ -77,10 +76,11 @@ ctx.onmessage = async (event: MessageEvent<SurfaceWorkerRequest>) => {
     );
 
     ctx.postMessage({ id, type: 'progress', phase: 'metrics' });
-    const triangleCount = Math.ceil(
-      (estimateVoxelSurfaceTriangleCount(workingMask, dims) / (stride * stride)) *
-        (1 - preset.decimateReduction),
-    );
+    // The binary STL stores the exact triangle count as a little-endian uint32
+    // at byte offset 80, which is accurate for both the voxel-face and the
+    // marching-tetrahedra ('iso') extraction paths plus any decimation.
+    const triangleCount =
+      stl.byteLength >= 84 ? new DataView(stl).getUint32(80, true) : 0;
     const areaMm2 = estimateVoxelSurfaceAreaMm2(workingMask, dims, spacing);
     const volumeMm3 = voxelCount * spacing[0] * spacing[1] * spacing[2];
     const response: SurfaceWorkerResponse = {

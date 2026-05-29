@@ -73,7 +73,6 @@ async function fetchRemoteFile(
   entry: RemoteManifestEntry,
   index = 0,
 ): Promise<LoadedDataSourceFile> {
-  await fetchRemoteRange(entry.url, 0, 511).catch(() => null);
   const response = await fetch(entry.url);
   if (!response.ok) {
     throw new Error(`Remote import failed for ${entry.url}: ${response.status}`);
@@ -97,13 +96,19 @@ async function fetchRemoteFile(
   };
 }
 
+// A JSON manifest is tiny; only generic octet-stream payloads up to this size
+// are decoded as text to probe for one, so large binary volumes served as
+// application/octet-stream are not read into memory just to fail parsing.
+const MAX_MANIFEST_PROBE_BYTES = 4 * 1024 * 1024;
+
 export async function loadRemoteImport(url: string): Promise<LoadedRemoteImport> {
   const first = await fetchRemoteFile({ url }, 0);
   const ext = getExtension(first.name);
   const looksJson =
     ext === '.json' ||
     first.file.type.includes('json') ||
-    first.file.type === 'application/octet-stream';
+    (first.file.type === 'application/octet-stream' &&
+      first.file.size <= MAX_MANIFEST_PROBE_BYTES);
 
   if (looksJson) {
     try {
