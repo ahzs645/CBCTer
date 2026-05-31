@@ -13,3 +13,19 @@ export {
   extractSliceGrayImage,
 } from './slices';
 export { getVolumeDimensions, getVoxelValue, voxelIndex } from './voxels';
+export {
+  resampleVolume,
+  resampleLabelmap,
+  targetDimsForSpacing,
+  type Interpolation,
+  type ResampledVolume,
+} from './resample';
+export {
+  ctNormalize,
+  zScoreNormalize,
+  percentileNormalize,
+  DENTAL_SEGMENTATOR_CT_NORMALIZATION,
+  type CtNormalizationParams,
+  type PercentileNormalizeOptions,
+  type PercentileNormalizeResult,
+} from './intensityNormalization';

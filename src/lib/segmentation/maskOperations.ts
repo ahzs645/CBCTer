@@ -169,6 +169,74 @@ export function countMaskVoxels(mask: Uint8Array): number {
   return count;
 }
 
+/**
+ * Drop connected components smaller than `minVolumeMm3`, using the voxel spacing
+ * to convert the physical threshold into a voxel count. Ported from nnU-Net /
+ * DentalSegmentator post-processing (`removeSmallComponents`, 60 mm³ default),
+ * which cleans speckle from model output. Builds on {@link labelComponents}.
+ */
+export function removeSmallComponents(
+  mask: Uint8Array,
+  dims: [number, number, number],
+  spacing: Vec3,
+  minVolumeMm3: number,
+  connectivity: 6 | 26 = 26,
+): Uint8Array {
+  const voxelVolume = spacing[0] * spacing[1] * spacing[2] || 1;
+  const minVoxels = Math.max(1, Math.ceil(minVolumeMm3 / voxelVolume));
+  const labeled = labelComponents(mask, dims, connectivity);
+  const keep = new Set(
+    labeled.components
+      .filter((component) => component.voxels >= minVoxels)
+      .map((component) => component.id),
+  );
+  const out = new Uint8Array(mask.length);
+  for (let index = 0; index < labeled.labels.length; index += 1) {
+    if (keep.has(labeled.labels[index])) out[index] = 1;
+  }
+  return out;
+}
+
+/**
+ * Apply {@link removeSmallComponents} independently to each label of a multi-class
+ * labelmap (the nnU-Net per-structure cleanup). `skipLabels` are left untouched —
+ * e.g. the thin mandibular-canal class, which legitimately has small volume.
+ */
+export function removeSmallComponentsPerLabel(
+  labelmap: Uint16Array,
+  dims: [number, number, number],
+  spacing: Vec3,
+  minVolumeMm3: number,
+  options: { skipLabels?: number[]; connectivity?: 6 | 26 } = {},
+): Uint16Array {
+  const { skipLabels = [], connectivity = 26 } = options;
+  const skip = new Set(skipLabels);
+  const labels = new Set<number>();
+  for (let index = 0; index < labelmap.length; index += 1) {
+    const value = labelmap[index];
+    if (value !== 0 && !skip.has(value)) labels.add(value);
+  }
+
+  const out = new Uint16Array(labelmap);
+  for (const label of labels) {
+    const binary = new Uint8Array(labelmap.length);
+    for (let index = 0; index < labelmap.length; index += 1) {
+      if (labelmap[index] === label) binary[index] = 1;
+    }
+    const cleaned = removeSmallComponents(
+      binary,
+      dims,
+      spacing,
+      minVolumeMm3,
+      connectivity,
+    );
+    for (let index = 0; index < labelmap.length; index += 1) {
+      if (binary[index] === 1 && cleaned[index] === 0) out[index] = 0;
+    }
+  }
+  return out;
+}
+
 export interface MaskOverlayLayer {
   mask: Uint8Array;
   color: string;
