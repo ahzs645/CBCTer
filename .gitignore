@@ -16,6 +16,10 @@ outputs/
 playwright-report/
 test-results/
 
+# Large model weights are regenerated via scripts, not committed (GitHub 100MB cap).
+public/models/dentalsegmentator.onnx
+public/models/*.onnx.data
+
 # Generated sample data published for local demos.
 public/sample-cbct/
 public/e2e-sample-cbct/

@@ -3,6 +3,7 @@ import { maskProjectionDataUrl } from './maskPreview';
 import { maskToBinaryStl } from './maskMesh';
 import type { ToothRoi } from './roi';
 import { segmentToothROI } from './toothInference';
+import { assignFdiToItems, defaultArchAxes, type ToothFdiOptions } from './toothFdi';
 import type { SegmentationItem, SegmentationManifest } from './types';
 import { watershedSplit } from './watershed';
 
@@ -83,6 +84,13 @@ export interface GenerateOptions {
   /** Watershed core threshold (voxels): lower merges touching teeth (coarser),
    * higher separates them (finer). */
   coreThreshold?: number;
+  /**
+   * Assign FDI (ISO 3950) tooth numbers to the separated instances. When set,
+   * each manifest item gets `fdi`/`fdiName`/`quadrant`. Axes default to the
+   * volume voxel frame (see `toothFdi.ts`); override them here for scans with a
+   * known anatomical orientation. Omit to skip numbering (default).
+   */
+  fdi?: ToothFdiOptions;
 }
 
 export async function generateLibrary(
@@ -194,18 +202,22 @@ export async function generateLibrary(
     });
   });
 
+  const numbered = options.fdi
+    ? assignFdiToItems(items, { ...defaultArchAxes(), ...options.fdi })
+    : items;
+
   const manifest: SegmentationManifest = {
     source: 'in-browser',
     preview: '',
     contactSheet: '',
     labels: '',
-    acceptedInstances: items.length,
+    acceptedInstances: numbered.length,
     candidateCount,
     positiveVoxels: voxelCount,
     qualityAccepted,
     qualityReview,
     spacing,
-    items,
+    items: numbered,
   };
 
   return { manifest, urls };

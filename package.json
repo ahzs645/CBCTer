@@ -30,7 +30,8 @@
     "segment:audit-shapes": "python3 scripts/audit_tooth_shapes.py",
     "segment:pipeline": "python3 scripts/build_tooth_separation_pipeline.py",
     "segment:export-onnx": "python3 scripts/export_tooth_onnx.py",
-    "segment:validate-onnx": "python3 scripts/validate_onnx_pipeline.py"
+    "segment:validate-onnx": "python3 scripts/validate_onnx_pipeline.py",
+    "segment:export-dentalseg": "python3 scripts/export_dentalseg_onnx.py --model-dir \"$DENTALSEG_MODEL_DIR\" --output public/models/dentalsegmentator.onnx"
   },
   "dependencies": {
     "@itk-wasm/dicom": "^7.6.4",

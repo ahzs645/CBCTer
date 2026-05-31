@@ -23,19 +23,16 @@ export interface CtNormalizationParams {
 }
 
 /**
- * ⚠️ UNVERIFIED placeholder. nnU-Net stores `CTNormalization` constants in the
- * trained model's `plans.json` under
- * `foreground_intensity_properties_per_channel`. DentalSegmentator does NOT ship
- * `plans.json` in its repo (weights + plans download from Zenodo at runtime), so
- * these numbers come from the porting analysis and MUST be replaced with the
- * values read from the actual `plans.json` before bundling exported weights.
- * See `docs/source-repos/PORTING-nnunet-dentalsegmentator.md`.
+ * Verified nnU-Net `CTNormalization` constants for the DentalSegmentator model,
+ * read from `plans.json` → `foreground_intensity_properties_per_channel` of
+ * `Dataset112_DentalSegmentator_v100` (Zenodo DOI 10.5281/zenodo.10829674,
+ * CC-BY-4.0). Clip bounds are the 0.5 / 99.5 foreground percentiles.
  */
 export const DENTAL_SEGMENTATOR_CT_NORMALIZATION: CtNormalizationParams = {
-  lowerBound: -110,
-  upperBound: 3067,
-  mean: 1273.7,
-  std: 558.5,
+  lowerBound: -208,
+  upperBound: 3070,
+  mean: 1178.261474609375,
+  std: 611.7098999023438,
 };
 
 /** nnU-Net CTNormalization: clip to [lower, upper], then (x − mean) / std. */

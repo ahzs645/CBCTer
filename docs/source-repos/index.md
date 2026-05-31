@@ -25,12 +25,16 @@ The pure-TS "quick wins" and the nnU-Net **preprocessing kit** are implemented a
 | Rigid alignment (Horn) + Rodrigues + PCA/eigen | `src/lib/geometry/{rigidAlignment,linalg}.ts` | `geometry.test.ts` |
 | ITK `.tfm` I/O + Mat4 + LPS↔RAS | `src/lib/geometry/transformMatrix.ts` | `geometry.test.ts` |
 | Slicer `.mrk.json` fiducial I/O | `src/lib/io/slicerMarkups.ts` | `slicerMarkups.test.ts` |
+| FDI numbering wired into tooth-library output (opt-in) | `src/lib/segmentation/toothFdi.ts` + `generateLibrary.ts` | `toothFdi.test.ts` |
+| **DentalSegmentator** verified config (labels, spacing, patch, CTNorm) | `src/lib/segmentation/dentalSegmentator.ts` | — |
+| **DentalSegmentator** multi-class inference (resample→CTNorm→sliding-window→argmax→cleanup) | `src/lib/segmentation/dentalSegInference.ts` + `src/workers/dentalSeg.worker.ts` | `dentalSegInference.test.ts` (mock model) |
+| **nnU-Net → ONNX export** (built & validated, 123 MB, gitignored) | `scripts/export_dentalseg_onnx.py` (`npm run segment:export-dentalseg`) | output shape `[1,6,128,160,112]` verified |
 
-Blocked / server-side items have design docs instead of code:
+Status of the headline / server-side items:
 
-- [Porting DentalSegmentator nnU-Net](PORTING-nnunet-dentalsegmentator.md) — headline model port; blocked on weights + license.
-- [Porting AReg / Elastix superimposition](PORTING-areg-elastix.md) — landmark alignment shipped; intensity registration is WASM-Elastix/microservice.
-- [Licensing gate](LICENSING.md) — weight-license checklist; project still needs a `LICENSE` file. Attribution in [`/THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md).
+- [DentalSegmentator nnU-Net](PORTING-nnunet-dentalsegmentator.md) — ✅ weights pulled (CC-BY-4.0), exported to ONNX, inference pipeline built & mock-tested. Remaining: in-browser WebGPU runtime validation + UI wiring.
+- [AReg / Elastix superimposition](PORTING-areg-elastix.md) — landmark alignment shipped; intensity registration is WASM-Elastix/microservice.
+- [Licensing gate](LICENSING.md) — project license is **MIT** (`/LICENSE`); DentalSegmentator weights **CC-BY-4.0** (attribution in [`/THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md)).
 
 ---
 

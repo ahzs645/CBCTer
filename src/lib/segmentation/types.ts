@@ -10,6 +10,12 @@ export type SegmentationItem = {
   qualityStatus?: 'accepted' | 'review';
   qualityReasons?: string[];
   qualityScore?: number;
+  /** FDI (ISO 3950) tooth number 11–48, when arch numbering has been assigned. */
+  fdi?: number;
+  /** Human-readable FDI name, e.g. "Upper Left Central Incisor". */
+  fdiName?: string;
+  /** FDI quadrant 1–4. */
+  quadrant?: number;
 };
 
 export type SegmentationManifest = {
