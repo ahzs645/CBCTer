@@ -24,6 +24,12 @@ Two separate questions, often conflated:
 - [ ] Real `plans.json` / preprocessing constants substituted for placeholders (see `PORTING-nnunet-dentalsegmentator.md`).
 - [ ] Attribution recorded in `/THIRD_PARTY_NOTICES.md`.
 
-## CBCTer's own license — DECISION NEEDED
+## CBCTer's own license
 
-The repo has **no `LICENSE` file**. Before bundling any third-party-derived code or weights, choose a project license and add a `NOTICE`/attribution. This is a project-owner decision — see the open question raised in the working notes. The ports added so far (`src/lib/geometry/*`, `resample.ts`, `intensityNormalization.ts`, `fdiNumbering.ts`, `slicerMarkups.ts`, `transformMatrix.ts`) are clean-room reimplementations of permissively-licensed algorithms, attributed in `THIRD_PARTY_NOTICES.md`.
+CBCTer is licensed **MIT** (see `/LICENSE`, `package.json` `"license": "MIT"`).
+MIT is compatible with the Apache-2.0 upstreams the algorithm ports derive from.
+The ports (`src/lib/geometry/*`, `resample.ts`, `intensityNormalization.ts`,
+`fdiNumbering.ts`, `slicerMarkups.ts`, `transformMatrix.ts`) are clean-room
+reimplementations of permissively-licensed algorithms, attributed in
+`THIRD_PARTY_NOTICES.md`. This covers CBCTer's **own code only** — bundling any
+third-party **trained weights** is still gated on the per-model checklist above.
