@@ -1,6 +1,25 @@
 # Porting DentalSegmentator (nnU-Net) into CBCTer
 
-Status: **weights pulled, model exported to ONNX, multi-class inference pipeline implemented and unit-tested (mock model). Remaining: in-browser (WebGPU) runtime validation, axis-order check, and UI wiring.**
+Status: **weights pulled, model exported to ONNX, and VALIDATED end-to-end on a real CBCT (Python parity run). Remaining: in-browser (WebGPU) runtime parity + UI wiring.**
+
+## Real-scan validation (✅)
+
+`scripts/validate_dentalseg_real.py` runs the exact pipeline (resample → CTNorm →
+reflect-pad → sliding-window → softmax-avg → argmax) with the exported ONNX on a
+real 512³ 0.16 mm CBCT. Result — **all 5 structures segmented with plausible
+volumes** and spatially coherent overlays (not noise):
+
+| Class | Volume |
+|---|---|
+| Upper Skull | 14.7 cm³ |
+| Mandible | 20.2 cm³ |
+| Upper Teeth | 7.9 cm³ |
+| Lower Teeth | 7.6 cm³ |
+| Mandibular canal | 0.46 cm³ |
+
+This confirms the export + preprocessing constants are correct. Caveat: upper/lower
+*labeling* depends on the superior-axis direction — verify orientation per scan
+(the segmentation of each structure is correct regardless).
 
 Multi-class jaw + teeth + mandibular-canal segmentation in one pass — replacing the single-class tooth UNet + watershed. The weight-license blocker is **cleared**: the weights are CC-BY-4.0 (attribution-required, redistributable).
 
