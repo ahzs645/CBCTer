@@ -5,6 +5,7 @@ import {
   Crosshair,
   FolderInput,
   Languages,
+  Brain,
   Layers3,
   ListVideo,
   ScanLine,
@@ -113,6 +114,7 @@ interface ViewerSidebarProps {
   onLevelCommit: (value: number) => void;
   onOpenDirectory: () => void;
   onOpenTeeth: () => void;
+  onOpenAnatomy: () => void;
   onOpenPanoramic: () => void;
   onSeriesChange: (seriesId: string) => void;
   onRedoMaskEdit: () => void;
@@ -171,6 +173,7 @@ export function ViewerSidebar({
   onLevelCommit,
   onOpenDirectory,
   onOpenTeeth,
+  onOpenAnatomy,
   onOpenPanoramic,
   onSeriesChange,
   onRedoMaskEdit,
@@ -389,6 +392,10 @@ export function ViewerSidebar({
           <Button variant="primary" block onClick={onOpenTeeth}>
             <Layers3 className="h-4 w-4" aria-hidden="true" />
             {t('viewerSidebar.toothExtraction')}
+          </Button>
+          <Button variant="ghost" block onClick={onOpenAnatomy}>
+            <Brain className="h-4 w-4" aria-hidden="true" />
+            {t('viewerSidebar.fullAnatomy')}
           </Button>
           <Button variant="ghost" block onClick={onOpenPanoramic}>
             <ScanLine className="h-4 w-4" aria-hidden="true" />

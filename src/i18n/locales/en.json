@@ -116,6 +116,7 @@
     "openFolder": "Open folder",
     "backToImport": "Back to import",
     "toothExtraction": "Tooth extraction",
+    "fullAnatomy": "Full anatomy",
     "panoramic": "Panoramic view",
     "voxelsLabel": "{{dimensions}} voxels",
     "spacingLabel": "{{spacing}} mm"
@@ -267,6 +268,24 @@
     "flagReview": "Flag for review",
     "hide": "Hide",
     "downloadStl": "Download STL for label {{label}}"
+  },
+  "anatomy": {
+    "title": "Full anatomy segmentation",
+    "subtitle": "Multi-class CBCT segmentation (DentalSegmentator nnU-Net).",
+    "backToViewer": "Back to viewer",
+    "backToImport": "Back to import",
+    "needVolume": "Load a CBCT volume first to run full anatomy segmentation.",
+    "goToImport": "Go to import",
+    "description": "Segment skull, mandible, upper/lower teeth, and the mandibular canal in one pass. Runs the nnU-Net model in your browser (WebGPU recommended).",
+    "run": "Run segmentation",
+    "running": "Segmenting…",
+    "windowProgress": "Patch {{completed}} of {{total}}",
+    "segments": "Segments",
+    "slice": "Preview slice (axial)",
+    "previewTitle": "Multi-label overlay",
+    "previewEmpty": "Run segmentation to preview the labelled anatomy.",
+    "axial": "Axial",
+    "perfNote": "Full-volume 3D inference is heavy; first run downloads the ~123 MB model and is fastest with WebGPU."
   },
   "panoramic": {
     "title": "Panoramic reconstruction",

@@ -5,6 +5,7 @@ export const APP_ROUTES = {
   import: '/',
   viewer: '/viewer',
   teeth: '/teeth',
+  anatomy: '/anatomy',
   panoramic: '/panoramic',
 } as const;
 

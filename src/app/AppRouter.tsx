@@ -8,6 +8,9 @@ import { useViewerApp } from './useViewerApp';
 const ImportPage = lazy(() => import('../pages/ImportPage'));
 const ViewerPage = lazy(() => import('../pages/ViewerPage'));
 const ToothExtractionPage = lazy(() => import('../pages/ToothExtractionPage'));
+const AnatomySegmentationPage = lazy(
+  () => import('../pages/AnatomySegmentationPage'),
+);
 const PanoramicPage = lazy(() => import('../pages/PanoramicPage'));
 
 function RouteFallback() {
@@ -53,6 +56,10 @@ export function AppRouter() {
         <Route
           path={APP_ROUTES.teeth}
           element={<ToothExtractionPage app={app} />}
+        />
+        <Route
+          path={APP_ROUTES.anatomy}
+          element={<AnatomySegmentationPage app={app} />}
         />
         <Route
           path={APP_ROUTES.panoramic}

@@ -308,6 +308,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const volume3DLabels = useVolumeViewport3DLabels();
   const navigate = useNavigate();
   const openTeeth = () => navigate(APP_ROUTES.teeth);
+  const openAnatomy = () => navigate(APP_ROUTES.anatomy);
   const openPanoramic = () => navigate(APP_ROUTES.panoramic);
   const viewport3DRef = useRef<VolumeViewport3DHandle>(null);
   const [studyState, setStudyState] = useState<StudyState>(() =>
@@ -2152,6 +2153,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
               onOpenDirectory={() => void app.openDirectory()}
               onOpenTeeth={openTeeth}
+              onOpenAnatomy={openAnatomy}
               onOpenPanoramic={openPanoramic}
               onBackToImport={app.resetViewer}
             />
@@ -2235,6 +2237,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
                   onOpenDirectory={() => void app.openDirectory()}
                   onOpenTeeth={openTeeth}
+                  onOpenAnatomy={openAnatomy}
                   onOpenPanoramic={openPanoramic}
                   onBackToImport={app.resetViewer}
                 />
