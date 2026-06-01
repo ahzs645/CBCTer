@@ -28,14 +28,39 @@ from dynamic_network_architectures.architectures.unet import PlainConvUNet
 
 def build_network(plans: dict, dataset: dict) -> torch.nn.Module:
     cfg = plans["configurations"]["3d_fullres"]
+    num_classes = len(dataset["labels"])  # includes background
+    input_channels = len(dataset["channel_names"])
+
+    if "architecture" in cfg:
+        # Newer nnU-Net plans format (e.g. AMASSS): everything is explicit in
+        # architecture.arch_kwargs.
+        ak = cfg["architecture"]["arch_kwargs"]
+        return PlainConvUNet(
+            input_channels=input_channels,
+            n_stages=ak["n_stages"],
+            features_per_stage=ak["features_per_stage"],
+            conv_op=torch.nn.Conv3d,
+            kernel_sizes=[tuple(k) for k in ak["kernel_sizes"]],
+            strides=[tuple(s) for s in ak["strides"]],
+            n_conv_per_stage=ak["n_conv_per_stage"],
+            num_classes=num_classes,
+            n_conv_per_stage_decoder=ak["n_conv_per_stage_decoder"],
+            conv_bias=ak.get("conv_bias", True),
+            norm_op=torch.nn.InstanceNorm3d,
+            norm_op_kwargs=ak.get("norm_op_kwargs", {"eps": 1e-5, "affine": True}),
+            dropout_op=None,
+            nonlin=torch.nn.LeakyReLU,
+            nonlin_kwargs=ak.get("nonlin_kwargs", {"inplace": True}),
+            deep_supervision=False,
+        )
+
+    # Older format (e.g. DentalSegmentator): derive from top-level keys.
     n_stages = len(cfg["conv_kernel_sizes"])
     base = cfg["UNet_base_num_features"]
     max_features = cfg["unet_max_num_features"]
     features_per_stage = [min(base * 2 ** i, max_features) for i in range(n_stages)]
-    num_classes = len(dataset["labels"])  # includes background
-
     return PlainConvUNet(
-        input_channels=len(dataset["channel_names"]),
+        input_channels=input_channels,
         n_stages=n_stages,
         features_per_stage=features_per_stage,
         conv_op=torch.nn.Conv3d,
