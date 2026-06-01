@@ -77,6 +77,7 @@ import {
   type SurfaceGenerationQuality,
 } from '../lib/surface';
 import type { SurfaceMeshPreview } from '../lib/volume/three-preview';
+import { resampleLabelmap } from '../lib/volume';
 import { VolumeAxis, type SliceImage } from '../types';
 import { cn } from '../utils/cn';
 
@@ -807,10 +808,19 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     try {
       const seg = await segmentFaceSkin(app.volume, setFaceProgress);
       if (!seg.voxelCount) return;
+      // The whole-head skin mask at full res makes a huge mesh; a face doesn't
+      // need sub-mm detail, so downsample to ~0.7 mm before meshing to keep the
+      // 3-D surface light enough to render.
+      const coarse = resampleLabelmap(
+        seg.mask,
+        seg.dims,
+        seg.spacing,
+        [0.7, 0.7, 0.7],
+      );
       const generated = await generateSurfaceInWorker({
-        mask: seg.mask,
-        dims: seg.dims,
-        spacing: seg.spacing,
+        mask: coarse.data,
+        dims: coarse.dims,
+        spacing: coarse.spacing,
         quality: 'draft',
       });
       const surface = createStudySurface(studyState.study.id, {
