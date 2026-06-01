@@ -126,10 +126,13 @@ export async function runDentalSegmentation(
     }
   }
 
-  // 4. Sliding-window inference, averaging per-class softmax across overlaps.
+  // 4. Sliding-window inference. Memory-light: instead of a full C-channel
+  // accumulator (which OOMs on full-resolution CBCT), keep only the best
+  // (argmax) class and its softmax probability per voxel; overlapping windows
+  // keep the higher-confidence label. Saves ~(C-1)× the accumulator memory.
   const voxelsPerClass = pd * ph * pw;
-  const probSum = new Float32Array(classCount * voxelsPerClass);
-  const weight = new Float32Array(voxelsPerClass);
+  const bestProb = new Float32Array(voxelsPerClass);
+  const bestLabel = new Uint8Array(voxelsPerClass);
   const startsZ = windowStarts(pd, patchD, overlap);
   const startsY = windowStarts(ph, patchH, overlap);
   const startsX = windowStarts(pw, patchW, overlap);
@@ -160,21 +163,25 @@ export async function runDentalSegmentation(
             const base = ((z0 + z) * ph + (y0 + y)) * pw + x0;
             for (let x = 0; x < patchW; x += 1) {
               const paddedIndex = base + x;
-              // softmax across channels at this voxel
+              // argmax class and its softmax probability at this voxel
               let maxLogit = -Infinity;
+              let argmax = 0;
               for (let c = 0; c < classCount; c += 1) {
                 const l = logits[c * patchVoxels + local];
-                if (l > maxLogit) maxLogit = l;
+                if (l > maxLogit) {
+                  maxLogit = l;
+                  argmax = c;
+                }
               }
               let sumExp = 0;
               for (let c = 0; c < classCount; c += 1) {
                 sumExp += Math.exp(logits[c * patchVoxels + local] - maxLogit);
               }
-              for (let c = 0; c < classCount; c += 1) {
-                const prob = Math.exp(logits[c * patchVoxels + local] - maxLogit) / sumExp;
-                probSum[c * voxelsPerClass + paddedIndex] += prob;
+              const prob = 1 / sumExp; // softmax of the argmax class
+              if (prob > bestProb[paddedIndex]) {
+                bestProb[paddedIndex] = prob;
+                bestLabel[paddedIndex] = argmax;
               }
-              weight[paddedIndex] += 1;
               local += 1;
             }
           }
@@ -186,24 +193,14 @@ export async function runDentalSegmentation(
     }
   }
 
-  // 5–6. Argmax across classes, cropping the padding back to the resampled grid.
+  // 5–6. Crop the padding back to the resampled grid.
   const modelLabels = new Uint16Array(rd * rh * rw);
   let out = 0;
   for (let z = 0; z < rd; z += 1) {
     for (let y = 0; y < rh; y += 1) {
       const base = ((z + offZ) * ph + (y + offY)) * pw + offX;
       for (let x = 0; x < rw; x += 1) {
-        const paddedIndex = base + x;
-        let best = 0;
-        let bestProb = -Infinity;
-        for (let c = 0; c < classCount; c += 1) {
-          const prob = probSum[c * voxelsPerClass + paddedIndex];
-          if (prob > bestProb) {
-            bestProb = prob;
-            best = c;
-          }
-        }
-        modelLabels[out] = best;
+        modelLabels[out] = bestLabel[base + x];
         out += 1;
       }
     }

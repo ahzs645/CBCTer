@@ -66,7 +66,9 @@ function getSession(): Promise<ort.InferenceSession> {
 
 async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
   const session = await getSession();
-  const source = new Float32Array(request.data);
+  // Int16 HU voxels (half the transfer/memory of Float32); resampled to Float32
+  // at the much smaller model grid inside runDentalSegmentation.
+  const source = new Int16Array(request.data);
 
   const runPatch: DentalSegPatchRunner = async (patch, [d, h, w]) => {
     const tensor = new ort.Tensor('float32', patch.slice(), [1, 1, d, h, w]);
@@ -80,6 +82,9 @@ async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
     request.spacing,
     runPatch,
     {
+      // No window overlap: ~8 full-res patches instead of ~18, validated correct
+      // on real CBCT, and keeps memory/time in check for full-volume inference.
+      overlap: 0,
       minComponentMm3: request.minComponentMm3,
       onProgress: (completed, total) =>
         self.postMessage({ type: 'progress', completed, total }),

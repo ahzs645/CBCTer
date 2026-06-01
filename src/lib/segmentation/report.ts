@@ -42,8 +42,12 @@ export function buildToothReportHtml(
       const reasons = item.qualityReasons?.length
         ? escapeHtml(item.qualityReasons.join(', '))
         : '';
+      const fdi = item.fdi
+        ? `${item.fdi}${item.fdiName ? ` ${escapeHtml(item.fdiName)}` : ''}`
+        : '—';
       return `<tr>
         <td>${item.label}</td>
+        <td>${fdi}</td>
         <td>${item.assignedVoxels.toLocaleString()}</td>
         <td>${volume}</td>
         <td>${item.centroidZYX.map((v) => Math.round(v)).join(', ')}</td>
@@ -93,7 +97,7 @@ export function buildToothReportHtml(
   </p>
   <table>
     <thead>
-      <tr><th>Label</th><th>Voxels</th><th>Volume</th><th>Centroid (z, y, x)</th><th>Quality</th><th>Notes</th></tr>
+      <tr><th>Label</th><th>FDI</th><th>Voxels</th><th>Volume</th><th>Centroid (z, y, x)</th><th>Quality</th><th>Notes</th></tr>
     </thead>
     <tbody>
 ${rows}
@@ -111,6 +115,8 @@ export function buildToothCsv(
   const spacing = resolveSpacing(manifest, meta);
   const header = [
     'label',
+    'fdi',
+    'fdi_name',
     'voxels',
     'volume_mm3',
     'centroid_z',
@@ -126,6 +132,8 @@ export function buildToothCsv(
     const notes = (item.qualityReasons ?? []).join('; ').replace(/"/g, "'");
     return [
       item.label,
+      item.fdi ?? '',
+      `"${(item.fdiName ?? '').replace(/"/g, "'")}"`,
       item.assignedVoxels,
       volume,
       Math.round(item.centroidZYX[0]),

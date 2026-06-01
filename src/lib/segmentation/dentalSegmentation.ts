@@ -27,8 +27,9 @@ export function segmentDentalAnatomy(
   options: { minComponentMm3?: number } = {},
 ): Promise<DentalAnatomyResult> {
   const [width, height, depth] = volume.meta.dimensions;
-  // The worker normalizes; hand it a Float32 copy of the (already [D,H,W]) voxels.
-  const float = Float32Array.from(volume.voxels);
+  // Hand the worker an Int16 copy of the (already [D,H,W]) voxels — half the
+  // memory of a Float32 copy. Copy (not transfer) so the app keeps its volume.
+  const copy = volume.voxels.slice();
 
   return new Promise<DentalAnatomyResult>((resolve, reject) => {
     const worker = new Worker(
@@ -63,7 +64,7 @@ export function segmentDentalAnatomy(
     };
 
     const request: DentalSegRequest = {
-      data: float.buffer as ArrayBuffer,
+      data: copy.buffer as ArrayBuffer,
       dims: [depth, height, width],
       spacing: volume.meta.spacing,
       minComponentMm3: options.minComponentMm3,

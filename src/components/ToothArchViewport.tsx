@@ -6,7 +6,45 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 type ToothArchItem = {
   label: number;
   stl: string;
+  /** FDI tooth number, shown as a floating label when present. */
+  fdi?: number;
 };
+
+/** A small round billboard showing the FDI number above a tooth. */
+function makeLabelSprite(text: string): THREE.Sprite {
+  const px = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = 'rgba(2, 6, 10, 0.72)';
+    ctx.beginPath();
+    ctx.arc(px / 2, px / 2, px * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 58px -apple-system, Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, px / 2, px / 2 + 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(4, 4, 1);
+  return sprite;
+}
+
+function disposeSprite(sprite: THREE.Sprite): void {
+  const material = sprite.material as THREE.SpriteMaterial;
+  material.map?.dispose();
+  material.dispose();
+}
 
 type ToothArchViewportProps = {
   items: ToothArchItem[];
@@ -129,6 +167,8 @@ export function ToothArchViewport({
           } else {
             material.dispose();
           }
+        } else if (object instanceof THREE.Sprite) {
+          disposeSprite(object);
         }
       });
     };
@@ -138,6 +178,9 @@ export function ToothArchViewport({
     const current = sceneRef.current;
     if (!current) return;
 
+    current.group.children.forEach((object) => {
+      if (object instanceof THREE.Sprite) disposeSprite(object);
+    });
     current.group.clear();
     if (!items.length) return;
 
@@ -158,6 +201,7 @@ export function ToothArchViewport({
                 });
                 const mesh = new THREE.Mesh(geometry, material);
                 mesh.userData.label = item.label;
+                mesh.userData.fdi = item.fdi;
                 mesh.rotation.x = -Math.PI / 2;
                 resolve(mesh);
               },
@@ -188,6 +232,17 @@ export function ToothArchViewport({
         mesh.position.sub(center);
         mesh.scale.setScalar(24 / maxAxis);
         active.group.add(mesh);
+        const fdi = mesh.userData.fdi;
+        if (typeof fdi === 'number') {
+          const toothBox = new THREE.Box3().setFromObject(mesh);
+          const sprite = makeLabelSprite(String(fdi));
+          sprite.position.set(
+            (toothBox.min.x + toothBox.max.x) / 2,
+            toothBox.max.y + 2,
+            (toothBox.min.z + toothBox.max.z) / 2,
+          );
+          active.group.add(sprite);
+        }
       });
       active.controls.target.set(0, 0, 0);
       active.camera.position.set(28, 26, 38);
