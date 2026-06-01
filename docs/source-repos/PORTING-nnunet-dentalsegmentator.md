@@ -24,6 +24,15 @@ Implemented as an **adaptive** EP choice in `dentalSeg.worker.ts`:
 
 `vite.config.ts` sends COOP/COEP (`credentialless`) on dev + preview to enable isolation; **production hosting should send the same headers** to get the ~1 min path (otherwise it auto-uses WebGPU). When ORT-web optimizes its WebGPU conv3d kernel, the WebGPU path will overtake wasm for free — the model is already compatible.
 
+### fp16 — tested, doesn't help (not shipped)
+
+An fp16 model (via `onnxconverter_common.float16.convert_float_to_float16`, half the size at 64 MB) was benchmarked:
+- **WebGPU fp16: broken** — output collapses to all-background (logits ≈ 0). ORT-web's WebGPU fp16 conv3d path is unusable for this model (returns in ~28 ms because it isn't really computing).
+- **wasm fp16: correct but no faster** (~7.6 s/patch, same as fp32 — wasm up-casts to fp32 to compute).
+- CPU fp16 matches fp32 to 99.995% argmax, so the *model* is fine; the problem is the WebGPU runtime.
+
+Conclusion: fp16's only benefit is download size, which isn't worth breaking the WebGPU fallback. Kept fp32 as the single canonical model. Revisit if ORT-web ships a working WebGPU fp16 conv3d.
+
 ## Real-scan validation (✅)
 
 `scripts/validate_dentalseg_real.py` runs the exact pipeline (resample → CTNorm →
