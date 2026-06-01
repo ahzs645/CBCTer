@@ -4,6 +4,26 @@ export type ReadonlyVec3 = readonly [number, number, number];
 export type AxisIndex = 0 | 1 | 2;
 export type AxisSign = -1 | 1;
 
+/** Anatomical directions expressed as unit vectors in the volume's voxel frame. */
+export interface PatientAxes {
+  /** Toward patient LEFT. */
+  left: Vec3;
+  /** ANTERIOR (toward the face / incisors). */
+  anterior: Vec3;
+  /** SUPERIOR (toward the top of the head). */
+  superior: Vec3;
+}
+
+/**
+ * The importer canonicalizes DICOM volumes to an LPS-aligned voxel frame
+ * (+x = Left, +y = Posterior, +z = Superior), so patient-anterior is −y.
+ */
+export const LPS_CANONICAL_PATIENT_AXES: PatientAxes = {
+  left: [1, 0, 0],
+  anterior: [0, -1, 0],
+  superior: [0, 0, 1],
+};
+
 export interface RangeBounds {
   min: number;
   max: number;
@@ -65,6 +85,8 @@ export interface ParsedVolumeMeta {
   nativeAxis?: VolumeAxis;
   seriesChoices?: VolumeSeriesChoice[];
   dicomSourceAxisMap?: DicomSourceAxisMap;
+  /** Anatomical axes in voxel space, when the importer could resolve orientation. */
+  patientAxes?: PatientAxes;
 }
 
 export interface LoadedVolume {

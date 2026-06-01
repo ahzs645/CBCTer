@@ -5,7 +5,11 @@
  * `generateLibrary.ts` stays lean — this is the only place that knows how a
  * library item's `centroidZYX` maps into the FDI arch frame.
  */
-import type { Vec3 } from '../../types';
+import {
+  LPS_CANONICAL_PATIENT_AXES,
+  type ParsedVolumeMeta,
+  type Vec3,
+} from '../../types';
 import { assignFdiNumbers, type Jaw } from './fdiNumbering';
 import type { SegmentationItem } from './types';
 
@@ -19,21 +23,18 @@ export interface ArchAxes {
 }
 
 /**
- * Default arch axes in the volume's voxel frame: x = left↔right, y =
- * anterior↔posterior, z = superior↔inferior.
- *
- * NOTE: this is the voxel-frame assumption, not true anatomical orientation —
- * CBCTer's `ParsedVolumeMeta` does not yet carry DICOM ImageOrientationPatient,
- * so anterior/left/superior signs may be flipped for some scans. Callers with a
- * known orientation should pass explicit axes to {@link assignFdiToItems}. When
- * volume meta later exposes orientation, give this a `meta` argument and derive
- * the axes from it so every caller benefits.
+ * Resolve arch axes from the volume meta. Prefers `meta.patientAxes` (derived by
+ * the importer from DICOM ImageOrientationPatient); otherwise uses the importer's
+ * LPS-canonical convention (+x = Left, +y = Posterior so anterior = −y, +z =
+ * Superior). Getting `anterior` right is what makes FDI number incisor→molar
+ * rather than backwards.
  */
-export function defaultArchAxes(): ArchAxes {
+export function archAxesFromMeta(meta?: ParsedVolumeMeta): ArchAxes {
+  const axes = meta?.patientAxes ?? LPS_CANONICAL_PATIENT_AXES;
   return {
-    leftAxis: [1, 0, 0],
-    anteriorAxis: [0, 1, 0],
-    superiorAxis: [0, 0, 1],
+    leftAxis: axes.left,
+    anteriorAxis: axes.anterior,
+    superiorAxis: axes.superior,
   };
 }
 
@@ -62,9 +63,9 @@ export function assignFdiToItems(
 ): SegmentationItem[] {
   if (items.length === 0) return items;
 
-  const leftAxis = options.leftAxis ?? [1, 0, 0];
-  const anteriorAxis = options.anteriorAxis ?? [0, 1, 0];
-  const superiorAxis = options.superiorAxis ?? [0, 0, 1];
+  const leftAxis = options.leftAxis ?? LPS_CANONICAL_PATIENT_AXES.left;
+  const anteriorAxis = options.anteriorAxis ?? LPS_CANONICAL_PATIENT_AXES.anterior;
+  const superiorAxis = options.superiorAxis ?? LPS_CANONICAL_PATIENT_AXES.superior;
   const jaw = options.jaw ?? 'both';
 
   const annotate = (indices: number[], jawSide: Jaw) => {

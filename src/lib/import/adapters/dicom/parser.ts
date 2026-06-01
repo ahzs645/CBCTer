@@ -3,11 +3,12 @@ import type {
   AxisSign,
   DicomSourceAxisMap,
   ParsedVolumeMeta,
+  PatientAxes,
   ScanFolderSource,
   Vec3,
   VolumeSeriesChoice,
 } from '../../../../types';
-import { VolumeAxis } from '../../../../types';
+import { LPS_CANONICAL_PATIENT_AXES, VolumeAxis } from '../../../../types';
 import type {
   ImportFailure,
   ImportParseOptions,
@@ -109,6 +110,38 @@ function resolveFrameDirection(slice: DicomSliceEntry): Vec3 {
     row[2] * column[0] - row[0] * column[2],
     row[0] * column[1] - row[1] * column[0],
   ]);
+}
+
+function crossVec(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+/**
+ * Derive anatomical axes (in the col/row/slice voxel frame this parser keeps)
+ * from ImageOrientationPatient. Voxel x = col → row cosines, y = row → column
+ * cosines, z = slice → cross(row, col) (slices are sorted by ascending
+ * sliceLocation). Patient LEFT = +X_LPS, ANTERIOR = −Y_LPS, SUPERIOR = +Z_LPS,
+ * projected onto the voxel axes. Falls back to the LPS-canonical axes if the
+ * orientation is missing.
+ */
+function patientAxesFromIop(
+  iop: [number, number, number, number, number, number] | undefined,
+): PatientAxes {
+  if (!iop || iop.length < 6 || iop.every((v) => v === 0)) {
+    return LPS_CANONICAL_PATIENT_AXES;
+  }
+  const row = normalizeVector([iop[0], iop[1], iop[2]]);
+  const col = normalizeVector([iop[3], iop[4], iop[5]]);
+  const slice = normalizeVector(crossVec(row, col));
+  return {
+    left: [row[0], col[0], slice[0]],
+    anterior: [-row[1], -col[1], -slice[1]],
+    superior: [row[2], col[2], slice[2]],
+  };
 }
 
 function resolveSourceAxisMap(
@@ -475,6 +508,7 @@ export async function parseDicomFolder(
     }),
     dimensions: [width, height, depth],
     spacing: [first.pixelSpacing[1], first.pixelSpacing[0], sliceStep || 0.16],
+    patientAxes: patientAxesFromIop(first.imageOrientationPatient),
     scalarRange: [
       Math.round(level - window / 2),
       Math.round(level + window / 2),

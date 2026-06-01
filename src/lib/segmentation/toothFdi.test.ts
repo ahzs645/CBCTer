@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { assignFdiToItems } from './toothFdi';
+import type { ParsedVolumeMeta } from '../../types';
+import { archAxesFromMeta, assignFdiToItems } from './toothFdi';
 import type { SegmentationItem } from './types';
 
 /** Minimal SegmentationItem with a centroid at full-volume voxel [z, y, x]. */
@@ -70,5 +71,52 @@ describe('assignFdiToItems', () => {
 
   it('returns input unchanged when empty', () => {
     expect(assignFdiToItems([], { jaw: 'both' })).toEqual([]);
+  });
+
+  it('numbers incisor→molar with the LPS-canonical default axes (anterior = −y)', () => {
+    // LPS-canonical: +y = posterior, so incisors sit at LOW y, molars at HIGH y.
+    const half: Array<[number, number]> = [
+      [3, -12],
+      [6, -11],
+      [9, -9],
+      [11, -6],
+      [12.5, -3],
+      [13.5, 1],
+      [14, 5],
+      [14, 9],
+    ];
+    const items: SegmentationItem[] = [];
+    for (const [x, y] of half) items.push(item(x, y, 5)); // left
+    for (const [x, y] of half) items.push(item(-x, y, 5)); // right
+
+    // No explicit axes → uses the LPS-canonical default. The OLD buggy default
+    // (anterior = +y) would label the incisor as a molar.
+    const numbered = assignFdiToItems(items, { jaw: 'upper' });
+    expect(numbered[0].fdi).toBe(21); // left central incisor (anterior, low y)
+    expect(numbered[7].fdi).toBe(28); // left third molar (posterior, high y)
+    expect(numbered[8].fdi).toBe(11); // right central incisor
+  });
+});
+
+describe('archAxesFromMeta', () => {
+  it('defaults to LPS-canonical axes (anterior = −y)', () => {
+    const axes = archAxesFromMeta();
+    expect(axes.leftAxis).toEqual([1, 0, 0]);
+    expect(axes.anteriorAxis).toEqual([0, -1, 0]);
+    expect(axes.superiorAxis).toEqual([0, 0, 1]);
+  });
+
+  it('uses meta.patientAxes when present', () => {
+    const meta = {
+      patientAxes: {
+        left: [0, 1, 0] as [number, number, number],
+        anterior: [0, 0, 1] as [number, number, number],
+        superior: [1, 0, 0] as [number, number, number],
+      },
+    } as ParsedVolumeMeta;
+    const axes = archAxesFromMeta(meta);
+    expect(axes.leftAxis).toEqual([0, 1, 0]);
+    expect(axes.anteriorAxis).toEqual([0, 0, 1]);
+    expect(axes.superiorAxis).toEqual([1, 0, 0]);
   });
 });

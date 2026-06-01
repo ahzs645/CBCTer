@@ -3,7 +3,7 @@ import { maskProjectionDataUrl } from './maskPreview';
 import { maskToBinaryStl } from './maskMesh';
 import type { ToothRoi } from './roi';
 import { segmentToothROI } from './toothInference';
-import { assignFdiToItems, defaultArchAxes, type ToothFdiOptions } from './toothFdi';
+import { archAxesFromMeta, assignFdiToItems, type ToothFdiOptions } from './toothFdi';
 import type { SegmentationItem, SegmentationManifest } from './types';
 import { watershedSplit } from './watershed';
 
@@ -203,7 +203,7 @@ export async function generateLibrary(
   });
 
   const numbered = options.fdi
-    ? assignFdiToItems(items, { ...defaultArchAxes(), ...options.fdi })
+    ? assignFdiToItems(items, { ...archAxesFromMeta(volume.meta), ...options.fdi })
     : items;
 
   const manifest: SegmentationManifest = {
