@@ -9,8 +9,21 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', 'VITE_');
   const base = env.VITE_BASE_PATH || '/';
 
+  // Cross-origin isolation enables SharedArrayBuffer, which onnxruntime-web
+  // needs for multi-threaded wasm. The DentalSegmentator nnU-Net runs on the
+  // wasm EP (its 3D ConvTranspose is unsupported by the WebGPU EP), so threads
+  // are what make full-volume inference ~1 min instead of several. `credentialless`
+  // keeps cross-origin no-cors subresources working. Production hosting must send
+  // these same headers for threads to be available.
+  const coiHeaders = {
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'credentialless',
+  };
+
   return {
     base,
+    server: { headers: coiHeaders },
+    preview: { headers: coiHeaders },
     build: {
       copyPublicDir: false,
       manifest: 'asset-manifest.json',

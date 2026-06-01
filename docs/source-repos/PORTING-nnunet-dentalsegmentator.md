@@ -1,6 +1,18 @@
 # Porting DentalSegmentator (nnU-Net) into CBCTer
 
-Status: **weights pulled, model exported to ONNX, and VALIDATED end-to-end on a real CBCT (Python parity run). Remaining: in-browser (WebGPU) runtime parity + UI wiring.**
+Status: **weights pulled, exported to ONNX, validated on a real CBCT (Python), wired into the viewer UI ("Full anatomy"), and the in-browser execution path resolved — runs on multi-threaded wasm (~1 min/volume).**
+
+## Browser execution path (✅, resolved)
+
+The in-browser EP question is settled by direct measurement (Chrome on macOS, Apple GPU, driven over CDP):
+
+- **WebGPU does NOT work for this model.** onnxruntime-web's WebGPU EP cannot run 3D `ConvTranspose` (the U-Net decoder's learned upsampling) — it hard-errors (`"currently only support 2-dimensional conv"`) and does **not** fall back. So `['webgpu','wasm']` would *fail*, not run slow.
+- **wasm (CPU) works and is correct.** A real preprocessed patch on the wasm EP matched the CPU reference to ~0.003% (checksum within 0.027%).
+- **Speed needs threads.** Multi-threaded wasm (14 threads, cross-origin isolated) ran **~7 s/patch → ~1 min for a full CBCT (8 patches)**. Single-threaded is several minutes/patch — too slow.
+
+Implemented accordingly: `dentalSeg.worker.ts` uses `executionProviders: ['wasm']` and sets `ort.env.wasm.numThreads` from `navigator.hardwareConcurrency` when `crossOriginIsolated`; `vite.config.ts` sends COOP/COEP (`credentialless`) on dev + preview to enable isolation. **Production hosting must send the same COOP/COEP headers** for threads.
+
+Future GPU acceleration (optional): rewrite each kernel=stride 3D `ConvTranspose` as `Conv` + pixel-shuffle (`Reshape`/`Transpose`) — ORT-web WebGPU runs those — to move the whole net onto WebGPU. Exact (no accuracy loss) but real graph-surgery work; wasm-MT's ~1 min is good enough for now.
 
 ## Real-scan validation (✅)
 

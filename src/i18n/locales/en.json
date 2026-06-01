@@ -276,7 +276,7 @@
     "backToImport": "Back to import",
     "needVolume": "Load a CBCT volume first to run full anatomy segmentation.",
     "goToImport": "Go to import",
-    "description": "Segment skull, mandible, upper/lower teeth, and the mandibular canal in one pass. Runs the nnU-Net model in your browser (WebGPU recommended).",
+    "description": "Segment skull, mandible, upper/lower teeth, and the mandibular canal in one pass. Runs the nnU-Net model in your browser on the CPU (multi-threaded wasm).",
     "run": "Run segmentation",
     "running": "Segmenting…",
     "windowProgress": "Patch {{completed}} of {{total}}",
@@ -285,7 +285,7 @@
     "previewTitle": "Multi-label overlay",
     "previewEmpty": "Run segmentation to preview the labelled anatomy.",
     "axial": "Axial",
-    "perfNote": "Full-volume 3D inference is heavy; first run downloads the ~123 MB model and is fastest with WebGPU."
+    "perfNote": "Full-volume 3D inference is heavy; the first run downloads the ~123 MB model. Multi-threaded CPU inference takes about a minute."
   },
   "panoramic": {
     "title": "Panoramic reconstruction",

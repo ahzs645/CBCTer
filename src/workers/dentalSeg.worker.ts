@@ -9,11 +9,22 @@ import {
 /**
  * DentalSegmentator (nnU-Net) multi-class inference worker. Thin adapter: it
  * owns the ONNX session and feeds patches to the testable orchestration in
- * `dentalSegInference.ts`. The 123 MB model strongly prefers the WebGPU EP;
- * falls back to wasm. Regenerate the model with `npm run segment:export-dentalseg`.
+ * `dentalSegInference.ts`. Regenerate the model with
+ * `npm run segment:export-dentalseg`.
+ *
+ * EP choice: the model runs on the **wasm** EP, not WebGPU. onnxruntime-web's
+ * WebGPU EP cannot execute 3D `ConvTranspose` (the U-Net decoder upsampling) and
+ * hard-errors rather than falling back. Validated on real CBCT: wasm output
+ * matches the CPU reference (~0.003%). Speed comes from multi-threading, which
+ * needs cross-origin isolation (COOP/COEP — set in vite.config.ts); with threads
+ * a full volume is ~1 min (~7 s/patch), vs several minutes single-threaded.
  */
 const BASE = import.meta.env.BASE_URL;
 ort.env.wasm.wasmPaths = `${BASE}ort/`;
+ort.env.wasm.numThreads =
+  self.crossOriginIsolated && navigator.hardwareConcurrency
+    ? Math.min(navigator.hardwareConcurrency, 16)
+    : 1;
 
 export interface DentalSegRequest {
   /** Source volume voxels (Float32 or Int16 reinterpreted) in [D, H, W] order. */
@@ -41,7 +52,7 @@ function getSession(): Promise<ort.InferenceSession> {
   if (!sessionPromise) {
     sessionPromise = ort.InferenceSession.create(
       `${BASE}models/dentalsegmentator.onnx`,
-      { executionProviders: ['webgpu', 'wasm'] },
+      { executionProviders: ['wasm'] },
     );
   }
   return sessionPromise;
