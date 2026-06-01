@@ -115,8 +115,13 @@ def rewrite(model):
 
 def validate(orig_path, new_path):
     import onnxruntime as ort
+    # Infer the model's input spatial dims (patch size) instead of hardcoding;
+    # batch (and any dynamic dim) falls back to 1.
+    m = onnx.load(orig_path, load_external_data=False)
+    dims = [d.dim_value if d.HasField("dim_value") and d.dim_value > 0 else 1
+            for d in m.graph.input[0].type.tensor_type.shape.dim]
     rng = np.random.default_rng(0)
-    x = rng.standard_normal((1, 1, 128, 160, 112)).astype(np.float32)
+    x = rng.standard_normal(tuple(dims)).astype(np.float32)
     so = ort.SessionOptions()
     a = ort.InferenceSession(orig_path, so, providers=["CPUExecutionProvider"]).run(None, {"input": x})[0]
     b = ort.InferenceSession(new_path, so, providers=["CPUExecutionProvider"]).run(None, {"input": x})[0]
