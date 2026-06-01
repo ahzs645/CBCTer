@@ -123,7 +123,7 @@ export function useSegmentation(
           volume,
           roi,
           setGenProgress,
-          { coreThreshold },
+          { coreThreshold, fdi: { jaw: 'both' } },
         );
         generatedUrls.current = urls;
         setManifest(built);

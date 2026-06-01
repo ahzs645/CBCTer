@@ -60,6 +60,14 @@ import {
   splitMaskComponentsInWorker,
 } from '../lib/segmentation/runMaskWorker';
 import {
+  type DentalAnatomyProgress,
+  segmentDentalAnatomy,
+} from '../lib/segmentation/dentalSegmentation';
+import {
+  buildDentalSegmentGroup,
+  summarizeDentalLabels,
+} from '../lib/segmentation/dentalSegmentGroup';
+import {
   generateSurfaceInWorker,
   type SurfaceGenerationQuality,
 } from '../lib/surface';
@@ -308,7 +316,6 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const volume3DLabels = useVolumeViewport3DLabels();
   const navigate = useNavigate();
   const openTeeth = () => navigate(APP_ROUTES.teeth);
-  const openAnatomy = () => navigate(APP_ROUTES.anatomy);
   const openPanoramic = () => navigate(APP_ROUTES.panoramic);
   const viewport3DRef = useRef<VolumeViewport3DHandle>(null);
   const [studyState, setStudyState] = useState<StudyState>(() =>
@@ -316,6 +323,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   );
   const [maskBuffers, setMaskBuffers] = useState<MaskBufferMap>({});
   const [labelmapBuffers, setLabelmapBuffers] = useState<LabelmapBufferMap>({});
+  const [anatomyRunning, setAnatomyRunning] = useState(false);
+  const [anatomyProgress, setAnatomyProgress] =
+    useState<DentalAnatomyProgress | null>(null);
   const [surfaceBlobs, setSurfaceBlobs] = useState<SurfaceBlobMap>({});
   const [surfaceUrls, setSurfaceUrls] = useState<SurfaceUrlMap>({});
   const [surfacePreviews, setSurfacePreviews] = useState<SurfaceMeshPreview[]>([]);
@@ -741,6 +751,44 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         }),
       ],
     });
+  };
+
+  // Run DentalSegmentator full-anatomy segmentation in-place and add the result
+  // as a multi-label segment group, rendered by the existing overlay pipeline.
+  const runFullAnatomy = async () => {
+    if (
+      !app.volume ||
+      !studyState.study ||
+      !studyState.activeImageId ||
+      anatomyRunning
+    ) {
+      return;
+    }
+    setAnatomyRunning(true);
+    setAnatomyProgress({ completed: 0, total: 1 });
+    try {
+      const result = await segmentDentalAnatomy(app.volume, setAnatomyProgress);
+      const stats = summarizeDentalLabels(result.labelmap, result.spacing);
+      const group = buildDentalSegmentGroup(
+        studyState.study.id,
+        studyState.activeImageId,
+        stats,
+      );
+      setLabelmapBuffers((current) => ({
+        ...current,
+        [group.id]: uint16ArrayToBytes(result.labelmap),
+      }));
+      setStudyState((current) => ({
+        ...current,
+        segmentGroups: [...current.segmentGroups, group],
+        activeSegmentGroupId: group.id,
+      }));
+    } catch (error) {
+      console.error('Full anatomy segmentation failed', error);
+    } finally {
+      setAnatomyRunning(false);
+      setAnatomyProgress(null);
+    }
   };
 
   const updateStudyViewState = (
@@ -2153,7 +2201,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
               onOpenDirectory={() => void app.openDirectory()}
               onOpenTeeth={openTeeth}
-              onOpenAnatomy={openAnatomy}
+              onRunAnatomy={runFullAnatomy}
+              anatomyRunning={anatomyRunning}
+              anatomyProgress={anatomyProgress}
               onOpenPanoramic={openPanoramic}
               onBackToImport={app.resetViewer}
             />
@@ -2237,7 +2287,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
                   onOpenDirectory={() => void app.openDirectory()}
                   onOpenTeeth={openTeeth}
-                  onOpenAnatomy={openAnatomy}
+                  onRunAnatomy={runFullAnatomy}
+                  anatomyRunning={anatomyRunning}
+                  anatomyProgress={anatomyProgress}
                   onOpenPanoramic={openPanoramic}
                   onBackToImport={app.resetViewer}
                 />

@@ -114,7 +114,9 @@ interface ViewerSidebarProps {
   onLevelCommit: (value: number) => void;
   onOpenDirectory: () => void;
   onOpenTeeth: () => void;
-  onOpenAnatomy: () => void;
+  onRunAnatomy: () => void;
+  anatomyRunning: boolean;
+  anatomyProgress: { completed: number; total: number } | null;
   onOpenPanoramic: () => void;
   onSeriesChange: (seriesId: string) => void;
   onRedoMaskEdit: () => void;
@@ -173,7 +175,9 @@ export function ViewerSidebar({
   onLevelCommit,
   onOpenDirectory,
   onOpenTeeth,
-  onOpenAnatomy,
+  onRunAnatomy,
+  anatomyRunning,
+  anatomyProgress,
   onOpenPanoramic,
   onSeriesChange,
   onRedoMaskEdit,
@@ -393,10 +397,31 @@ export function ViewerSidebar({
             <Layers3 className="h-4 w-4" aria-hidden="true" />
             {t('viewerSidebar.toothExtraction')}
           </Button>
-          <Button variant="ghost" block onClick={onOpenAnatomy}>
+          <Button
+            variant="ghost"
+            block
+            onClick={onRunAnatomy}
+            disabled={anatomyRunning}
+          >
             <Brain className="h-4 w-4" aria-hidden="true" />
-            {t('viewerSidebar.fullAnatomy')}
+            {anatomyRunning
+              ? t('viewerSidebar.fullAnatomyRunning')
+              : t('viewerSidebar.fullAnatomy')}
           </Button>
+          {anatomyRunning && anatomyProgress ? (
+            <div className="h-1 overflow-hidden rounded-full bg-slate-800">
+              <span
+                className="block h-full rounded-full bg-sky-400 transition-[width]"
+                style={{
+                  width: `${Math.round(
+                    (anatomyProgress.completed /
+                      Math.max(1, anatomyProgress.total)) *
+                      100,
+                  )}%`,
+                }}
+              />
+            </div>
+          ) : null}
           <Button variant="ghost" block onClick={onOpenPanoramic}>
             <ScanLine className="h-4 w-4" aria-hidden="true" />
             {t('viewerSidebar.panoramic')}

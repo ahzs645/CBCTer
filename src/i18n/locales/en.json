@@ -117,6 +117,7 @@
     "backToImport": "Back to import",
     "toothExtraction": "Tooth extraction",
     "fullAnatomy": "Full anatomy",
+    "fullAnatomyRunning": "Segmenting anatomy…",
     "panoramic": "Panoramic view",
     "voxelsLabel": "{{dimensions}} voxels",
     "spacingLabel": "{{spacing}} mm"

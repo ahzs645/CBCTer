@@ -49,13 +49,19 @@ export function resampleVolume(
   srcSpacing: Vec3,
   dstSpacing: Vec3,
   interpolation: Interpolation = 'linear',
+  /** Force an exact output grid (e.g. resampling a labelmap back onto the
+   * source grid); otherwise derived from the spacing ratio. */
+  outputDims?: [number, number, number],
 ): ResampledVolume {
   const [sd, sh, sw] = dims;
-  const [od, oh, ow] = targetDimsForSpacing(dims, srcSpacing, dstSpacing);
+  const [od, oh, ow] =
+    outputDims ?? targetDimsForSpacing(dims, srcSpacing, dstSpacing);
 
-  const ratioX = dstSpacing[0] / srcSpacing[0];
-  const ratioY = dstSpacing[1] / srcSpacing[1];
-  const ratioZ = dstSpacing[2] / srcSpacing[2];
+  // Map output→source by the actual grid sizes so the sampling spans the same
+  // field of view exactly (correct even when outputDims is given explicitly).
+  const ratioX = sw / ow;
+  const ratioY = sh / oh;
+  const ratioZ = sd / od;
 
   const out = new Float32Array(od * oh * ow);
   const sliceStride = sw * sh;
@@ -134,6 +140,7 @@ export function resampleLabelmap<T extends Uint8Array | Uint16Array | Int16Array
   dims: [number, number, number],
   srcSpacing: Vec3,
   dstSpacing: Vec3,
+  outputDims?: [number, number, number],
 ): { data: T; dims: [number, number, number]; spacing: Vec3 } {
   const { data: floatData, dims: outDims, spacing } = resampleVolume(
     labelmap,
@@ -141,6 +148,7 @@ export function resampleLabelmap<T extends Uint8Array | Uint16Array | Int16Array
     srcSpacing,
     dstSpacing,
     'nearest',
+    outputDims,
   );
   let out: Uint8Array | Uint16Array | Int16Array;
   if (labelmap instanceof Uint8Array) out = new Uint8Array(floatData.length);

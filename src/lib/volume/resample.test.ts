@@ -45,6 +45,17 @@ describe('volume resample', () => {
     }
   });
 
+  it('resamples a labelmap to exact explicit output dims', () => {
+    const dims: [number, number, number] = [2, 2, 2];
+    const labels = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]);
+    // Spacing ratio alone would round to ~[3,3,3]; force an exact [3,4,5].
+    const out = resampleLabelmap(labels, dims, [1, 1, 1], [0.5, 0.5, 0.5], [3, 4, 5]);
+    expect(out.dims).toEqual([3, 4, 5]);
+    expect(out.data.length).toBe(3 * 4 * 5);
+    const allowed = new Set([0, 1, 2, 3]);
+    out.data.forEach((value) => expect(allowed.has(value)).toBe(true));
+  });
+
   it('nearest-neighbour label resample never invents new labels', () => {
     const dims: [number, number, number] = [2, 2, 2];
     const labels = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0]);

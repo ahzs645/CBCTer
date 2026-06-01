@@ -262,7 +262,9 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
                         />
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium text-slate-100">
-                            {t('teeth.labelName', { label: item.label })}
+                            {item.fdi
+                              ? `${item.fdi} · ${item.fdiName}`
+                              : t('teeth.labelName', { label: item.label })}
                           </span>
                           <span className="block truncate text-[11px] text-slate-500">
                             {item.assignedVoxels.toLocaleString()}{' '}

@@ -209,12 +209,14 @@ export async function runDentalSegmentation(
     }
   }
 
-  // 7. Resample the labelmap back to the source grid (nearest).
+  // 7. Resample the labelmap back to the EXACT source grid (nearest). Passing
+  // the original dims avoids ±1-voxel rounding that would misalign overlays.
   const back = resampleLabelmap(
     modelLabels,
     resampled.dims,
     modelSpacing,
     spacing,
+    dims,
   );
 
   // 8. Optional per-class small-component cleanup (skip the thin canal).
