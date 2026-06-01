@@ -829,6 +829,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         activeSurfaceId: surface.id,
         activeTool: 'surface-select',
       }));
+      // Feature the face: hide the volume render so the surface stands out.
+      viewport3DRef.current?.setRenderOptions({ opacity: 0 });
     } catch (error) {
       console.error('Face surface generation failed', error);
     } finally {

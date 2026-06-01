@@ -69,6 +69,8 @@ interface VolumeViewport3DProps {
 
 export interface VolumeViewport3DHandle {
   focusCursor: (cursor: VolumeCursor | null) => void;
+  /** Imperatively adjust the volume render (e.g. dim it to feature a surface). */
+  setRenderOptions: (partial: Partial<VolumeRenderOptions>) => void;
 }
 
 // Cursor is delivered imperatively (not as a prop) and the component is
@@ -137,6 +139,11 @@ export const VolumeViewport3D = memo(
     focusCursor: (cursor) => {
       cursorRef.current = cursor;
       instanceRef.current?.focusCursor(cursor);
+    },
+    setRenderOptions: (partial) => {
+      applyRender(partial);
+      if (partial.opacity !== undefined) setOpacity(partial.opacity);
+      if (partial.threshold !== undefined) setThreshold(partial.threshold);
     },
   }), []);
 
