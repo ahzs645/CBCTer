@@ -41,6 +41,29 @@ const ROOT_URL = toAppUrl('');
 const isCacheableResponse = (response: Response) =>
   response.ok && (response.type === 'basic' || response.type === 'default');
 
+// Static hosts like GitHub Pages can't send the Cross-Origin-Opener-Policy /
+// Cross-Origin-Embedder-Policy headers that cross-origin isolation — and thus
+// `SharedArrayBuffer` and onnxruntime-web's multi-threaded wasm — depend on.
+// The worker re-stamps them onto every same-origin response so the document
+// becomes isolated without any server cooperation. `credentialless` keeps
+// cross-origin no-cors subresources loading without requiring CORP on them.
+// See main.tsx for the one-time reload that lets a freshly installed worker
+// take control of the first page load.
+function withCrossOriginIsolation(response: Response): Response {
+  // Opaque responses (status 0) have immutable, unreadable headers.
+  if (response.status === 0) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function getBuildAssetUrls(): Promise<string[]> {
   const assetUrls = new Set(APP_SHELL_URLS);
 
@@ -107,21 +130,20 @@ async function networkFirst(request: Request): Promise<Response> {
       await cache.put(request, response.clone());
     }
 
-    return response;
+    return withCrossOriginIsolation(response);
   } catch {
-    return (
+    const fallback =
       (await cache.match(request)) ??
       (await cache.match(INDEX_URL)) ??
-      (await cache.match(ROOT_URL)) ??
-      Response.error()
-    );
+      (await cache.match(ROOT_URL));
+    return fallback ? withCrossOriginIsolation(fallback) : Response.error();
   }
 }
 
 async function cacheFirst(request: Request): Promise<Response> {
   const cache = await caches.open(CACHE_NAME);
   const cachedResponse = await cache.match(request);
-  if (cachedResponse) return cachedResponse;
+  if (cachedResponse) return withCrossOriginIsolation(cachedResponse);
 
   const response = await fetch(request);
 
@@ -129,7 +151,7 @@ async function cacheFirst(request: Request): Promise<Response> {
     await cache.put(request, response.clone());
   }
 
-  return response;
+  return withCrossOriginIsolation(response);
 }
 
 sw.addEventListener('fetch', (event) => {
