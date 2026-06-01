@@ -18,6 +18,7 @@ test-results/
 
 # Large model weights are regenerated via scripts, not committed (GitHub 100MB cap).
 public/models/dentalsegmentator.onnx
+public/models/dentalsegmentator.raw.onnx
 public/models/*.onnx.data
 
 # Generated sample data published for local demos.

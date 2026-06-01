@@ -12,19 +12,25 @@ import {
  * `dentalSegInference.ts`. Regenerate the model with
  * `npm run segment:export-dentalseg`.
  *
- * EP choice: the model runs on the **wasm** EP, not WebGPU. onnxruntime-web's
- * WebGPU EP cannot execute 3D `ConvTranspose` (the U-Net decoder upsampling) and
- * hard-errors rather than falling back. Validated on real CBCT: wasm output
- * matches the CPU reference (~0.003%). Speed comes from multi-threading, which
- * needs cross-origin isolation (COOP/COEP — set in vite.config.ts); with threads
- * a full volume is ~1 min (~7 s/patch), vs several minutes single-threaded.
+ * EP choice (measured on real CBCT, ~7 s/patch target):
+ * - Cross-origin isolated → multi-threaded **wasm** is fastest (~7 s/patch →
+ *   ~1 min/volume). Needs SharedArrayBuffer (COOP/COEP — set in vite.config.ts).
+ * - Not isolated → fall back to **WebGPU** (~18 s/patch), which still crushes
+ *   single-threaded wasm (minutes/patch). This only works because the model's 3D
+ *   `ConvTranspose` nodes were rewritten to Conv + pixel-shuffle
+ *   (`scripts/rewrite_convtranspose_webgpu.py`) — ORT-web's WebGPU EP can't run
+ *   3D ConvTranspose directly. Both paths match the CPU reference (~1e-5).
  */
 const BASE = import.meta.env.BASE_URL;
 ort.env.wasm.wasmPaths = `${BASE}ort/`;
-ort.env.wasm.numThreads =
-  self.crossOriginIsolated && navigator.hardwareConcurrency
-    ? Math.min(navigator.hardwareConcurrency, 16)
-    : 1;
+const threaded =
+  self.crossOriginIsolated && (navigator.hardwareConcurrency ?? 1) > 1;
+ort.env.wasm.numThreads = threaded
+  ? Math.min(navigator.hardwareConcurrency, 16)
+  : 1;
+const executionProviders: ('wasm' | 'webgpu')[] = threaded
+  ? ['wasm']
+  : ['webgpu', 'wasm'];
 
 export interface DentalSegRequest {
   /** Source volume voxels (Float32 or Int16 reinterpreted) in [D, H, W] order. */
@@ -52,7 +58,7 @@ function getSession(): Promise<ort.InferenceSession> {
   if (!sessionPromise) {
     sessionPromise = ort.InferenceSession.create(
       `${BASE}models/dentalsegmentator.onnx`,
-      { executionProviders: ['wasm'] },
+      { executionProviders },
     );
   }
   return sessionPromise;
