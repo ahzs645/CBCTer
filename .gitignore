@@ -27,6 +27,7 @@ public/sample-cbct/
 public/e2e-sample-cbct/
 public/sample-dicom/
 public/sample-segmentation*/
+public/real-cbct/
 models/source-check/
 
 # OS/editor noise

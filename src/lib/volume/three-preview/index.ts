@@ -85,6 +85,16 @@ function buildPreview(
     500,
   );
 
+  // Lights for surface meshes (e.g. the 3-D face): MeshStandardMaterial renders
+  // black with no light source. The volume shader and the MeshBasic cursor planes
+  // don't need these. A hemisphere fill plus a camera-mounted key light keep a
+  // generated surface evenly lit from whatever angle it's orbited to.
+  scene.add(new three.HemisphereLight(0xffffff, 0x2a3340, 2.2));
+  const keyLight = new three.DirectionalLight(0xffffff, 2.6);
+  keyLight.position.set(0.5, 0.8, 1);
+  camera.add(keyLight);
+  scene.add(camera);
+
   const controls = new trackballControls.TrackballControls(
     camera,
     renderer.domElement,
@@ -170,6 +180,16 @@ function buildPreview(
   scene.add(cursorPlanes.root);
 
   const surfaceRoot = new three.Group();
+  // Surfaces are emitted in mm (vertex = voxel × spacing), but the volume mesh,
+  // cursor planes, and crop planes all live in the scene's world units, which are
+  // voxel × axisScale (axisScale = spacing / minSpacing). Dividing mm by minSpacing
+  // maps a surface into that world space: it stays origin-anchored and its extents
+  // match the volume exactly, for any mask resolution. Without this a surface
+  // renders minSpacing× too small (~5-7×) and floats in a corner of the volume.
+  const positiveSpacing = volume.spacing.filter((value) => value > 0);
+  const surfaceMinSpacing =
+    positiveSpacing.length > 0 ? Math.min(...positiveSpacing) : 1;
+  surfaceRoot.scale.setScalar(1 / surfaceMinSpacing);
   scene.add(surfaceRoot);
   let surfaceDisposers: Array<() => void> = [];
 
@@ -231,15 +251,20 @@ function buildPreview(
     if (box.isEmpty()) return false;
     const c = box.getCenter(new three.Vector3());
     const size = box.getSize(new three.Vector3());
-    const radius = Math.max(size.x, size.y, size.z, 1) * 0.5;
+    // Bounding-sphere radius, and a distance that actually fits it in this
+    // camera's narrow (12°) FOV — radius / sin(fov/2). A fixed multiple would
+    // frame for ~60° and leave the surface overflowing the telephoto frame.
+    const radius = Math.max(size.length() * 0.5, 1);
+    const vFov = (camera.fov * Math.PI) / 180;
+    const distance = (radius / Math.sin(vFov / 2)) * 1.1;
     currentTarget = c.clone();
     // Front-ish 3/4 angle (world: x=L/R, −y=anterior, z=sup/inf).
     const dir = new three.Vector3(0.45, -1, 0.5).normalize();
-    camera.position.copy(c.clone().add(dir.multiplyScalar(radius * 3.4)));
-    controls.minDistance = radius * 0.4;
-    controls.maxDistance = radius * 30;
-    camera.near = Math.max(0.01, radius / 200);
-    camera.far = radius * 200;
+    camera.position.copy(c.clone().add(dir.multiplyScalar(distance)));
+    controls.minDistance = distance * 0.15;
+    controls.maxDistance = distance * 8;
+    camera.near = Math.max(0.01, distance / 1000);
+    camera.far = distance * 50;
     camera.updateProjectionMatrix();
     controls.target.copy(c);
     camera.lookAt(c);

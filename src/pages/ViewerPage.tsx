@@ -68,10 +68,9 @@ import {
   summarizeDentalLabels,
 } from '../lib/segmentation/dentalSegmentGroup';
 import {
-  segmentFaceSkin,
-  type SkinSegmentationProgress,
-} from '../lib/segmentation/skinSegmentation';
-import { AMASSS_SKIN_COLOR } from '../lib/segmentation/amasssSkin';
+  FACE_SURFACE_COLOR,
+  softTissueMask,
+} from '../lib/segmentation/faceSurface';
 import {
   generateSurfaceInWorker,
   type SurfaceGenerationQuality,
@@ -333,8 +332,10 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [anatomyProgress, setAnatomyProgress] =
     useState<DentalAnatomyProgress | null>(null);
   const [faceRunning, setFaceRunning] = useState(false);
-  const [faceProgress, setFaceProgress] =
-    useState<SkinSegmentationProgress | null>(null);
+  const [faceProgress, setFaceProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [surfaceBlobs, setSurfaceBlobs] = useState<SurfaceBlobMap>({});
   const [surfaceUrls, setSurfaceUrls] = useState<SurfaceUrlMap>({});
   const [surfacePreviews, setSurfacePreviews] = useState<SurfaceMeshPreview[]>([]);
@@ -369,11 +370,17 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       updatedAt: 0,
     };
   }, [app.sourceLabel, app.volume]);
+  // A mask edit tool captures the slice drag (paint instead of scrub) — but only
+  // while there's actually an active mask to paint into. Gating on activeMaskId
+  // means that if the mask disappears (deleted, segment removed, study switched)
+  // drag falls back to scrub navigation immediately, so the user is never
+  // stranded in an edit tool with no way to move the view.
   const maskSliceEditEnabled =
-    studyState.activeTool === 'mask-brush' ||
-    studyState.activeTool === 'mask-erase' ||
-    studyState.activeTool === 'mask-threshold' ||
-    studyState.activeTool === 'mask-watershed-seed';
+    Boolean(studyState.activeMaskId) &&
+    (studyState.activeTool === 'mask-brush' ||
+      studyState.activeTool === 'mask-erase' ||
+      studyState.activeTool === 'mask-threshold' ||
+      studyState.activeTool === 'mask-watershed-seed');
 
   const maskOverlays = useMemo<Partial<Record<VolumeAxis, SliceImage | null>>>(
     () => {
@@ -800,32 +807,44 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }
   };
 
-  // Segment the soft-tissue face (AMASSS SKIN) and add its surface as a 3-D face.
+  // Threshold the soft-tissue face and add its outer surface as a 3-D face.
   const runFaceSurface = async () => {
     if (!app.volume || !studyState.study || faceRunning) return;
     setFaceRunning(true);
-    setFaceProgress({ completed: 0, total: 1 });
+    setFaceProgress({ completed: 0, total: 2 });
     try {
-      const seg = await segmentFaceSkin(app.volume, setFaceProgress);
-      if (!seg.voxelCount) return;
-      // The whole-head skin mask at full res makes a mesh too heavy to render;
-      // downsample to ~0.7 mm (a face needs no sub-mm detail) and use 'draft' to
-      // keep the triangle count low enough to load and draw quickly.
+      // Threshold the air↔soft-tissue boundary — robust across CBCT HU
+      // calibrations where an ML skin segmenter goes out-of-distribution. The
+      // outer shell of everything denser than air is the face.
+      const { mask, dims } = softTissueMask(app.volume);
+      // A face needs no sub-mm detail: downsample to ~0.7 mm so the mesh stays
+      // light enough to load + draw, then keep the largest blob (drops the
+      // headrest/table/speckle) and fill enclosed cavities (sinus/airway) so the
+      // surface is just the outer skin, not internal air pockets.
       const coarse = resampleLabelmap(
-        seg.mask,
-        seg.dims,
-        seg.spacing,
+        mask,
+        dims,
+        app.volume.meta.spacing,
         [0.7, 0.7, 0.7],
       );
+      const { mask: head, voxels: headVoxels } =
+        await keepLargestMaskComponentInWorker({
+          mask: coarse.data,
+          dims: coarse.dims,
+          connectivity: 26,
+        });
+      if (!headVoxels) return;
+      setFaceProgress({ completed: 1, total: 2 });
+      const solid = fillMaskHoles(head, coarse.dims);
       const generated = await generateSurfaceInWorker({
-        mask: coarse.data,
+        mask: solid,
         dims: coarse.dims,
         spacing: coarse.spacing,
         quality: 'draft',
       });
       const surface = createStudySurface(studyState.study.id, {
-        name: 'Face (AMASSS skin)',
-        color: AMASSS_SKIN_COLOR,
+        name: 'Face (skin surface)',
+        color: FACE_SURFACE_COLOR,
         areaMm2: generated.areaMm2,
         triangleCount: generated.triangleCount,
         volumeMm3: generated.volumeMm3,
@@ -839,12 +858,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         activeSurfaceId: surface.id,
         activeTool: 'surface-select',
       }));
-      // Feature the face: hide the volume render so the surface stands out.
-      // NOTE: an auto camera-fit to the surface is intentionally not called here
-      // yet — the surface mesh is in mm coordinates while the volume/cursor-plane
-      // scene is in voxel coordinates, so fitting needs that reconciled first
-      // (viewport3DRef.frameSurfaces() exists but frames into the wrong space).
+      // Feature the face: hide the volume render so the surface stands out, then
+      // fit the camera to the surface bounds. Surfaces now share the volume's
+      // world space (surfaceRoot is scaled by 1/minSpacing in three-preview), so
+      // frameSurfaces() frames the head correctly; it defers until the STL loads.
       viewport3DRef.current?.setRenderOptions({ opacity: 0 });
+      viewport3DRef.current?.frameSurfaces();
     } catch (error) {
       console.error('Face surface generation failed', error);
     } finally {
@@ -1342,15 +1361,24 @@ export default function ViewerPage({ app }: ViewerPageProps) {
             nextGroups.find((nextGroup) => nextGroup.id === groupId)
               ?.activeSegmentValue,
         );
+      const nextActiveMaskId =
+        current.activeMaskId === segment.maskId
+          ? nextActiveSegment?.maskId
+          : current.activeMaskId;
+      const isMaskEditTool =
+        current.activeTool === 'mask-brush' ||
+        current.activeTool === 'mask-erase' ||
+        current.activeTool === 'mask-threshold' ||
+        current.activeTool === 'mask-watershed-seed';
       return {
         ...current,
         masks: segment.maskId
           ? current.masks.filter((mask) => mask.id !== segment.maskId)
           : current.masks,
-        activeMaskId:
-          current.activeMaskId === segment.maskId
-            ? nextActiveSegment?.maskId
-            : current.activeMaskId,
+        activeMaskId: nextActiveMaskId,
+        // Drop back to navigate if the mask we were editing is now gone.
+        activeTool:
+          isMaskEditTool && !nextActiveMaskId ? 'crosshair' : current.activeTool,
         segmentGroups: nextGroups,
         maskWorkflow: {
           ...current.maskWorkflow,

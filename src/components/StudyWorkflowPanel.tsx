@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   Layers3,
+  Move,
   PencilRuler,
   Scissors,
   Split,
@@ -402,6 +403,16 @@ export function StudyWorkflowPanel({
                 {maskStatus} · {t('workflow.masks.cancel')}
               </Button>
             ) : null}
+            <Button
+              className="mt-2"
+              variant={state.activeTool === 'crosshair' ? 'primary' : 'ghost'}
+              size="sm"
+              block
+              onClick={() => onUpdateMaskWorkflow({ activeTool: 'crosshair' })}
+            >
+              <Move className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('workflow.masks.navigate')}
+            </Button>
             <div className="mt-2 grid grid-cols-3 gap-1">
               {editTools.map((item) => (
                 <Button
@@ -411,10 +422,14 @@ export function StudyWorkflowPanel({
                   block
                   disabled={!state.activeMaskId}
                   onClick={() =>
-                    onUpdateMaskWorkflow({
-                      activeTool: item.tool,
-                      operation: item.operation,
-                    })
+                    onUpdateMaskWorkflow(
+                      state.activeTool === item.tool
+                        ? { activeTool: 'crosshair' }
+                        : {
+                            activeTool: item.tool,
+                            operation: item.operation,
+                          },
+                    )
                   }
                 >
                   {item.label}
@@ -460,7 +475,12 @@ export function StudyWorkflowPanel({
                   block
                   disabled={!state.activeMaskId}
                   onClick={() =>
-                    onUpdateMaskWorkflow({ activeTool: 'mask-watershed-seed' })
+                    onUpdateMaskWorkflow({
+                      activeTool:
+                        state.activeTool === 'mask-watershed-seed'
+                          ? 'crosshair'
+                          : 'mask-watershed-seed',
+                    })
                   }
                 >
                   {t('workflow.masks.seedTool')}
