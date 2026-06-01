@@ -7,6 +7,7 @@ import {
   Languages,
   Brain,
   Layers3,
+  ScanFace,
   ListVideo,
   ScanLine,
   SlidersHorizontal,
@@ -117,6 +118,9 @@ interface ViewerSidebarProps {
   onRunAnatomy: () => void;
   anatomyRunning: boolean;
   anatomyProgress: { completed: number; total: number } | null;
+  onRunFaceSurface: () => void;
+  faceRunning: boolean;
+  faceProgress: { completed: number; total: number } | null;
   onOpenPanoramic: () => void;
   onSeriesChange: (seriesId: string) => void;
   onRedoMaskEdit: () => void;
@@ -178,6 +182,9 @@ export function ViewerSidebar({
   onRunAnatomy,
   anatomyRunning,
   anatomyProgress,
+  onRunFaceSurface,
+  faceRunning,
+  faceProgress,
   onOpenPanoramic,
   onSeriesChange,
   onRedoMaskEdit,
@@ -416,6 +423,31 @@ export function ViewerSidebar({
                   width: `${Math.round(
                     (anatomyProgress.completed /
                       Math.max(1, anatomyProgress.total)) *
+                      100,
+                  )}%`,
+                }}
+              />
+            </div>
+          ) : null}
+          <Button
+            variant="ghost"
+            block
+            onClick={onRunFaceSurface}
+            disabled={faceRunning}
+          >
+            <ScanFace className="h-4 w-4" aria-hidden="true" />
+            {faceRunning
+              ? t('viewerSidebar.faceSurfaceRunning')
+              : t('viewerSidebar.faceSurface')}
+          </Button>
+          {faceRunning && faceProgress ? (
+            <div className="h-1 overflow-hidden rounded-full bg-slate-800">
+              <span
+                className="block h-full rounded-full bg-sky-400 transition-[width]"
+                style={{
+                  width: `${Math.round(
+                    (faceProgress.completed /
+                      Math.max(1, faceProgress.total)) *
                       100,
                   )}%`,
                 }}

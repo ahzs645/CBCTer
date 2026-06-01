@@ -68,6 +68,11 @@ import {
   summarizeDentalLabels,
 } from '../lib/segmentation/dentalSegmentGroup';
 import {
+  segmentFaceSkin,
+  type SkinSegmentationProgress,
+} from '../lib/segmentation/skinSegmentation';
+import { AMASSS_SKIN_COLOR } from '../lib/segmentation/amasssSkin';
+import {
   generateSurfaceInWorker,
   type SurfaceGenerationQuality,
 } from '../lib/surface';
@@ -326,6 +331,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [anatomyRunning, setAnatomyRunning] = useState(false);
   const [anatomyProgress, setAnatomyProgress] =
     useState<DentalAnatomyProgress | null>(null);
+  const [faceRunning, setFaceRunning] = useState(false);
+  const [faceProgress, setFaceProgress] =
+    useState<SkinSegmentationProgress | null>(null);
   const [surfaceBlobs, setSurfaceBlobs] = useState<SurfaceBlobMap>({});
   const [surfaceUrls, setSurfaceUrls] = useState<SurfaceUrlMap>({});
   const [surfacePreviews, setSurfacePreviews] = useState<SurfaceMeshPreview[]>([]);
@@ -788,6 +796,44 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     } finally {
       setAnatomyRunning(false);
       setAnatomyProgress(null);
+    }
+  };
+
+  // Segment the soft-tissue face (AMASSS SKIN) and add its surface as a 3-D face.
+  const runFaceSurface = async () => {
+    if (!app.volume || !studyState.study || faceRunning) return;
+    setFaceRunning(true);
+    setFaceProgress({ completed: 0, total: 1 });
+    try {
+      const seg = await segmentFaceSkin(app.volume, setFaceProgress);
+      if (!seg.voxelCount) return;
+      const generated = await generateSurfaceInWorker({
+        mask: seg.mask,
+        dims: seg.dims,
+        spacing: seg.spacing,
+        quality: 'draft',
+      });
+      const surface = createStudySurface(studyState.study.id, {
+        name: 'Face (AMASSS skin)',
+        color: AMASSS_SKIN_COLOR,
+        areaMm2: generated.areaMm2,
+        triangleCount: generated.triangleCount,
+        volumeMm3: generated.volumeMm3,
+      });
+      const url = URL.createObjectURL(generated.blob);
+      setSurfaceBlobs((current) => ({ ...current, [surface.id]: generated.blob }));
+      setSurfaceUrls((current) => ({ ...current, [surface.id]: url }));
+      setStudyState((current) => ({
+        ...current,
+        surfaces: [...current.surfaces, surface],
+        activeSurfaceId: surface.id,
+        activeTool: 'surface-select',
+      }));
+    } catch (error) {
+      console.error('Face surface generation failed', error);
+    } finally {
+      setFaceRunning(false);
+      setFaceProgress(null);
     }
   };
 
@@ -2204,6 +2250,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onRunAnatomy={runFullAnatomy}
               anatomyRunning={anatomyRunning}
               anatomyProgress={anatomyProgress}
+              onRunFaceSurface={runFaceSurface}
+              faceRunning={faceRunning}
+              faceProgress={faceProgress}
               onOpenPanoramic={openPanoramic}
               onBackToImport={app.resetViewer}
             />
@@ -2290,6 +2339,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onRunAnatomy={runFullAnatomy}
                   anatomyRunning={anatomyRunning}
                   anatomyProgress={anatomyProgress}
+                  onRunFaceSurface={runFaceSurface}
+                  faceRunning={faceRunning}
+                  faceProgress={faceProgress}
                   onOpenPanoramic={openPanoramic}
                   onBackToImport={app.resetViewer}
                 />

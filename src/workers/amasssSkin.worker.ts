@@ -2,25 +2,23 @@
 import * as ort from 'onnxruntime-web';
 import type { Vec3 } from '../types';
 import {
+  AMASSS_SKIN_CLASS_COUNT,
+  AMASSS_SKIN_LABEL,
+  AMASSS_SKIN_MODEL_FILE,
+  AMASSS_SKIN_NORMALIZATION,
+  AMASSS_SKIN_PATCH,
+  AMASSS_SKIN_SPACING,
+} from '../lib/segmentation/amasssSkin';
+import {
   runDentalSegmentation,
   type DentalSegPatchRunner,
 } from '../lib/segmentation/dentalSegInference';
 import { modelUrl } from '../lib/segmentation/modelUrl';
 
 /**
- * DentalSegmentator (nnU-Net) multi-class inference worker. Thin adapter: it
- * owns the ONNX session and feeds patches to the testable orchestration in
- * `dentalSegInference.ts`. Regenerate the model with
- * `npm run segment:export-dentalseg`.
- *
- * EP choice (measured on real CBCT, ~7 s/patch target):
- * - Cross-origin isolated → multi-threaded **wasm** is fastest (~7 s/patch →
- *   ~1 min/volume). Needs SharedArrayBuffer (COOP/COEP — set in vite.config.ts).
- * - Not isolated → fall back to **WebGPU** (~18 s/patch), which still crushes
- *   single-threaded wasm (minutes/patch). This only works because the model's 3D
- *   `ConvTranspose` nodes were rewritten to Conv + pixel-shuffle
- *   (`scripts/rewrite_convtranspose_webgpu.py`) — ORT-web's WebGPU EP can't run
- *   3D ConvTranspose directly. Both paths match the CPU reference (~1e-5).
+ * AMASSS SKIN inference worker — reuses the generic nnU-Net orchestration and
+ * returns a binary face/soft-tissue mask (which becomes the 3-D face surface).
+ * Same adaptive EP + threading as the DentalSeg worker.
  */
 const BASE = import.meta.env.BASE_URL;
 ort.env.wasm.wasmPaths = `${BASE}ort/`;
@@ -33,23 +31,20 @@ const executionProviders: ('wasm' | 'webgpu')[] = threaded
   ? ['wasm']
   : ['webgpu', 'wasm'];
 
-export interface DentalSegRequest {
-  /** Source volume voxels (Float32 or Int16 reinterpreted) in [D, H, W] order. */
+export interface SkinSegRequest {
   data: ArrayBuffer;
   dims: [number, number, number];
-  /** Source spacing [x, y, z] mm. */
   spacing: Vec3;
-  /** Optional per-class small-component cleanup threshold (mm³). */
-  minComponentMm3?: number;
 }
 
-export type DentalSegResponse =
+export type SkinSegResponse =
   | { type: 'progress'; completed: number; total: number }
   | {
       type: 'result';
-      labelmap: ArrayBuffer;
+      mask: ArrayBuffer;
       dims: [number, number, number];
       spacing: Vec3;
+      voxelCount: number;
     }
   | { type: 'error'; message: string };
 
@@ -58,17 +53,15 @@ let sessionPromise: Promise<ort.InferenceSession> | null = null;
 function getSession(): Promise<ort.InferenceSession> {
   if (!sessionPromise) {
     sessionPromise = ort.InferenceSession.create(
-      modelUrl('dentalsegmentator.onnx'),
+      modelUrl(AMASSS_SKIN_MODEL_FILE),
       { executionProviders },
     );
   }
   return sessionPromise;
 }
 
-async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
+async function segment(request: SkinSegRequest): Promise<SkinSegResponse> {
   const session = await getSession();
-  // Int16 HU voxels (half the transfer/memory of Float32); resampled to Float32
-  // at the much smaller model grid inside runDentalSegmentation.
   const source = new Int16Array(request.data);
 
   const runPatch: DentalSegPatchRunner = async (patch, [d, h, w]) => {
@@ -83,33 +76,45 @@ async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
     request.spacing,
     runPatch,
     {
-      // No window overlap: ~8 full-res patches instead of ~18, validated correct
-      // on real CBCT, and keeps memory/time in check for full-volume inference.
+      modelSpacing: AMASSS_SKIN_SPACING,
+      patchSize: AMASSS_SKIN_PATCH,
+      classCount: AMASSS_SKIN_CLASS_COUNT,
+      normalization: AMASSS_SKIN_NORMALIZATION,
       overlap: 0,
-      minComponentMm3: request.minComponentMm3,
       onProgress: (completed, total) =>
         self.postMessage({ type: 'progress', completed, total }),
     },
   );
 
+  // Binary skin mask from the labelmap.
+  const mask = new Uint8Array(result.labelmap.length);
+  let voxelCount = 0;
+  for (let i = 0; i < mask.length; i += 1) {
+    if (result.labelmap[i] === AMASSS_SKIN_LABEL) {
+      mask[i] = 1;
+      voxelCount += 1;
+    }
+  }
+
   return {
     type: 'result',
-    labelmap: result.labelmap.buffer as ArrayBuffer,
+    mask: mask.buffer,
     dims: result.dims,
     spacing: result.spacing,
+    voxelCount,
   };
 }
 
-self.onmessage = async (event: MessageEvent<DentalSegRequest>) => {
+self.onmessage = async (event: MessageEvent<SkinSegRequest>) => {
   try {
     const response = await segment(event.data);
-    const transfer = response.type === 'result' ? [response.labelmap] : [];
+    const transfer = response.type === 'result' ? [response.mask] : [];
     self.postMessage(response, transfer);
   } catch (error) {
     self.postMessage({
       type: 'error',
       message:
-        error instanceof Error ? error.message : 'Dental segmentation failed.',
-    } satisfies DentalSegResponse);
+        error instanceof Error ? error.message : 'Face segmentation failed.',
+    } satisfies SkinSegResponse);
   }
 };
