@@ -223,7 +223,35 @@ function buildPreview(
   };
   render();
 
+  // Fit the camera to the loaded surface meshes (used to feature a generated
+  // surface such as the 3-D face). Returns false if no surface is loaded yet.
+  let pendingFrame = false;
+  const fitToSurfaces = (): boolean => {
+    const box = new three.Box3().setFromObject(surfaceRoot);
+    if (box.isEmpty()) return false;
+    const c = box.getCenter(new three.Vector3());
+    const size = box.getSize(new three.Vector3());
+    const radius = Math.max(size.x, size.y, size.z, 1) * 0.5;
+    currentTarget = c.clone();
+    // Front-ish 3/4 angle (world: x=L/R, −y=anterior, z=sup/inf).
+    const dir = new three.Vector3(0.45, -1, 0.5).normalize();
+    camera.position.copy(c.clone().add(dir.multiplyScalar(radius * 3.4)));
+    controls.minDistance = radius * 0.4;
+    controls.maxDistance = radius * 30;
+    camera.near = Math.max(0.01, radius / 200);
+    camera.far = radius * 200;
+    camera.updateProjectionMatrix();
+    controls.target.copy(c);
+    camera.lookAt(c);
+    cursorPlanes.update(currentTarget);
+    controls.update();
+    return true;
+  };
+
   return {
+    frameSurfaces() {
+      if (!fitToSurfaces()) pendingFrame = true;
+    },
     focusCursor(cursor: VolumeCursor | null) {
       if (!cursor) {
         currentTarget = initialTarget.clone();
@@ -277,6 +305,10 @@ function buildPreview(
               geometry.dispose();
               material.dispose();
             });
+          }
+          if (pendingFrame) {
+            pendingFrame = false;
+            fitToSurfaces();
           }
         })
         .catch(() => {

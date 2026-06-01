@@ -808,9 +808,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     try {
       const seg = await segmentFaceSkin(app.volume, setFaceProgress);
       if (!seg.voxelCount) return;
-      // The whole-head skin mask at full res makes a huge mesh; a face doesn't
-      // need sub-mm detail, so downsample to ~0.7 mm before meshing to keep the
-      // 3-D surface light enough to render.
+      // The whole-head skin mask at full res makes a mesh too heavy to render;
+      // downsample to ~0.7 mm (a face needs no sub-mm detail) and use 'draft' to
+      // keep the triangle count low enough to load and draw quickly.
       const coarse = resampleLabelmap(
         seg.mask,
         seg.dims,
@@ -840,6 +840,10 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         activeTool: 'surface-select',
       }));
       // Feature the face: hide the volume render so the surface stands out.
+      // NOTE: an auto camera-fit to the surface is intentionally not called here
+      // yet — the surface mesh is in mm coordinates while the volume/cursor-plane
+      // scene is in voxel coordinates, so fitting needs that reconciled first
+      // (viewport3DRef.frameSurfaces() exists but frames into the wrong space).
       viewport3DRef.current?.setRenderOptions({ opacity: 0 });
     } catch (error) {
       console.error('Face surface generation failed', error);

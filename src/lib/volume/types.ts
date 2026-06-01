@@ -60,6 +60,8 @@ export type VolumeViewPreset =
 export interface ThreePreviewInstance {
   dispose: () => void;
   focusCursor: (cursor: import('../../types').VolumeCursor | null) => void;
+  /** Fit the camera to the currently-loaded surface meshes (e.g. the 3-D face). */
+  frameSurfaces: () => void;
   setPlanesVisible: (visible: boolean) => void;
   setGridVisible: (visible: boolean) => void;
   setSurfaceMeshes: (surfaces: SurfaceMeshPreview[]) => void;
