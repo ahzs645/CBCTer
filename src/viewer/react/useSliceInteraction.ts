@@ -47,6 +47,14 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
 const DOM_DELTA_LINE = 1;
 const DOM_DELTA_PAGE = 2;
+/**
+ * Minimum gap between scrub emissions (~30 Hz). Each emitted cursor change
+ * re-slices all three planes and refreshes the 3-D view, which is too heavy to
+ * run on every animation frame on a large volume — emitting at full frame rate
+ * floods React faster than it can commit and the drag visibly freezes. Holding
+ * to ~30 Hz keeps scrubbing smooth without overrunning the renderer.
+ */
+const SCRUB_EMIT_INTERVAL_MS = 33;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -147,6 +155,7 @@ export function useSliceInteraction({
     pendingY: 0,
   });
   const rafRef = useRef<number | null>(null);
+  const lastEmitMsRef = useRef(0);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ startDistance: number; startZoom: number } | null>(
     null,
@@ -191,49 +200,54 @@ export function useSliceInteraction({
     });
   };
 
+  // Consume the whole accumulated delta at once so the crosshair tracks the
+  // pointer 1:1 instead of crawling one voxel per frame. Returns false when
+  // there isn't a full voxel of movement pending yet.
+  const consumePendingAndEmit = () => {
+    const stepX = Math.trunc(dragRef.current.pendingX);
+    const stepY = Math.trunc(dragRef.current.pendingY);
+
+    if (stepX === 0 && stepY === 0) return false;
+
+    dragRef.current.pendingX -= stepX;
+    dragRef.current.pendingY -= stepY;
+    dragRef.current.currentX = clamp(
+      dragRef.current.currentX + stepX,
+      0,
+      dragRef.current.maxX,
+    );
+    dragRef.current.currentY = clamp(
+      dragRef.current.currentY + stepY,
+      0,
+      dragRef.current.maxY,
+    );
+    emitScrubSelection();
+    return true;
+  };
+
   const scheduleScrubFrame = () => {
     if (rafRef.current !== null) return;
 
-    rafRef.current = requestAnimationFrame(() => {
+    rafRef.current = requestAnimationFrame((timestamp) => {
       rafRef.current = null;
 
       if (!dragRef.current.active || !onSelect || !image) return;
-
-      const stepX =
-        dragRef.current.pendingX >= 1
-          ? 1
-          : dragRef.current.pendingX <= -1
-            ? -1
-            : 0;
-      const stepY =
-        dragRef.current.pendingY >= 1
-          ? 1
-          : dragRef.current.pendingY <= -1
-            ? -1
-            : 0;
-
-      if (stepX === 0 && stepY === 0) return;
-
-      dragRef.current.pendingX -= stepX;
-      dragRef.current.pendingY -= stepY;
-      dragRef.current.currentX = clamp(
-        dragRef.current.currentX + stepX,
-        0,
-        dragRef.current.maxX,
-      );
-      dragRef.current.currentY = clamp(
-        dragRef.current.currentY + stepY,
-        0,
-        dragRef.current.maxY,
-      );
-      emitScrubSelection();
-
       if (
-        Math.abs(dragRef.current.pendingX) >= 1 ||
-        Math.abs(dragRef.current.pendingY) >= 1
+        Math.abs(dragRef.current.pendingX) < 1 &&
+        Math.abs(dragRef.current.pendingY) < 1
       ) {
-        scheduleScrubFrame();
+        return;
       }
+
+      // Throttle: hold the accumulated delta and retry on a later frame until
+      // the emit interval elapses, so heavy re-slicing can't outrun React.
+      if (timestamp - lastEmitMsRef.current < SCRUB_EMIT_INTERVAL_MS) {
+        scheduleScrubFrame();
+        return;
+      }
+
+      lastEmitMsRef.current = timestamp;
+      consumePendingAndEmit();
     });
   };
 
@@ -297,6 +311,7 @@ export function useSliceInteraction({
     dragRef.current.voxelPerPixelY = maxY > 0 ? maxY / effectiveHeight : 0;
     dragRef.current.pendingX = 0;
     dragRef.current.pendingY = 0;
+    lastEmitMsRef.current = 0;
     setScrubCursor(ScrubCursor.Crosshair);
   };
 
@@ -517,11 +532,8 @@ export function useSliceInteraction({
         } else if (onEdit) {
           const point = pointFromEvent(event);
           onEdit(toSelectionPoint(point.x, point.y), 'end');
-        } else if (
-          Math.abs(dragRef.current.pendingX) >= 1 ||
-          Math.abs(dragRef.current.pendingY) >= 1
-        ) {
-          scheduleScrubFrame();
+        } else {
+          consumePendingAndEmit();
         }
         stopScrub();
       }
@@ -540,11 +552,8 @@ export function useSliceInteraction({
         } else if (onEdit) {
           const point = pointFromEvent(event);
           onEdit(toSelectionPoint(point.x, point.y), 'end');
-        } else if (
-          Math.abs(dragRef.current.pendingX) >= 1 ||
-          Math.abs(dragRef.current.pendingY) >= 1
-        ) {
-          scheduleScrubFrame();
+        } else {
+          consumePendingAndEmit();
         }
         stopScrub();
       }

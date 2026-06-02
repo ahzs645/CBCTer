@@ -388,7 +388,11 @@ export function AxisViewportGrid({
           axisSelector={axisSelector}
           mprZoom={mprZoom}
           onZoomChange={onZoomChange}
-          onEdit={(point, phase) => onEditAxis?.(selectedAxis, point, phase)}
+          onEdit={
+            onEditAxis
+              ? (point, phase) => onEditAxis(selectedAxis, point, phase)
+              : undefined
+          }
           onProbe={(point) => onProbeAxis?.(selectedAxis, point)}
           onMeasurementComplete={(measurement) =>
             onMeasurementComplete?.(selectedAxis, measurement)
@@ -419,7 +423,11 @@ export function AxisViewportGrid({
           definition={axisDefinitions[axis]}
           mprZoom={mprZoom}
           onZoomChange={onZoomChange}
-          onEdit={(point, phase) => onEditAxis?.(axis, point, phase)}
+          onEdit={
+            onEditAxis
+              ? (point, phase) => onEditAxis(axis, point, phase)
+              : undefined
+          }
           onProbe={(point) => onProbeAxis?.(axis, point)}
           onMeasurementComplete={(measurement) =>
             onMeasurementComplete?.(axis, measurement)
