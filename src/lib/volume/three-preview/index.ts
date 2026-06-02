@@ -225,6 +225,35 @@ function buildPreview(
   controls.update();
 
   let frame = 0;
+  let interactionActive = false;
+  let settleFrames = 0;
+  const requestRender = () => {
+    if (frame !== 0) return;
+
+    frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      controls.update();
+      renderer.render(scene, camera);
+      if (interactionActive || settleFrames > 0) {
+        settleFrames = interactionActive ? 6 : settleFrames - 1;
+        requestRender();
+      }
+    });
+  };
+  const startInteractionRender = () => {
+    interactionActive = true;
+    settleFrames = 6;
+    requestRender();
+  };
+  const stopInteractionRender = () => {
+    interactionActive = false;
+    settleFrames = 6;
+    requestRender();
+  };
+  controls.addEventListener('change', requestRender);
+  controls.addEventListener('start', startInteractionRender);
+  controls.addEventListener('end', stopInteractionRender);
+
   const resizeObserver = new ResizeObserver(() => {
     const width = Math.max(1, host.clientWidth);
     const height = Math.max(1, host.clientHeight);
@@ -232,16 +261,11 @@ function buildPreview(
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
     controls.handleResize();
+    requestRender();
   });
   resizeObserver.observe(host);
   controls.handleResize();
-
-  const render = () => {
-    frame = window.requestAnimationFrame(render);
-    controls.update();
-    renderer.render(scene, camera);
-  };
-  render();
+  requestRender();
 
   // Fit the camera to the loaded surface meshes (used to feature a generated
   // surface such as the 3-D face). Returns false if no surface is loaded yet.
@@ -270,6 +294,7 @@ function buildPreview(
     camera.lookAt(c);
     cursorPlanes.update(currentTarget);
     controls.update();
+    requestRender();
     return true;
   };
 
@@ -281,6 +306,7 @@ function buildPreview(
       if (!cursor) {
         currentTarget = initialTarget.clone();
         cursorPlanes.update(currentTarget);
+        requestRender();
         return;
       }
 
@@ -291,17 +317,21 @@ function buildPreview(
       cursorPlanes.update(currentTarget);
       camera.lookAt(currentTarget);
       controls.update();
+      requestRender();
     },
     setPlanesVisible(visible) {
       cursorPlanes.root.visible = visible;
+      requestRender();
     },
     setGridVisible(visible) {
       grid.visible = visible;
+      requestRender();
     },
     setSurfaceMeshes(surfaces: SurfaceMeshPreview[]) {
       for (const dispose of surfaceDisposers) dispose();
       surfaceDisposers = [];
       surfaceRoot.clear();
+      requestRender();
       if (surfaces.length === 0) return;
 
       void import('three/addons/loaders/STLLoader.js')
@@ -335,6 +365,7 @@ function buildPreview(
             pendingFrame = false;
             fitToSurfaces();
           }
+          requestRender();
         })
         .catch(() => {
           // Surface preview is secondary; downloads remain available.
@@ -342,6 +373,7 @@ function buildPreview(
     },
     setCropBounds(bounds) {
       applyCropBounds(bounds);
+      requestRender();
     },
     setRenderOptions(options) {
       const uniforms = material.uniforms as VolumeShaderUniforms;
@@ -366,6 +398,7 @@ function buildPreview(
         material.transparent = colormapOpacity < 1;
         material.needsUpdate = true;
       }
+      requestRender();
     },
     setView(preset: VolumeViewPreset) {
       const distance = Math.max(controls.minDistance, maxWorldEdge * 2.6);
@@ -388,6 +421,7 @@ function buildPreview(
       controls.target.copy(currentTarget);
       camera.lookAt(currentTarget);
       controls.update();
+      requestRender();
     },
     resetView() {
       camera.position.copy(currentTarget.clone().add(initialOffset));
@@ -395,6 +429,7 @@ function buildPreview(
       controls.target.copy(currentTarget);
       camera.lookAt(currentTarget);
       controls.update();
+      requestRender();
     },
     snapshot() {
       try {
@@ -406,6 +441,9 @@ function buildPreview(
     },
     dispose() {
       window.cancelAnimationFrame(frame);
+      controls.removeEventListener('change', requestRender);
+      controls.removeEventListener('start', startInteractionRender);
+      controls.removeEventListener('end', stopInteractionRender);
       resizeObserver.disconnect();
       controls.dispose();
       mesh.geometry.dispose();

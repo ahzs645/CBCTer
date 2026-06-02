@@ -5,7 +5,7 @@ import type {
   VolumeCursor,
 } from '../../types';
 import { VolumeAxis } from '../../types';
-import { clamp, grayToRgba, resolveWindowLevel } from './math';
+import { clamp, resolveWindowLevel } from './math';
 
 const MAX_SLICE_CACHE_ENTRIES = 12;
 
@@ -36,6 +36,7 @@ interface VolumeCacheEntry {
   axial: Map<string, SliceImage>;
   coronal: Map<string, SliceImage>;
   sagittal: Map<string, SliceImage>;
+  recycledRgba: Map<string, Uint8ClampedArray[]>;
 }
 
 const volumeCache = new WeakMap<LoadedVolume, VolumeCacheEntry>();
@@ -48,6 +49,7 @@ function getVolumeCache(volume: LoadedVolume): VolumeCacheEntry {
       axial: new Map(),
       coronal: new Map(),
       sagittal: new Map(),
+      recycledRgba: new Map(),
     };
     volumeCache.set(volume, cache);
   }
@@ -67,6 +69,29 @@ function sliceCacheKey(
   level: number,
 ): string {
   return `${sliceIndex}|${window}|${level}`;
+}
+
+function rgbaPoolKey(width: number, height: number): string {
+  return `${width}x${height}`;
+}
+
+function takeRecycledRgba(
+  cache: VolumeCacheEntry,
+  width: number,
+  height: number,
+): Uint8ClampedArray | undefined {
+  return cache.recycledRgba.get(rgbaPoolKey(width, height))?.pop();
+}
+
+function recycleRgba(cache: VolumeCacheEntry, image: SliceImage): void {
+  const key = rgbaPoolKey(image.width, image.height);
+  const pool = cache.recycledRgba.get(key);
+  if (pool) {
+    pool.push(image.data);
+    return;
+  }
+
+  cache.recycledRgba.set(key, [image.data]);
 }
 
 function extractAxisSliceIndex(axis: VolumeAxis, cursor: VolumeCursor): number {
@@ -225,6 +250,111 @@ function sampleAxisGray(
   }
 }
 
+function writeGrayToRgba(
+  out: Uint8ClampedArray,
+  offset: number,
+  gray: number,
+): number {
+  out[offset] = gray;
+  out[offset + 1] = gray;
+  out[offset + 2] = gray;
+  out[offset + 3] = 255;
+  return offset + 4;
+}
+
+function sampleAxialRgba(
+  volume: LoadedVolume,
+  z: number,
+  lut: Uint8Array,
+  width: number,
+  height: number,
+  out: Uint8ClampedArray,
+): Uint8ClampedArray {
+  const voxels = volume.voxels;
+  const base = z * width * height;
+  let offset = 0;
+  for (let y = 0; y < height; y += 1) {
+    const row = base + y * width;
+    for (let x = 0; x < width; x += 1) {
+      offset = writeGrayToRgba(out, offset, lut[voxels[row + x] + LUT_OFFSET]);
+    }
+  }
+  return out;
+}
+
+function sampleCoronalRgba(
+  volume: LoadedVolume,
+  y: number,
+  lut: Uint8Array,
+  width: number,
+  height: number,
+  depth: number,
+  out: Uint8ClampedArray,
+): Uint8ClampedArray {
+  const voxels = volume.voxels;
+  const sliceStride = width * height;
+  const yRow = y * width;
+  let offset = 0;
+  for (let z = depth - 1; z >= 0; z -= 1) {
+    const base = z * sliceStride + yRow;
+    for (let x = 0; x < width; x += 1) {
+      offset = writeGrayToRgba(out, offset, lut[voxels[base + x] + LUT_OFFSET]);
+    }
+  }
+  return out;
+}
+
+function sampleSagittalRgba(
+  volume: LoadedVolume,
+  x: number,
+  lut: Uint8Array,
+  width: number,
+  height: number,
+  depth: number,
+  out: Uint8ClampedArray,
+): Uint8ClampedArray {
+  const voxels = volume.voxels;
+  const sliceStride = width * height;
+  let offset = 0;
+  for (let z = depth - 1; z >= 0; z -= 1) {
+    const base = z * sliceStride + x;
+    for (let y = 0; y < height; y += 1) {
+      offset = writeGrayToRgba(
+        out,
+        offset,
+        lut[voxels[base + y * width] + LUT_OFFSET],
+      );
+    }
+  }
+  return out;
+}
+
+function sampleAxisRgba(
+  volume: LoadedVolume,
+  axis: VolumeAxis,
+  sliceIndex: number,
+  window: number,
+  level: number,
+  out: Uint8ClampedArray,
+): Uint8ClampedArray {
+  const [width, height, depth] = volume.meta.dimensions;
+  const slice = clamp(
+    Math.round(sliceIndex),
+    0,
+    axisSliceLimit(axis, width, height, depth),
+  );
+  const lut = getGrayLut(window, level);
+
+  switch (axis) {
+    case VolumeAxis.Axial:
+      return sampleAxialRgba(volume, slice, lut, width, height, out);
+    case VolumeAxis.Coronal:
+      return sampleCoronalRgba(volume, slice, lut, width, height, depth, out);
+    case VolumeAxis.Sagittal:
+      return sampleSagittalRgba(volume, slice, lut, width, height, depth, out);
+  }
+}
+
 function extractAxisImageData(
   volume: LoadedVolume,
   axis: VolumeAxis,
@@ -232,24 +362,31 @@ function extractAxisImageData(
   window: number,
   level: number,
 ): SliceImage {
-  const cache = cacheForAxis(getVolumeCache(volume), axis);
+  const volumeEntry = getVolumeCache(volume);
+  const cache = cacheForAxis(volumeEntry, axis);
   const key = sliceCacheKey(sliceIndex, window, level);
   const cached = cache.get(key);
   if (cached) return cached;
 
   const [width, height, depth] = volume.meta.dimensions;
-  const gray = sampleAxisGray(volume, axis, sliceIndex, window, level);
   const shape = axisImageShape(axis, width, height, depth);
+  const data =
+    takeRecycledRgba(volumeEntry, shape.width, shape.height) ??
+    new Uint8ClampedArray(shape.width * shape.height * 4);
   const image: SliceImage = {
     ...shape,
-    data: grayToRgba(gray),
+    data: sampleAxisRgba(volume, axis, sliceIndex, window, level, data),
     displayAspect: axisDisplayAspect(volume, axis),
     pixelated: shouldUsePixelatedRendering(volume, axis),
   };
 
   if (cache.size >= MAX_SLICE_CACHE_ENTRIES) {
     const oldestKey = cache.keys().next().value;
-    if (oldestKey) cache.delete(oldestKey);
+    if (oldestKey) {
+      const evicted = cache.get(oldestKey);
+      if (evicted) recycleRgba(volumeEntry, evicted);
+      cache.delete(oldestKey);
+    }
   }
   cache.set(key, image);
   return image;

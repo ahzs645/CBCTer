@@ -47,14 +47,6 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
 const DOM_DELTA_LINE = 1;
 const DOM_DELTA_PAGE = 2;
-/**
- * Minimum gap between scrub emissions (~30 Hz). Each emitted cursor change
- * re-slices all three planes and refreshes the 3-D view, which is too heavy to
- * run on every animation frame on a large volume — emitting at full frame rate
- * floods React faster than it can commit and the drag visibly freezes. Holding
- * to ~30 Hz keeps scrubbing smooth without overrunning the renderer.
- */
-const SCRUB_EMIT_INTERVAL_MS = 33;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -155,7 +147,6 @@ export function useSliceInteraction({
     pendingY: 0,
   });
   const rafRef = useRef<number | null>(null);
-  const lastEmitMsRef = useRef(0);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ startDistance: number; startZoom: number } | null>(
     null,
@@ -228,7 +219,7 @@ export function useSliceInteraction({
   const scheduleScrubFrame = () => {
     if (rafRef.current !== null) return;
 
-    rafRef.current = requestAnimationFrame((timestamp) => {
+    rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
 
       if (!dragRef.current.active || !onSelect || !image) return;
@@ -239,14 +230,6 @@ export function useSliceInteraction({
         return;
       }
 
-      // Throttle: hold the accumulated delta and retry on a later frame until
-      // the emit interval elapses, so heavy re-slicing can't outrun React.
-      if (timestamp - lastEmitMsRef.current < SCRUB_EMIT_INTERVAL_MS) {
-        scheduleScrubFrame();
-        return;
-      }
-
-      lastEmitMsRef.current = timestamp;
       consumePendingAndEmit();
     });
   };
@@ -311,7 +294,6 @@ export function useSliceInteraction({
     dragRef.current.voxelPerPixelY = maxY > 0 ? maxY / effectiveHeight : 0;
     dragRef.current.pendingX = 0;
     dragRef.current.pendingY = 0;
-    lastEmitMsRef.current = 0;
     setScrubCursor(ScrubCursor.Crosshair);
   };
 

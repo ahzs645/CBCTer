@@ -1,6 +1,3 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
@@ -9,32 +6,35 @@ if (!rootElement) {
   throw new Error("Root element #root was not found.");
 }
 
-if (import.meta.env.DEV && typeof performance !== "undefined" && performance.measure) {
-  // React 19.2's dev-only "Component Tracks" instrumentation structured-clones
-  // each render's changed props into performance.measure()'s `detail`. While
-  // scrubbing, the slice panes re-render every frame with fresh multi-MB pixel
-  // arrays, so the browser ends up cloning megabytes per frame — it throws
-  // "Data cannot be cloned, out of memory", which corrupts React's internal
-  // state ("Should not already be working") and freezes the viewer mid-drag.
-  // None of this exists in production builds. Strip the heavy `detail` here so
-  // the perf-track timings still record but the giant payload is never cloned.
-  const originalMeasure = performance.measure.bind(performance);
-  performance.measure = ((measureName: string, startOrOptions?: unknown, endMark?: string) => {
-    if (
-      startOrOptions &&
-      typeof startOrOptions === "object" &&
-      "detail" in (startOrOptions as Record<string, unknown>)
-    ) {
-      const stripped: Record<string, unknown> = { ...(startOrOptions as Record<string, unknown>) };
-      delete stripped.detail;
-      return originalMeasure(measureName, stripped as PerformanceMeasureOptions);
-    }
-    return originalMeasure(
-      measureName,
-      startOrOptions as string | PerformanceMeasureOptions | undefined,
-      endMark,
-    );
-  }) as typeof performance.measure;
+const originalMeasure =
+  import.meta.env.DEV &&
+  typeof performance !== "undefined" &&
+  typeof performance.measure === "function"
+    ? performance.measure
+    : null;
+
+if (originalMeasure) {
+  // React 19.2's dev-only Component Tracks walk every changed prop before
+  // calling performance.measure(). During MPR scrubbing those props include
+  // multi-MB slice buffers, producing multi-second pointer stalls in dev.
+  // Hide measure before ReactDOM initializes so those tracks stay disabled.
+  Object.defineProperty(performance, "measure", {
+    configurable: true,
+    value: undefined,
+  });
+}
+
+const [{ default: React }, ReactDOM, { default: App }] = await Promise.all([
+  import("react"),
+  import("react-dom/client"),
+  import("./App"),
+]);
+
+if (originalMeasure) {
+  Object.defineProperty(performance, "measure", {
+    configurable: true,
+    value: originalMeasure,
+  });
 }
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
