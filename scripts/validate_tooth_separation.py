@@ -25,6 +25,11 @@ def main() -> None:
     parser.add_argument("--min-labels", type=int, default=10)
     parser.add_argument("--min-accepted", type=int, default=8)
     parser.add_argument("--max-count-delta-ratio", type=float, default=0.015)
+    parser.add_argument(
+        "--allow-nonsequential-labels",
+        action="store_true",
+        help="Allow stable semantic labels with gaps, such as ToothSeg's 1-32 FDI class ids.",
+    )
     args = parser.parse_args()
 
     if not args.manifest.exists():
@@ -42,7 +47,10 @@ def main() -> None:
         fail(f"only {len(accepted)} accepted labels found, expected at least {args.min_accepted}")
 
     labels = [item.get("label") for item in items]
-    if labels != list(range(1, len(items) + 1)):
+    if args.allow_nonsequential_labels:
+        if labels != sorted(labels) or len(labels) != len(set(labels)):
+            fail(f"labels are not sorted unique ids: {labels}")
+    elif labels != list(range(1, len(items) + 1)):
         fail(f"labels are not sequential from 1: {labels}")
 
     for asset_key in ["preview", "contactSheet", "labels"]:
@@ -54,7 +62,10 @@ def main() -> None:
     label_volume = np.load(labels_path)["labels"]
     if label_volume.ndim != 3:
         fail(f"labels volume is not 3D: {label_volume.shape}")
-    if int(label_volume.max()) != len(items):
+    if args.allow_nonsequential_labels:
+        if int(label_volume.max()) != max(labels):
+            fail(f"labels volume max label {int(label_volume.max())} does not match max item label {max(labels)}")
+    elif int(label_volume.max()) != len(items):
         fail(f"labels volume max label {int(label_volume.max())} does not match item count {len(items)}")
 
     present_labels = sorted(int(label) for label in np.unique(label_volume) if label > 0)

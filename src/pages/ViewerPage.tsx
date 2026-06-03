@@ -55,6 +55,10 @@ import {
   paintLabelmapStroke,
 } from '../lib/segmentation/paintBrush';
 import { maskToAsciiPly } from '../lib/segmentation/maskMesh';
+import { maskToBinaryStl } from '../lib/segmentation/maskMesh';
+import { maskProjectionDataUrl } from '../lib/segmentation/maskPreview';
+import { FDI_NUMBERING } from '../lib/segmentation/fdiNumbering';
+import { addManualToothItem } from '../lib/segmentation/manualToothLibrary';
 import {
   keepLargestMaskComponentInWorker,
   splitMaskComponentsInWorker,
@@ -94,6 +98,12 @@ type SliceProbe = {
   value: number;
   label?: string;
 } | null;
+type ManualToothRecoveryTarget = {
+  fdi: number;
+  fdiName: string;
+  source?: string;
+  createdAt?: number;
+};
 
 interface MaskSnapshot {
   masks: StudyState['masks'];
@@ -342,6 +352,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [surfaceStatus, setSurfaceStatus] = useState<string | undefined>();
   const [maskStatus, setMaskStatus] = useState<string | undefined>();
   const [sliceProbe, setSliceProbe] = useState<SliceProbe>(null);
+  const [manualToothTarget, setManualToothTarget] =
+    useState<ManualToothRecoveryTarget | null>(null);
   const surfaceUrlsRef = useRef<SurfaceUrlMap>({});
   const dicomImportEngineRef = useRef(app.dicomImportEngine);
   const surfaceAbortRef = useRef<AbortController | null>(null);
@@ -349,6 +361,92 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const maskEditSessionRef = useRef<MaskEditSession | null>(null);
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem('cbcter.manualToothRecovery');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as ManualToothRecoveryTarget;
+      if (typeof parsed.fdi === 'number' && parsed.fdiName) {
+        setManualToothTarget(parsed);
+      }
+    } catch {
+      window.localStorage.removeItem('cbcter.manualToothRecovery');
+    }
+  }, []);
+
+  const clearManualToothTarget = () => {
+    window.localStorage.removeItem('cbcter.manualToothRecovery');
+    setManualToothTarget(null);
+  };
+
+  useEffect(() => {
+    if (!manualToothTarget || !studyState.study || !studyState.activeImageId || !app.volume) {
+      return;
+    }
+    const targetName = `Manual FDI ${manualToothTarget.fdi}`;
+    const existingGroup = studyState.segmentGroups.find(
+      (group) => group.name === targetName,
+    );
+    const existingSegment = existingGroup?.segments[0];
+    if (existingGroup && existingSegment?.maskId) {
+      setStudyState((current) => ({
+        ...current,
+        activeMaskId: existingSegment.maskId,
+        activeSegmentGroupId: existingGroup.id,
+        activeTool: 'mask-brush',
+        segmentGroups: current.segmentGroups.map((group) =>
+          group.id === existingGroup.id
+            ? {
+                ...group,
+                activeSegmentValue: existingSegment.value,
+                updatedAt: Date.now(),
+              }
+            : group,
+        ),
+      }));
+      return;
+    }
+
+    const voxelCount = app.volume.voxels.length;
+    const color = '#f59e0b';
+    const mask = createStudyMask(studyState.study.id, studyState.activeImageId, {
+      name: `${targetName} · ${manualToothTarget.fdiName}`,
+      color,
+      voxelCount: 0,
+    });
+    const segment = createStudySegment({
+      value: manualToothTarget.fdi,
+      name: `${manualToothTarget.fdi} · ${manualToothTarget.fdiName}`,
+      color,
+      maskId: mask.id,
+      voxelCount: 0,
+    });
+    const group = createStudySegmentGroup(
+      studyState.study.id,
+      studyState.activeImageId,
+      {
+        name: targetName,
+        segments: [segment],
+      },
+    );
+    setMaskBuffers((current) => ({
+      ...current,
+      [mask.id]: new Uint8Array(voxelCount),
+    }));
+    setLabelmapBuffers((current) => ({
+      ...current,
+      [group.id]: uint16ArrayToBytes(new Uint16Array(voxelCount)),
+    }));
+    setStudyState((current) => ({
+      ...current,
+      masks: [...current.masks, mask],
+      segmentGroups: [...current.segmentGroups, group],
+      activeMaskId: mask.id,
+      activeSegmentGroupId: group.id,
+      activeTool: 'mask-brush',
+    }));
+  }, [app.volume, manualToothTarget, studyState.activeImageId, studyState.segmentGroups, studyState.study]);
 
   useEffect(() => {
     dicomImportEngineRef.current = app.dicomImportEngine;
@@ -2153,10 +2251,34 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                 : 'grid-cols-1',
           )}
         >
-          <section className="min-h-0 min-w-0">
+          <section className="flex min-h-0 min-w-0 flex-col">
+            {manualToothTarget ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-800 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                <span className="font-medium">
+                  Manual tooth target: FDI {manualToothTarget.fdi}
+                </span>
+                <span className="text-amber-200/80">
+                  {manualToothTarget.fdiName}
+                </span>
+                <button
+                  type="button"
+                  onClick={openTeeth}
+                  className="ml-auto rounded border border-amber-300/40 px-2 py-1 text-amber-100 hover:bg-amber-300/10"
+                >
+                  Teeth
+                </button>
+                <button
+                  type="button"
+                  onClick={clearManualToothTarget}
+                  className="rounded border border-slate-600 px-2 py-1 text-slate-200 hover:bg-slate-800"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : null}
             <div
               className={cn(
-                'grid h-full min-h-0 min-w-0 gap-px bg-slate-800',
+                'grid min-h-0 min-w-0 flex-1 gap-px bg-slate-800',
                 show3DViewport && showMprViewports
                   ? compactLayout
                     ? 'grid-rows-[minmax(0,1.1fr)_minmax(260px,0.9fr)]'

@@ -3,6 +3,10 @@ import type { LoadedVolume } from '../../types';
 import { type GenerateProgress, generateLibrary } from './generateLibrary';
 import type { ToothRoi } from './roi';
 import {
+  listManualToothItems,
+  subscribeManualToothItems,
+} from './manualToothLibrary';
+import {
   type ReviewOverride,
   SEGMENTATION_ASSET_ROOTS,
   type SegmentationAlgorithm,
@@ -51,7 +55,7 @@ export interface UseSegmentation {
  * tooth-extraction page a thin view over this state.
  */
 export function useSegmentation(
-  initialAlgorithm: SegmentationAlgorithm = 'curated',
+  initialAlgorithm: SegmentationAlgorithm = 'toothseg',
 ): UseSegmentation {
   const [algorithm, setAlgorithm] =
     useState<SegmentationAlgorithm>(initialAlgorithm);
@@ -69,6 +73,7 @@ export function useSegmentation(
   const [reviewOverrides, setReviewOverrides] = useState<
     Record<number, ReviewOverride>
   >({});
+  const [manualRevision, setManualRevision] = useState(0);
 
   // Object URLs from the active generated library, revoked on replace/unmount.
   const generatedUrls = useRef<string[]>([]);
@@ -157,6 +162,11 @@ export function useSegmentation(
   // Revoke any generated object URLs when the page unmounts.
   useEffect(() => () => revokeGenerated(), [revokeGenerated]);
 
+  useEffect(
+    () => subscribeManualToothItems(() => setManualRevision((value) => value + 1)),
+    [],
+  );
+
   const assetRoot = assetRootOverride ?? SEGMENTATION_ASSET_ROOTS[algorithm];
 
   const reviewStatus = useCallback(
@@ -165,12 +175,31 @@ export function useSegmentation(
     [reviewOverrides],
   );
 
+  const allItems = useMemo(() => {
+    const base = manifest?.items ?? [];
+    const manualItems = listManualToothItems();
+    if (manualItems.length === 0) return base;
+    const byFdi = new Map<number, SegmentationItem>();
+    const noFdi: SegmentationItem[] = [];
+    for (const item of base) {
+      if (typeof item.fdi === 'number') byFdi.set(item.fdi, item);
+      else noFdi.push(item);
+    }
+    for (const item of manualItems) {
+      if (typeof item.fdi === 'number') byFdi.set(item.fdi, item);
+      else noFdi.push(item);
+    }
+    return [...noFdi, ...byFdi.values()].sort(
+      (a, b) => (a.fdi ?? a.label) - (b.fdi ?? b.label),
+    );
+  }, [manualRevision, manifest]);
+
   const visibleItems = useMemo(
     () =>
-      manifest?.items.filter(
+      allItems.filter(
         (item) => reviewOverrides[item.label] !== 'rejected',
-      ) ?? [],
-    [manifest, reviewOverrides],
+      ),
+    [allItems, reviewOverrides],
   );
 
   const selectedItem =
@@ -188,10 +217,10 @@ export function useSegmentation(
         .length,
       review: visibleItems.filter((item) => reviewStatus(item) === 'review')
         .length,
-      hidden: (manifest?.items.length ?? 0) - visibleItems.length,
-      candidates: manifest?.candidateCount ?? 0,
+      hidden: allItems.length - visibleItems.length,
+      candidates: allItems.length,
     }),
-    [manifest, reviewStatus, visibleItems],
+    [allItems.length, manifest, reviewStatus, visibleItems],
   );
 
   const setReview = useCallback((label: number, status: ReviewOverride) => {

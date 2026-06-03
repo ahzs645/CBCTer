@@ -7,11 +7,12 @@ import {
   Layers3,
   LoaderCircle,
   Library,
+  Pencil,
   Sheet,
   ShieldAlert,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import { BrowserLibraryGenerator } from '../components/BrowserLibraryGenerator';
@@ -22,7 +23,9 @@ import { ToothMeshViewport } from '../components/ToothMeshViewport';
 import { APP_ROUTES } from '../constants';
 import { useTranslation } from '../i18n';
 import { buildToothCsv, buildToothReportHtml } from '../lib/segmentation/report';
+import { FDI_NUMBERING } from '../lib/segmentation/fdiNumbering';
 import {
+  EXPECTED_PERMANENT_FDI,
   formatVolume,
   SEGMENTATION_ALGORITHMS,
   toothVolumeMm3,
@@ -35,11 +38,15 @@ interface ToothExtractionPageProps {
 }
 
 type ToothMode = 'library' | 'live';
+type MissingToothStatus = 'unresolved' | 'manual' | 'absent';
 
 export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [mode, setMode] = useState<ToothMode>('library');
+  const [missingStatuses, setMissingStatuses] = useState<
+    Record<number, MissingToothStatus>
+  >({});
   const seg = useSegmentation();
   const { manifest, selectedItem, assetRoot, counts } = seg;
   const spacing = seg.manifest?.spacing ?? app.volume?.meta.spacing;
@@ -50,6 +57,30 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
     algorithm: seg.algorithm,
     dimensions: app.volume?.meta.dimensions,
     spacing,
+  };
+
+  const missingFdi = useMemo(() => {
+    if (!manifest) return [];
+    const present = new Set(
+      manifest.items
+        .map((item) => item.fdi)
+        .filter((fdi): fdi is number => typeof fdi === 'number'),
+    );
+    return EXPECTED_PERMANENT_FDI.filter((fdi) => !present.has(fdi));
+  }, [manifest]);
+
+  const openManualRecovery = (fdi: number) => {
+    setMissingStatuses((current) => ({ ...current, [fdi]: 'manual' }));
+    window.localStorage.setItem(
+      'cbcter.manualToothRecovery',
+      JSON.stringify({
+        fdi,
+        fdiName: FDI_NUMBERING[fdi],
+        source: manifest?.source ?? seg.algorithm,
+        createdAt: Date.now(),
+      }),
+    );
+    navigate(APP_ROUTES.viewer);
   };
 
   const downloadText = (filename: string, content: string, mime: string) => {
@@ -237,6 +268,76 @@ export default function ToothExtractionPage({ app }: ToothExtractionPageProps) {
                   ) : null}
                 </span>
               </div>
+
+              {missingFdi.length > 0 ? (
+                <div className="border-b border-slate-800 bg-slate-950 px-3 py-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                      Missing FDI
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      {missingFdi.length} unresolved
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {missingFdi.map((fdi) => {
+                      const status = missingStatuses[fdi] ?? 'unresolved';
+                      return (
+                        <div
+                          key={fdi}
+                          className="rounded border border-slate-800 bg-slate-900/60 px-2 py-1.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="min-w-0">
+                              <span className="block text-xs font-medium text-slate-100">
+                                {fdi}
+                              </span>
+                              <span className="block truncate text-[11px] text-slate-500">
+                                {FDI_NUMBERING[fdi]}
+                              </span>
+                            </span>
+                            <span
+                              className={cn(
+                                'rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wide',
+                                status === 'unresolved' &&
+                                  'bg-amber-500/15 text-amber-300',
+                                status === 'manual' &&
+                                  'bg-sky-500/15 text-sky-300',
+                                status === 'absent' &&
+                                  'bg-slate-700 text-slate-300',
+                              )}
+                            >
+                              {status}
+                            </span>
+                          </div>
+                          <div className="mt-1.5 flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openManualRecovery(fdi)}
+                              className="inline-flex flex-1 items-center justify-center gap-1 rounded border border-sky-500/50 bg-sky-500/10 px-1.5 py-1 text-[11px] text-sky-200 hover:bg-sky-500/20"
+                            >
+                              <Pencil className="h-3 w-3" aria-hidden="true" />
+                              Manual
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMissingStatuses((current) => ({
+                                  ...current,
+                                  [fdi]: 'absent',
+                                }))
+                              }
+                              className="rounded border border-slate-700 px-1.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                            >
+                              Absent
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {seg.visibleItems.map((item) => {
