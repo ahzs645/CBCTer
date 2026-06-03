@@ -27,6 +27,10 @@ Folder totals:
 | `public/models` | 379 MB | Browser ONNX models |
 | `models` | 4.6 MB | Legacy local PyTorch ROI model |
 | `external/ToothSeg-checkpoints` | 949 MB | ToothSeg downloaded checkpoints, ignored by git |
+| `external/OralSeg-weights` | 409 MB | Downloaded Hugging Face OralSeg checkpoint, ignored by git |
+| `external/oralseg` | 280 KB | OralSeg code clone, no browser build |
+| `external/TIPs` | 5.0 MB | TIPs code clone, weights not included |
+| `external/GEPAR3D` | 36 MB | GEPAR3D code clone, checkpoints/assets not included |
 
 For ToothSeg production runs, we likely only need `checkpoint_best.pth` for each
 branch unless validation shows `checkpoint_final.pth` is better. That would reduce
@@ -41,6 +45,7 @@ volumes, shape checks, and practical trust level.
 | Model / pipeline | Observed output | Practical result |
 |---|---|---|
 | ToothSeg + semantic recovery + cleanup | 28 separated FDI teeth, 28 accepted, shape audit 28/28 OK, `3,771,451` positive voxels | Best individual tooth result currently available |
+| ToothSeg `checkpoint_best` comparison export | 28 separated FDI teeth, 28 accepted, shape audit 28/28 OK, `3,780,158` positive voxels | Same FDI coverage as final; does not recover third molars |
 | ToothSeg before recovery | 25 separated FDI teeth | Missed 3 semantically detected teeth due to majority assignment collapse |
 | ToothSeg semantic branch alone | 28 FDI classes present | Third molars `18`, `28`, `38`, `48` had zero semantic voxels |
 | DentalSegmentator | Upper teeth ~7.879 cm3, lower teeth ~7.586 cm3, plus skull/mandible/canal | Good coarse anatomy gate, not individual teeth |
@@ -84,6 +89,18 @@ The recovery step currently restores FDI `14`, `24`, and `41` on this scan.
 It cannot recover FDI `18`, `28`, `38`, or `48` because the semantic branch
 predicted zero voxels for those third molars.
 
+The controlled `checkpoint_best` vs `checkpoint_final` comparison produced the
+same FDI set for this scan: both exports contain 28 teeth and both miss
+`18`, `28`, `38`, and `48`. The `best` export has 8,707 more positive voxels
+overall, but the largest differences are a redistribution between adjacent
+premolars (`14`/`15`, `24`/`25`) rather than new tooth coverage. The comparison
+output is `outputs/toothseg-cbct-aug2025/checkpoint-comparison.json`, and the
+browser export is `public/sample-segmentation-toothseg-best`.
+
+Pruning recommendation: keep one checkpoint pair for production unless further
+cases show a clinically meaningful difference. On this scan, `checkpoint_best`
+does not justify keeping both `best` and `final` pairs.
+
 ## Interactive Recovery Status
 
 The browser now exposes missing permanent FDI numbers on `/teeth`.
@@ -97,13 +114,22 @@ In the viewer, a manual recovery target automatically creates and selects an
 empty mask/segment group named `Manual FDI <number>`, switches to brush mode,
 and shows a banner with the intended tooth name.
 
+Current implementation status:
+
+1. Manual recovery targets create/select an empty viewer mask for the missing
+   FDI number.
+2. The viewer can export the active painted mask as that FDI number.
+3. The export builds a cropped label item, preview image, and smoothed/decimated
+   binary STL, then merges it into the in-browser tooth library for the session.
+
 Remaining implementation work:
 
-1. Export the active manual mask back into the ToothSeg library format as the
-   selected FDI.
-2. Generate a smoothed STL and preview for the manual tooth.
-3. Merge the manual item into `public/sample-segmentation-toothseg/manifest.json`
-   or into an in-browser generated manifest without mutating the static sample.
+1. Persist manual exports back to static assets or a project-local storage layer
+   instead of the current in-memory session library.
+2. Add DentalSegmentator upper/lower tooth masks as hard constraints while
+   painting or exporting manual third-molar masks.
+3. Add review metadata for intentional absence vs manual recovery so the browser
+   can distinguish "not present" from "not yet recovered."
 
 ## External Alternatives To Evaluate
 
@@ -128,8 +154,13 @@ Fit for CBCTer:
 
 - High-priority Python sidecar candidate.
 - Likely not browser-native initially.
-- Evaluate for whether pretrained weights are available and whether output is
-  FDI-instance compatible.
+- Repo cloned under `external/GEPAR3D`.
+- Feasibility status: not smoke-tested yet because the clone does not include
+  the required coarse and GEPAR3D checkpoint weights; its checkpoint README
+  points to external assets.
+- Output appears research-compatible with 32 tooth classes, but production
+  readiness is lower than ToothSeg/TIPs because the inference path expects
+  project-specific assets and setup.
 
 ### 2. OraSeg / OralSeg
 
@@ -159,6 +190,11 @@ Fit for CBCTer:
   explicitly included in the model card.
 - License is CC BY-NC 4.0, so commercial use would be blocked unless separately
   licensed.
+- Code cloned under `external/oralseg`; Hugging Face checkpoint downloaded to
+  `external/OralSeg-weights/model_workstation39.pt` (~409 MB on disk).
+- Feasibility status: not smoke-tested yet because the repo exposes training and
+  validation utilities but not a clean one-command CBCT inference/export wrapper.
+  The next step is an adapter around the validation sliding-window path.
 
 ### 3. TIPs
 
@@ -186,6 +222,11 @@ Fit for CBCTer:
   PyTorch 2.0.1, and Mamba dependencies.
 - Worth testing after ToothSeg because it is public, FDI-oriented, and may
   behave differently on missing/third-molar cases.
+- Repo cloned under `external/TIPs`.
+- Feasibility status: not smoke-tested yet because model weights are not in the
+  repository. The checked-in `TIPs.py` calls nnU-Net dataset IDs 803, 810, and
+  812 with `checkpoint_best.pth`, so the Google Drive model package must be
+  installed before a real run.
 
 ### 4. TAPSeg
 
@@ -332,32 +373,41 @@ Fit for CBCTer:
 ## Recommended Next Experiments
 
 1. **ToothSeg checkpoint pruning**
-   - Run a controlled `best` vs `final` comparison for both branches.
-   - If `best` and `final` are equivalent for our cases, keep only one pair.
+   - Status: completed on `CBCT-Aug2025-dcm`.
+   - Result: `best` and `final` both produce the same 28 FDI teeth and both miss
+     third molars `18`, `28`, `38`, and `48`.
+   - Recommendation: do not spend more time on checkpoint pruning for the
+     third-molar issue; validate one or two more scans before deleting either
+     pair, then keep only the selected pair.
 
 2. **OralSeg third-molar smoke test**
-   - Download/test the Hugging Face OralSeg model if non-commercial terms are
-     acceptable for this experiment.
+   - Downloaded the Hugging Face OralSeg model for experimental use under
+     `external/OralSeg-weights`.
    - Compare specifically on FDI `18`, `28`, `38`, and `48`.
+   - Next implementation step: build an inference adapter from the repo's
+     validation code.
 
 3. **TIPs sidecar smoke test**
-   - Clone TIPs, review model download and environment requirements.
+   - TIPs is cloned and its environment/model requirements are reviewed.
    - Test whether it catches third molars or produces better tooth+pulp masks.
+   - Blocker: model package must be downloaded/installed from the repo's Google
+     Drive link.
 
 4. **ToothSeg baselines smoke test**
    - Download `Baselines.zip` only if disk/network budget allows.
    - Test whether any baseline catches the four third molars on this scan.
 
 5. **GEPAR3D feasibility spike**
-   - Clone repo.
-   - Check license, install complexity, pretrained weights, expected input/output
-     format.
+   - Repo is cloned and inspected.
    - Run against the same DICOM-derived NIfTI if weights are available.
+   - Blocker: external checkpoint/assets are required; they are not included in
+     the clone.
 
 6. **Interactive third-molar recovery**
-   - Finish exporting a painted/grown manual mask as FDI `18`, `28`, `38`, or
-     `48`.
+   - Exporting a painted manual mask as FDI `18`, `28`, `38`, or `48` is
+     implemented for the in-memory browser tooth library.
    - Use DentalSegmentator upper/lower tooth masks as a constraint.
+   - Remaining: persist exported manual assets and add hard anatomy constraints.
    - Add a panoramic/MIP locator to jump to likely third-molar regions.
 
 ## Sources

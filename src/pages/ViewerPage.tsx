@@ -380,6 +380,104 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setManualToothTarget(null);
   };
 
+  const exportManualToothTarget = () => {
+    if (!manualToothTarget || !app.volume || !studyState.activeMaskId) return;
+    const sourceMask = studyState.masks.find(
+      (mask) => mask.id === studyState.activeMaskId,
+    );
+    const sourceBuffer = maskBuffers[studyState.activeMaskId];
+    if (!sourceMask || !sourceBuffer) return;
+
+    const [width, height, depth] = app.volume.meta.dimensions;
+    const coords: Array<[number, number, number]> = [];
+    for (let z = 0; z < depth; z += 1) {
+      for (let y = 0; y < height; y += 1) {
+        const row = (z * height + y) * width;
+        for (let x = 0; x < width; x += 1) {
+          if (sourceBuffer[row + x]) coords.push([z, y, x]);
+        }
+      }
+    }
+    if (coords.length === 0) {
+      setMaskStatus(`Manual FDI ${manualToothTarget.fdi} mask is empty`);
+      return;
+    }
+
+    let z0 = depth;
+    let y0 = height;
+    let x0 = width;
+    let z1 = 0;
+    let y1 = 0;
+    let x1 = 0;
+    let sumZ = 0;
+    let sumY = 0;
+    let sumX = 0;
+    for (const [z, y, x] of coords) {
+      z0 = Math.min(z0, z);
+      y0 = Math.min(y0, y);
+      x0 = Math.min(x0, x);
+      z1 = Math.max(z1, z + 1);
+      y1 = Math.max(y1, y + 1);
+      x1 = Math.max(x1, x + 1);
+      sumZ += z;
+      sumY += y;
+      sumX += x;
+    }
+
+    const subDepth = z1 - z0;
+    const subHeight = y1 - y0;
+    const subWidth = x1 - x0;
+    const subMask = new Uint8Array(subDepth * subHeight * subWidth);
+    for (const [z, y, x] of coords) {
+      subMask[((z - z0) * subHeight + (y - y0)) * subWidth + (x - x0)] = 1;
+    }
+
+    const label =
+      (Math.floor(manualToothTarget.fdi / 10) - 1) * 8 +
+      (manualToothTarget.fdi % 10);
+    const stlBlob = maskToBinaryStl(
+      subMask,
+      [subDepth, subHeight, subWidth],
+      app.volume.meta.spacing,
+      [x0, y0, z0],
+      Math.max(subDepth, subHeight, subWidth) > 96 ? 2 : 1,
+      { extraction: 'iso', smoothIterations: 8, decimateReduction: 0.2 },
+    );
+    const stlUrl = URL.createObjectURL(stlBlob);
+    const preview = maskProjectionDataUrl(
+      subMask,
+      [subDepth, subHeight, subWidth],
+      0xf59e0b,
+    );
+    addManualToothItem(
+      {
+        source: 'manual',
+        label,
+        name: `FDI ${manualToothTarget.fdi} · ${manualToothTarget.fdiName}`,
+        preview,
+        stl: stlUrl,
+        assignedVoxels: coords.length,
+        centroidZYX: [
+          Number((sumZ / coords.length).toFixed(2)),
+          Number((sumY / coords.length).toFixed(2)),
+          Number((sumX / coords.length).toFixed(2)),
+        ],
+        bboxZYX: [z0, y0, x0, z1, y1, x1],
+        extentZYX: [subDepth, subHeight, subWidth],
+        qualityStatus: 'review',
+        qualityReasons: ['manual-recovery'],
+        qualityScore: 0.5,
+        fdi: manualToothTarget.fdi,
+        fdiName: FDI_NUMBERING[manualToothTarget.fdi],
+        quadrant: Math.floor(manualToothTarget.fdi / 10),
+      },
+      [stlUrl],
+    );
+    setMaskStatus(`Manual FDI ${manualToothTarget.fdi} exported to teeth`);
+    clearManualToothTarget();
+    navigate(APP_ROUTES.teeth);
+  };
+
   useEffect(() => {
     if (!manualToothTarget || !studyState.study || !studyState.activeImageId || !app.volume) {
       return;
@@ -390,6 +488,14 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     );
     const existingSegment = existingGroup?.segments[0];
     if (existingGroup && existingSegment?.maskId) {
+      if (
+        studyState.activeMaskId === existingSegment.maskId &&
+        studyState.activeSegmentGroupId === existingGroup.id &&
+        studyState.activeTool === 'mask-brush' &&
+        existingGroup.activeSegmentValue === existingSegment.value
+      ) {
+        return;
+      }
       setStudyState((current) => ({
         ...current,
         activeMaskId: existingSegment.maskId,
@@ -446,7 +552,16 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       activeSegmentGroupId: group.id,
       activeTool: 'mask-brush',
     }));
-  }, [app.volume, manualToothTarget, studyState.activeImageId, studyState.segmentGroups, studyState.study]);
+  }, [
+    app.volume,
+    manualToothTarget,
+    studyState.activeImageId,
+    studyState.activeMaskId,
+    studyState.activeSegmentGroupId,
+    studyState.activeTool,
+    studyState.segmentGroups,
+    studyState.study,
+  ]);
 
   useEffect(() => {
     dicomImportEngineRef.current = app.dicomImportEngine;
@@ -2262,8 +2377,15 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                 </span>
                 <button
                   type="button"
+                  onClick={exportManualToothTarget}
+                  className="ml-auto rounded border border-sky-300/50 bg-sky-500/10 px-2 py-1 text-sky-100 hover:bg-sky-500/20"
+                >
+                  Export tooth
+                </button>
+                <button
+                  type="button"
                   onClick={openTeeth}
-                  className="ml-auto rounded border border-amber-300/40 px-2 py-1 text-amber-100 hover:bg-amber-300/10"
+                  className="rounded border border-amber-300/40 px-2 py-1 text-amber-100 hover:bg-amber-300/10"
                 >
                   Teeth
                 </button>
