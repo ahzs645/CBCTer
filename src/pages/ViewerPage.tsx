@@ -353,7 +353,17 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [maskStatus, setMaskStatus] = useState<string | undefined>();
   const [sliceProbe, setSliceProbe] = useState<SliceProbe>(null);
   const [manualToothTarget, setManualToothTarget] =
-    useState<ManualToothRecoveryTarget | null>(null);
+    useState<ManualToothRecoveryTarget | null>(() => {
+      const raw = window.localStorage.getItem('cbcter.manualToothRecovery');
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as ManualToothRecoveryTarget;
+        if (typeof parsed.fdi === 'number' && parsed.fdiName) return parsed;
+      } catch {
+        window.localStorage.removeItem('cbcter.manualToothRecovery');
+      }
+      return null;
+    });
   const surfaceUrlsRef = useRef<SurfaceUrlMap>({});
   const dicomImportEngineRef = useRef(app.dicomImportEngine);
   const surfaceAbortRef = useRef<AbortController | null>(null);
@@ -361,19 +371,6 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const maskEditSessionRef = useRef<MaskEditSession | null>(null);
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
-
-  useEffect(() => {
-    const raw = window.localStorage.getItem('cbcter.manualToothRecovery');
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as ManualToothRecoveryTarget;
-      if (typeof parsed.fdi === 'number' && parsed.fdiName) {
-        setManualToothTarget(parsed);
-      }
-    } catch {
-      window.localStorage.removeItem('cbcter.manualToothRecovery');
-    }
-  }, []);
 
   const clearManualToothTarget = () => {
     window.localStorage.removeItem('cbcter.manualToothRecovery');
@@ -496,22 +493,24 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       ) {
         return;
       }
-      setStudyState((current) => ({
-        ...current,
-        activeMaskId: existingSegment.maskId,
-        activeSegmentGroupId: existingGroup.id,
-        activeTool: 'mask-brush',
-        segmentGroups: current.segmentGroups.map((group) =>
-          group.id === existingGroup.id
-            ? {
-                ...group,
-                activeSegmentValue: existingSegment.value,
-                updatedAt: Date.now(),
-              }
-            : group,
-        ),
-      }));
-      return;
+      const timer = window.setTimeout(() => {
+        setStudyState((current) => ({
+          ...current,
+          activeMaskId: existingSegment.maskId,
+          activeSegmentGroupId: existingGroup.id,
+          activeTool: 'mask-brush',
+          segmentGroups: current.segmentGroups.map((group) =>
+            group.id === existingGroup.id
+              ? {
+                  ...group,
+                  activeSegmentValue: existingSegment.value,
+                  updatedAt: Date.now(),
+                }
+              : group,
+          ),
+        }));
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
 
     const voxelCount = app.volume.voxels.length;
@@ -536,22 +535,25 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         segments: [segment],
       },
     );
-    setMaskBuffers((current) => ({
-      ...current,
-      [mask.id]: new Uint8Array(voxelCount),
-    }));
-    setLabelmapBuffers((current) => ({
-      ...current,
-      [group.id]: uint16ArrayToBytes(new Uint16Array(voxelCount)),
-    }));
-    setStudyState((current) => ({
-      ...current,
-      masks: [...current.masks, mask],
-      segmentGroups: [...current.segmentGroups, group],
-      activeMaskId: mask.id,
-      activeSegmentGroupId: group.id,
-      activeTool: 'mask-brush',
-    }));
+    const timer = window.setTimeout(() => {
+      setMaskBuffers((current) => ({
+        ...current,
+        [mask.id]: new Uint8Array(voxelCount),
+      }));
+      setLabelmapBuffers((current) => ({
+        ...current,
+        [group.id]: uint16ArrayToBytes(new Uint16Array(voxelCount)),
+      }));
+      setStudyState((current) => ({
+        ...current,
+        masks: [...current.masks, mask],
+        segmentGroups: [...current.segmentGroups, group],
+        activeMaskId: mask.id,
+        activeSegmentGroupId: group.id,
+        activeTool: 'mask-brush',
+      }));
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [
     app.volume,
     manualToothTarget,

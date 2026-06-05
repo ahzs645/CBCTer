@@ -9,8 +9,10 @@ type Listener = () => void;
 const items = new Map<number, ManualToothLibraryItem>();
 const objectUrls = new Set<string>();
 const listeners = new Set<Listener>();
+let revision = 0;
 
 function emit() {
+  revision += 1;
   for (const listener of listeners) listener();
 }
 
@@ -32,6 +34,10 @@ export function listManualToothItems(): ManualToothLibraryItem[] {
 export function subscribeManualToothItems(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+export function getManualToothRevision(): number {
+  return revision;
 }
 
 export function clearManualToothItems() {

@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { LoadedVolume } from '../../types';
 import { type GenerateProgress, generateLibrary } from './generateLibrary';
 import type { ToothRoi } from './roi';
 import {
+  getManualToothRevision,
   listManualToothItems,
   subscribeManualToothItems,
 } from './manualToothLibrary';
@@ -73,7 +81,11 @@ export function useSegmentation(
   const [reviewOverrides, setReviewOverrides] = useState<
     Record<number, ReviewOverride>
   >({});
-  const [manualRevision, setManualRevision] = useState(0);
+  useSyncExternalStore(
+    subscribeManualToothItems,
+    getManualToothRevision,
+    getManualToothRevision,
+  );
 
   // Object URLs from the active generated library, revoked on replace/unmount.
   const generatedUrls = useRef<string[]>([]);
@@ -162,11 +174,6 @@ export function useSegmentation(
   // Revoke any generated object URLs when the page unmounts.
   useEffect(() => () => revokeGenerated(), [revokeGenerated]);
 
-  useEffect(
-    () => subscribeManualToothItems(() => setManualRevision((value) => value + 1)),
-    [],
-  );
-
   const assetRoot = assetRootOverride ?? SEGMENTATION_ASSET_ROOTS[algorithm];
 
   const reviewStatus = useCallback(
@@ -175,9 +182,10 @@ export function useSegmentation(
     [reviewOverrides],
   );
 
+  const manualItems = listManualToothItems();
+
   const allItems = useMemo(() => {
     const base = manifest?.items ?? [];
-    const manualItems = listManualToothItems();
     if (manualItems.length === 0) return base;
     const byFdi = new Map<number, SegmentationItem>();
     const noFdi: SegmentationItem[] = [];
@@ -192,7 +200,7 @@ export function useSegmentation(
     return [...noFdi, ...byFdi.values()].sort(
       (a, b) => (a.fdi ?? a.label) - (b.fdi ?? b.label),
     );
-  }, [manualRevision, manifest]);
+  }, [manualItems, manifest]);
 
   const visibleItems = useMemo(
     () =>
@@ -220,7 +228,7 @@ export function useSegmentation(
       hidden: allItems.length - visibleItems.length,
       candidates: allItems.length,
     }),
-    [allItems.length, manifest, reviewStatus, visibleItems],
+    [allItems.length, reviewStatus, visibleItems],
   );
 
   const setReview = useCallback((label: number, status: ReviewOverride) => {

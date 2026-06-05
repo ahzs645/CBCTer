@@ -4,3 +4,4 @@
 - [Project archives](./project-archives.md)
 - [Viewer controls](./viewer-controls.md)
 - [Architecture notes](./architecture.md)
+- [VolGL feasibility notes](./volgl-feasibility.md)
