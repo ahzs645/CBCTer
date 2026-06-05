@@ -10,7 +10,9 @@
 export { createThreePreview } from '../../lib/volume/three-preview';
 export type {
   SurfaceMeshPreview,
+  ObjMeshPreview,
   ThreePreviewInstance,
+  ThreePreviewOptions,
   VolumeColormap,
   VolumeRenderOptions,
   VolumeRenderStyle,

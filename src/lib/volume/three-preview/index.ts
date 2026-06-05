@@ -5,6 +5,8 @@ import type {
   ThreePreviewInstance,
   TrackballControlsModule,
   SurfaceMeshPreview,
+  ObjMeshPreview,
+  ThreePreviewOptions,
   VolumeColormap,
   VolumeShaderModule,
   VolumeShaderUniforms,
@@ -26,7 +28,9 @@ import {
 
 export type {
   SurfaceMeshPreview,
+  ObjMeshPreview,
   ThreePreviewInstance,
+  ThreePreviewOptions,
   VolumeColormap,
   VolumeRenderOptions,
   VolumeRenderStyle,
@@ -36,6 +40,7 @@ export type {
 export async function createThreePreview(
   host: HTMLDivElement,
   volume: PreparedVolumeFor3D,
+  options: ThreePreviewOptions = {},
 ): Promise<ThreePreviewInstance> {
   const [three, trackballControls, volumeShader] = await Promise.all([
     import('three'),
@@ -43,7 +48,14 @@ export async function createThreePreview(
     import('three/addons/shaders/VolumeShader.js'),
   ]);
 
-  return buildPreview(three, trackballControls, volumeShader, host, volume);
+  return buildPreview(
+    three,
+    trackballControls,
+    volumeShader,
+    host,
+    volume,
+    options,
+  );
 }
 
 function buildPreview(
@@ -52,6 +64,7 @@ function buildPreview(
   volumeShader: VolumeShaderModule,
   host: HTMLDivElement,
   volume: PreparedVolumeFor3D,
+  options: ThreePreviewOptions,
 ): ThreePreviewInstance {
   host.replaceChildren();
 
@@ -77,6 +90,22 @@ function buildPreview(
   renderer.localClippingEnabled = true;
   renderer.setClearColor(0x050b13, 1);
   host.appendChild(renderer.domElement);
+  options.onContextStatusChange?.('ok');
+
+  const handleContextLost = (event: Event) => {
+    event.preventDefault();
+    options.onContextStatusChange?.('lost');
+  };
+  const handleContextRestored = () => {
+    options.onContextStatusChange?.('restored');
+    requestRender();
+    window.setTimeout(() => options.onContextStatusChange?.('ok'), 1800);
+  };
+  renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+  renderer.domElement.addEventListener(
+    'webglcontextrestored',
+    handleContextRestored,
+  );
 
   const camera = new three.PerspectiveCamera(
     12,
@@ -193,6 +222,11 @@ function buildPreview(
   scene.add(surfaceRoot);
   let surfaceDisposers: Array<() => void> = [];
 
+  const objRoot = new three.Group();
+  objRoot.name = 'ImportedObjMeshes';
+  scene.add(objRoot);
+  let objDisposers: Array<() => void> = [];
+
   // Optional reference floor grid (off by default).
   const grid = new three.GridHelper(
     maxWorldEdge * 1.8,
@@ -211,22 +245,46 @@ function buildPreview(
   camera.near = Math.max(0.1, maxWorldEdge / 2048);
 
   const initialTarget = center.clone();
-  const initialOffset = new three.Vector3(
-    maxWorldEdge * 0.68,
-    -maxWorldEdge * 2.9,
-    maxWorldEdge * 4.25,
-  );
+  const initialDirection = new three.Vector3(0.16, -0.68, 1).normalize();
   let currentTarget = initialTarget.clone();
-  camera.position.copy(initialTarget.clone().add(initialOffset));
-  camera.lookAt(currentTarget);
-  applyDistanceLimits(camera, controls, worldSize, currentTarget);
-  controls.target.copy(currentTarget);
+
+  const fitCameraToTarget = (
+    target: import('three').Vector3,
+    direction = initialDirection,
+    padding = 1.08,
+  ) => {
+    const corners = [
+      new three.Vector3(0, 0, 0),
+      new three.Vector3(worldSize[0], 0, 0),
+      new three.Vector3(0, worldSize[1], 0),
+      new three.Vector3(0, 0, worldSize[2]),
+      new three.Vector3(worldSize[0], worldSize[1], 0),
+      new three.Vector3(worldSize[0], 0, worldSize[2]),
+      new three.Vector3(0, worldSize[1], worldSize[2]),
+      new three.Vector3(worldSize[0], worldSize[1], worldSize[2]),
+    ];
+    let radius = 1;
+    for (const corner of corners) {
+      radius = Math.max(radius, corner.distanceTo(target));
+    }
+    const vFov = (camera.fov * Math.PI) / 180;
+    const distance = (radius / Math.sin(vFov / 2)) * padding;
+    camera.position.copy(target.clone().add(direction.clone().multiplyScalar(distance)));
+    camera.near = Math.max(0.01, distance / 2000);
+    applyDistanceLimits(camera, controls, worldSize, target);
+    controls.target.copy(target);
+    camera.lookAt(target);
+    controls.update();
+  };
+
+  fitCameraToTarget(currentTarget);
   cursorPlanes.update(currentTarget);
-  controls.update();
 
   let frame = 0;
   let interactionActive = false;
   let settleFrames = 0;
+  let fpsFrames = 0;
+  let fpsStartedAt = performance.now();
   const requestRender = () => {
     if (frame !== 0) return;
 
@@ -234,6 +292,17 @@ function buildPreview(
       frame = 0;
       controls.update();
       renderer.render(scene, camera);
+      fpsFrames += 1;
+      const now = performance.now();
+      if (now - fpsStartedAt >= 500) {
+        options.onFpsChange?.(
+          interactionActive || settleFrames > 0
+            ? Math.round((fpsFrames * 1000) / (now - fpsStartedAt))
+            : null,
+        );
+        fpsFrames = 0;
+        fpsStartedAt = now;
+      }
       if (interactionActive || settleFrames > 0) {
         settleFrames = interactionActive ? 6 : settleFrames - 1;
         requestRender();
@@ -371,6 +440,66 @@ function buildPreview(
           // Surface preview is secondary; downloads remain available.
         });
     },
+    setObjMeshes(meshes: ObjMeshPreview[]) {
+      for (const dispose of objDisposers) dispose();
+      objDisposers = [];
+      objRoot.clear();
+      requestRender();
+      if (meshes.length === 0) return;
+
+      void import('three/addons/loaders/OBJLoader.js')
+        .then(({ OBJLoader }) => {
+          const loader = new OBJLoader();
+          for (const preview of meshes) {
+            if (!preview.visible) continue;
+            const object = loader.parse(preview.obj);
+            object.name = `obj-${preview.id}`;
+            const material = new three.MeshStandardMaterial({
+              color: new three.Color(preview.color),
+              roughness: 0.42,
+              metalness: 0.18,
+              side: three.DoubleSide,
+              depthTest: false,
+              depthWrite: false,
+            });
+            object.traverse((child) => {
+              const meshChild = child as {
+                isMesh?: boolean;
+                material?: typeof material;
+                renderOrder?: number;
+              };
+              if (!meshChild.isMesh) return;
+              meshChild.material = material;
+              meshChild.renderOrder = 999;
+            });
+            const box = new three.Box3().setFromObject(object);
+            if (!box.isEmpty()) {
+              const objCenter = box.getCenter(new three.Vector3());
+              const size = box.getSize(new three.Vector3());
+              const longest = Math.max(size.x, size.y, size.z, 1);
+              const targetSize = maxWorldEdge * 0.28;
+              const scale = targetSize / longest;
+              object.scale.setScalar(scale);
+              object.position.copy(center.clone().sub(objCenter.multiplyScalar(scale)));
+            }
+            objRoot.add(object);
+            objDisposers.push(() => {
+              object.traverse((child) => {
+                const meshChild = child as {
+                  isMesh?: boolean;
+                  geometry?: { dispose: () => void };
+                };
+                if (meshChild.isMesh) meshChild.geometry?.dispose();
+              });
+              material.dispose();
+            });
+          }
+          requestRender();
+        })
+        .catch(() => {
+          // Imported OBJ overlays are optional and should not break the volume.
+        });
+    },
     setCropBounds(bounds) {
       applyCropBounds(bounds);
       requestRender();
@@ -424,11 +553,7 @@ function buildPreview(
       requestRender();
     },
     resetView() {
-      camera.position.copy(currentTarget.clone().add(initialOffset));
-      applyDistanceLimits(camera, controls, worldSize, currentTarget);
-      controls.target.copy(currentTarget);
-      camera.lookAt(currentTarget);
-      controls.update();
+      fitCameraToTarget(currentTarget);
       requestRender();
     },
     snapshot() {
@@ -446,11 +571,18 @@ function buildPreview(
       controls.removeEventListener('end', stopInteractionRender);
       resizeObserver.disconnect();
       controls.dispose();
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener(
+        'webglcontextrestored',
+        handleContextRestored,
+      );
       mesh.geometry.dispose();
       material.dispose();
       cursorPlanes.dispose();
       for (const dispose of surfaceDisposers) dispose();
+      for (const dispose of objDisposers) dispose();
       surfaceRoot.clear();
+      objRoot.clear();
       grid.geometry.dispose();
       const gridMaterial = grid.material;
       if (Array.isArray(gridMaterial)) {

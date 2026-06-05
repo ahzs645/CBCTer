@@ -304,6 +304,32 @@
     "showPlanesShort": "Площини вкл.",
     "hidePlanesLong": "Сховати площини",
     "showPlanesLong": "Показати площини",
+    "render": "Рендер",
+    "snapshot": "PNG",
+    "importObj": "OBJ",
+    "resetView": "Скинути вид",
+    "threshold": "Поріг",
+    "opacity": "Непрозорість",
+    "presets": {
+      "default": "Типовий",
+      "bone": "Кісткова поверхня",
+      "soft": "М'які тканини",
+      "xray": "Рентген"
+    },
+    "colormap": "Кольорова мапа",
+    "colormaps": {
+      "grayscale": "Відтінки сірого",
+      "bone": "Кістка",
+      "hot": "Гаряча",
+      "viridis": "Viridis"
+    },
+    "grid": "Опорна сітка",
+    "preparingVolume": "Підготовка об'єму",
+    "fpsIdle": "Очікування",
+    "fps": "{{value}} FPS",
+    "objCount": "{{count}} OBJ",
+    "contextLost": "Контекст WebGL втрачено",
+    "contextRestored": "Контекст WebGL відновлено",
     "previewError": "3D-перегляд не вдалося запустити"
   },
   "errors": {

@@ -6,6 +6,9 @@ This note records the models currently present in CBCTer, the observed behavior
 on `/Users/ahmadjalil/Downloads/CBCT-Aug2025-dcm`, and external alternatives
 worth evaluating for individual tooth extraction.
 
+See also `docs/cbct-test-resource-candidates.md` for the expanded swarm
+research list of additional datasets, benchmarks, and model candidates.
+
 ## Current Local Models
 
 | Model | Local path | Size | Runtime role | Browser-ready |
@@ -29,7 +32,8 @@ Folder totals:
 | `external/ToothSeg-checkpoints` | 949 MB | ToothSeg downloaded checkpoints, ignored by git |
 | `external/OralSeg-weights` | 409 MB | Downloaded Hugging Face OralSeg checkpoint, ignored by git |
 | `external/oralseg` | 280 KB | OralSeg code clone, no browser build |
-| `external/TIPs` | 5.0 MB | TIPs code clone, weights not included |
+| `external/TIPs` | 5.0 MB | TIPs code clone |
+| `external/TIPs-weights` | 2.5 GB | TIPs downloaded Google Drive model package plus extracted nnU-Net results |
 | `external/GEPAR3D` | 36 MB | GEPAR3D code clone, checkpoints/assets not included |
 
 For ToothSeg production runs, we likely only need `checkpoint_best.pth` for each
@@ -61,6 +65,17 @@ Staged ONNX patch counts on the real CBCT:
 | DentalSegmentator | `190 x 263 x 190` | 8 |
 | AMASSS skin | `205 x 205 x 205` | 8 |
 | AMASSS UAW | `205 x 205 x 205` | 8 |
+
+Additional ToothSeg NIfTI diagnostics were written to
+`outputs/toothseg-cbct-aug2025/nifti-label-summary.json`. They confirm:
+
+- `semseg_branch` and `semseg_branch_best` both have 28 semantic labels.
+- Missing semantic labels are `8`, `16`, `24`, and `32`, which map to FDI
+  `18`, `28`, `38`, and `48`.
+- Majority assignment collapses three non-third-molar classes in the final
+  instance output, and the recovery script restores those to 28 labels.
+- Neither `checkpoint_best` nor `checkpoint_final` predicts any voxels for the
+  four third molars on this scan.
 
 ## Current ToothSeg Pipeline
 
@@ -161,6 +176,20 @@ Fit for CBCTer:
 - Output appears research-compatible with 32 tooth classes, but production
   readiness is lower than ToothSeg/TIPs because the inference path expects
   project-specific assets and setup.
+- Dataset status: Zenodo record `15739014` is reachable, but the files are
+  restricted. Unauthenticated API access reports `access_right: restricted` and
+  exposes zero files, so `GEPAR3D_dataset.zip` and `32class_labels.zip` cannot
+  be downloaded or tested until access is granted.
+- Prepared downloader: `scripts/download_gepar3d_restricted_assets.py`. After
+  access approval, set `ZENODO_TOKEN` and run it to download
+  `GEPAR3D_dataset.zip` and `32class_labels.zip` into
+  `external/GEPAR3D-dataset`.
+- Prepared inspector: `scripts/inspect_gepar3d_dataset_assets.py`. Once the
+  archives are present, it summarizes archive contents, NIfTI count, sample
+  shapes, spacing, and label counts.
+- Raw Cui CBCT scans remain a separate access request to the original data
+  provider; the Zenodo `32class_labels.zip` contains labels only, not those
+  source CBCT volumes.
 
 ### 2. OraSeg / OralSeg
 
@@ -195,6 +224,10 @@ Fit for CBCTer:
 - Feasibility status: not smoke-tested yet because the repo exposes training and
   validation utilities but not a clean one-command CBCT inference/export wrapper.
   The next step is an adapter around the validation sliding-window path.
+- Runtime blocker on this Mac: the checkpoint is a full hybrid OralSeg model
+  with Swin and Mamba branches. `mamba-ssm==2.2.0` fails to install locally
+  because the package expects an NVCC/CUDA build path; it is not currently
+  runnable in the local macOS/Python 3.13/MPS environment.
 
 ### 3. TIPs
 
@@ -223,10 +256,15 @@ Fit for CBCTer:
 - Worth testing after ToothSeg because it is public, FDI-oriented, and may
   behave differently on missing/third-molar cases.
 - Repo cloned under `external/TIPs`.
-- Feasibility status: not smoke-tested yet because model weights are not in the
-  repository. The checked-in `TIPs.py` calls nnU-Net dataset IDs 803, 810, and
-  812 with `checkpoint_best.pth`, so the Google Drive model package must be
-  installed before a real run.
+- Google Drive model package downloaded and extracted under
+  `external/TIPs-weights`.
+- Extracted checkpoints include nnU-Net datasets `803`, `810`, and `812`, matching
+  the dataset IDs called by `TIPs.py`; individual checkpoints are about
+  322-325 MB each.
+- Runtime blocker on this Mac: TIPs uses `nnUNetTrainerUMambaBot`, and importing
+  that trainer fails without `mamba_ssm`. The repo requirements specify Ubuntu
+  20.04, CUDA 11.8, PyTorch 2.0.1, and Mamba, so the next real smoke test should
+  run in a Linux CUDA environment.
 
 ### 4. TAPSeg
 
@@ -384,14 +422,15 @@ Fit for CBCTer:
    - Downloaded the Hugging Face OralSeg model for experimental use under
      `external/OralSeg-weights`.
    - Compare specifically on FDI `18`, `28`, `38`, and `48`.
-   - Next implementation step: build an inference adapter from the repo's
-     validation code.
+   - Current blocker: local `mamba-ssm` install fails without CUDA/NVCC.
+   - Next implementation step: run in Linux CUDA, then build an inference adapter
+     from the repo's validation code.
 
 3. **TIPs sidecar smoke test**
-   - TIPs is cloned and its environment/model requirements are reviewed.
+   - TIPs is cloned and its Google Drive model package is downloaded/extracted.
    - Test whether it catches third molars or produces better tooth+pulp masks.
-   - Blocker: model package must be downloaded/installed from the repo's Google
-     Drive link.
+   - Current blocker: local `mamba_ssm` import fails; requires Linux CUDA/Mamba
+     runtime.
 
 4. **ToothSeg baselines smoke test**
    - Download `Baselines.zip` only if disk/network budget allows.
@@ -402,6 +441,11 @@ Fit for CBCTer:
    - Run against the same DICOM-derived NIfTI if weights are available.
    - Blocker: external checkpoint/assets are required; they are not included in
      the clone.
+   - Dataset download attempt completed: Zenodo metadata is visible, but files
+     are restricted and not visible without an approved account/token.
+   - After access is granted, run:
+     `ZENODO_TOKEN=... scripts/download_gepar3d_restricted_assets.py`, then
+     `scripts/inspect_gepar3d_dataset_assets.py external/GEPAR3D-dataset/*.zip`.
 
 6. **Interactive third-molar recovery**
    - Exporting a painted manual mask as FDI `18`, `28`, `38`, or `48` is

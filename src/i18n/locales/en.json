@@ -353,6 +353,7 @@
     "showPlanesLong": "Show planes",
     "render": "Render",
     "snapshot": "PNG",
+    "importObj": "OBJ",
     "resetView": "Reset view",
     "threshold": "Threshold",
     "opacity": "Opacity",
@@ -370,6 +371,12 @@
       "viridis": "Viridis"
     },
     "grid": "Reference grid",
+    "preparingVolume": "Preparing volume",
+    "fpsIdle": "Idle",
+    "fps": "{{value}} FPS",
+    "objCount": "{{count}} OBJ",
+    "contextLost": "WebGL context lost",
+    "contextRestored": "WebGL context restored",
     "previewError": "3D preview failed"
   },
   "errors": {

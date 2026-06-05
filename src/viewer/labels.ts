@@ -42,11 +42,18 @@ interface ToggleLabels {
 export interface VolumeViewport3DLabels {
   render: string;
   snapshot: string;
+  importObj: string;
   resetView: string;
   threshold: string;
   opacity: string;
   colormap: string;
   grid: string;
+  preparingVolume: string;
+  fpsIdle: string;
+  contextLost: string;
+  contextRestored: string;
+  fps: (value: number) => string;
+  objCount: (count: number) => string;
   previewError: string;
   presets: { default: string; bone: string; soft: string; xray: string };
   colormaps: { grayscale: string; bone: string; hot: string; viridis: string };
@@ -58,11 +65,18 @@ export interface VolumeViewport3DLabels {
 export const defaultVolumeViewport3DLabels: VolumeViewport3DLabels = {
   render: 'Render',
   snapshot: 'PNG',
+  importObj: 'OBJ',
   resetView: 'Reset view',
   threshold: 'Threshold',
   opacity: 'Opacity',
   colormap: 'Colormap',
   grid: 'Reference grid',
+  preparingVolume: 'Preparing volume',
+  fpsIdle: 'Idle',
+  contextLost: 'WebGL context lost',
+  contextRestored: 'WebGL context restored',
+  fps: (value) => `${value} FPS`,
+  objCount: (count) => `${count} OBJ`,
   previewError: '3D preview failed',
   presets: {
     default: 'Default',

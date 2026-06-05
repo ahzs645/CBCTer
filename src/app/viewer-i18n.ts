@@ -66,11 +66,18 @@ export function useVolumeViewport3DLabels(): VolumeViewport3DLabels {
     () => ({
       render: t('volumeViewport3d.render'),
       snapshot: t('volumeViewport3d.snapshot'),
+      importObj: t('volumeViewport3d.importObj'),
       resetView: t('volumeViewport3d.resetView'),
       threshold: t('volumeViewport3d.threshold'),
       opacity: t('volumeViewport3d.opacity'),
       colormap: t('volumeViewport3d.colormap'),
       grid: t('volumeViewport3d.grid'),
+      preparingVolume: t('volumeViewport3d.preparingVolume'),
+      fpsIdle: t('volumeViewport3d.fpsIdle'),
+      contextLost: t('volumeViewport3d.contextLost'),
+      contextRestored: t('volumeViewport3d.contextRestored'),
+      fps: (value) => t('volumeViewport3d.fps', { value }),
+      objCount: (count) => t('volumeViewport3d.objCount', { count }),
       previewError: t('volumeViewport3d.previewError'),
       presets: {
         default: t('volumeViewport3d.presets.default'),

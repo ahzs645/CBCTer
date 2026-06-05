@@ -8,10 +8,12 @@ import {
   Ratio,
   RotateCcw,
   SlidersHorizontal,
+  Upload,
 } from 'lucide-react';
 import {
   forwardRef,
   memo,
+  type ChangeEvent,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -23,6 +25,7 @@ import {
   type VolumeColormap,
   type VolumeRenderOptions,
   type SurfaceMeshPreview,
+  type ObjMeshPreview,
   type VolumeViewPreset,
 } from '../core';
 import type { PreparedVolumeFor3D, VolumeCursor } from '../../types';
@@ -51,6 +54,14 @@ const RENDER_PRESETS: Record<string, Partial<VolumeRenderOptions>> = {
   soft: { renderStyle: 'mip', threshold: 0.5, opacity: 0.65, climLow: 0.05, climHigh: 0.6 },
   xray: { renderStyle: 'mip', threshold: 0.5, opacity: 0.35, climLow: 0, climHigh: 1 },
 };
+
+function formatVolumeInfo(volume: PreparedVolumeFor3D): string {
+  const dimensions = volume.dimensions.join('x');
+  const extent = volume.dimensions.map((size, index) =>
+    Math.round(size * (volume.spacing[index] || 1)),
+  );
+  return `${dimensions} voxels · ${extent.join('x')} mm`;
+}
 
 interface VolumeViewport3DProps {
   volume: PreparedVolumeFor3D | null;
@@ -97,9 +108,13 @@ export const VolumeViewport3D = memo(
       ref,
     ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const objInputRef = useRef<HTMLInputElement | null>(null);
   const instanceRef = useRef<ThreePreviewInstance | null>(null);
   const cursorRef = useRef<VolumeCursor | null>(null);
   const [error, setError] = useState(false);
+  const [fps, setFps] = useState<number | null>(null);
+  const [contextStatus, setContextStatus] =
+    useState<'ok' | 'lost' | 'restored'>('ok');
   const [planesVisible, setPlanesVisible] = useState(true);
   const planesVisibleRef = useRef(planesVisible);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -110,6 +125,8 @@ export const VolumeViewport3D = memo(
   const [gridVisible, setGridVisible] = useState(false);
   const gridVisibleRef = useRef(gridVisible);
   const surfacesRef = useRef<SurfaceMeshPreview[]>(surfaces);
+  const [objMeshes, setObjMeshes] = useState<ObjMeshPreview[]>([]);
+  const objMeshesRef = useRef<ObjMeshPreview[]>([]);
   const cropBoundsRef = useRef<CropBounds | undefined>(cropBounds);
   const renderOptsRef = useRef<Partial<VolumeRenderOptions>>(
     RENDER_PRESETS.default,
@@ -135,6 +152,40 @@ export const VolumeViewport3D = memo(
     link.href = url;
     link.download = 'cbcter-3d.png';
     link.click();
+  };
+
+  const volumeInfo = volume
+    ? formatVolumeInfo(volume)
+    : labels.preparingVolume;
+
+  const runtimeInfo =
+    contextStatus === 'lost'
+      ? labels.contextLost
+      : contextStatus === 'restored'
+        ? labels.contextRestored
+        : fps === null
+          ? labels.fpsIdle
+          : labels.fps(fps);
+
+  const handleObjImport = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    const objFiles = files.filter((file) =>
+      file.name.toLowerCase().endsWith('.obj'),
+    );
+    if (objFiles.length === 0) return;
+    const imported = await Promise.all(
+      objFiles.map(async (file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
+        name: file.name,
+        obj: await file.text(),
+        color: '#9bc3d4',
+        visible: true,
+      })),
+    );
+    setObjMeshes((current) => [...current, ...imported]);
   };
 
   useImperativeHandle(ref, () => ({
@@ -166,6 +217,11 @@ export const VolumeViewport3D = memo(
     surfacesRef.current = surfaces;
     instanceRef.current?.setSurfaceMeshes(surfaces);
   }, [surfaces]);
+
+  useEffect(() => {
+    objMeshesRef.current = objMeshes;
+    instanceRef.current?.setObjMeshes(objMeshes);
+  }, [objMeshes]);
 
   useEffect(() => {
     cropBoundsRef.current = cropBounds;
@@ -209,7 +265,10 @@ export const VolumeViewport3D = memo(
       resizeObserver?.disconnect();
       resizeObserver = null;
 
-      void createThreePreview(host, volume)
+      void createThreePreview(host, volume, {
+        onFpsChange: setFps,
+        onContextStatusChange: setContextStatus,
+      })
         .then((instance) => {
           if (cancelled) {
             instance.dispose();
@@ -221,6 +280,7 @@ export const VolumeViewport3D = memo(
           instance.setPlanesVisible(planesVisibleRef.current);
           instance.setGridVisible(gridVisibleRef.current);
           instance.setSurfaceMeshes(surfacesRef.current);
+          instance.setObjMeshes(objMeshesRef.current);
           instance.setCropBounds(cropBoundsRef.current);
           instance.setRenderOptions(renderOptsRef.current);
           cleanup = instance.dispose;
@@ -254,6 +314,8 @@ export const VolumeViewport3D = memo(
       resizeObserver?.disconnect();
       instanceRef.current = null;
       cleanup();
+      setFps(null);
+      setContextStatus('ok');
     };
   }, [volume]);
 
@@ -267,6 +329,14 @@ export const VolumeViewport3D = memo(
       <div
         ref={hostRef}
         className="absolute inset-0 h-full min-h-0 overflow-hidden"
+      />
+      <input
+        ref={objInputRef}
+        type="file"
+        accept=".obj"
+        multiple
+        className="hidden"
+        onChange={handleObjImport}
       />
       <div className="absolute inset-0 z-20 pointer-events-none">
         {cropBounds?.enabled ? (
@@ -308,6 +378,14 @@ export const VolumeViewport3D = memo(
             <Button variant="overlay" size="sm" onClick={downloadSnapshot}>
               <Camera className="h-3.5 w-3.5" aria-hidden="true" />
               {labels.snapshot}
+            </Button>
+            <Button
+              variant="overlay"
+              size="sm"
+              onClick={() => objInputRef.current?.click()}
+            >
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+              {labels.importObj}
             </Button>
           </div>
           {panelOpen ? (
@@ -382,6 +460,19 @@ export const VolumeViewport3D = memo(
               </button>
             </div>
           ) : null}
+        </div>
+        <div
+          className={cn(
+            'absolute right-2 top-2 max-w-[min(24rem,calc(100%-1rem))] rounded bg-slate-950/75 px-2 py-1 text-right font-mono text-[11px] leading-4 text-slate-300 ring-1 ring-white/10',
+            contextStatus === 'lost' ? 'text-rose-200 ring-rose-400/30' : null,
+            contextStatus === 'restored' ? 'text-sky-200 ring-sky-400/30' : null,
+          )}
+        >
+          <div>{volumeInfo}</div>
+          <div className="text-slate-500">
+            {runtimeInfo}
+            {objMeshes.length > 0 ? ` · ${labels.objCount(objMeshes.length)}` : ''}
+          </div>
         </div>
         <div className="pointer-events-auto absolute inset-x-2 bottom-2 flex flex-wrap items-center justify-center gap-1 sm:inset-x-auto sm:right-2 sm:justify-end">
           <Button

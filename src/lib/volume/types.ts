@@ -49,6 +49,14 @@ export interface SurfaceMeshPreview {
   visible: boolean;
 }
 
+export interface ObjMeshPreview {
+  id: string;
+  name: string;
+  obj: string;
+  color: string;
+  visible: boolean;
+}
+
 export type VolumeViewPreset =
   | 'front'
   | 'back'
@@ -65,12 +73,18 @@ export interface ThreePreviewInstance {
   setPlanesVisible: (visible: boolean) => void;
   setGridVisible: (visible: boolean) => void;
   setSurfaceMeshes: (surfaces: SurfaceMeshPreview[]) => void;
+  setObjMeshes: (meshes: ObjMeshPreview[]) => void;
   setCropBounds: (bounds: CropBounds | null | undefined) => void;
   setRenderOptions: (options: Partial<VolumeRenderOptions>) => void;
   setView: (preset: VolumeViewPreset) => void;
   resetView: () => void;
   /** PNG data URL of the current 3D frame, or null if capture failed. */
   snapshot: () => string | null;
+}
+
+export interface ThreePreviewOptions {
+  onFpsChange?: (fps: number | null) => void;
+  onContextStatusChange?: (status: 'ok' | 'lost' | 'restored') => void;
 }
 
 export interface CursorPlaneSet {
