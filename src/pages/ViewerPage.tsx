@@ -46,6 +46,8 @@ import {
   extractLabelmapOverlayImage,
   extractMaskOverlayImage,
   fillMaskHoles,
+  keepLargestMaskComponent,
+  removeSmallComponentsPerLabel,
   regionGrowMask,
   thresholdVolume,
 } from '../lib/segmentation/maskOperations';
@@ -64,13 +66,22 @@ import {
   splitMaskComponentsInWorker,
 } from '../lib/segmentation/runMaskWorker';
 import {
+  extractTissueOverlayImage,
+  TISSUE_PRESETS,
+  type TissuePresetId,
+} from '../lib/segmentation/tissuePresets';
+import {
   type DentalAnatomyProgress,
   segmentDentalAnatomy,
 } from '../lib/segmentation/dentalSegmentation';
+import { buildAnatomySurfaceArchive } from '../lib/segmentation/anatomyExport';
 import {
   buildDentalSegmentGroup,
+  type DentalClassStat,
   summarizeDentalLabels,
+  summarizeDentalVariant,
 } from '../lib/segmentation/dentalSegmentGroup';
+import { getDentalSegVariant } from '../lib/segmentation/dentalSegVariants';
 import {
   FACE_SURFACE_COLOR,
   softTissueMask,
@@ -92,6 +103,14 @@ type MaskBufferMap = Record<string, Uint8Array>;
 type SurfaceBlobMap = Record<string, Blob>;
 type SurfaceUrlMap = Record<string, string>;
 type LabelmapBufferMap = Record<string, Uint8Array>;
+type TissueOverlayMode = 'off' | 'interpretation';
+type AnatomyHistoryEntry = {
+  scanId: string;
+  createdAt: number;
+  labelmap: Uint16Array;
+  stats: ReturnType<typeof summarizeDentalLabels>;
+  groupName?: string;
+};
 type SliceProbe = {
   axis: VolumeAxis;
   voxel: [number, number, number];
@@ -160,6 +179,30 @@ function uint16ArrayToBytes(values: Uint16Array): Uint8Array {
 function bytesToUint16Array(bytes: Uint8Array): Uint16Array {
   const copy = new Uint8Array(bytes);
   return new Uint16Array(copy.buffer);
+}
+
+function summarizeSegmentGroupLabels(
+  labelmap: Uint16Array,
+  group: StudyState['segmentGroups'][number],
+  spacing: [number, number, number],
+): DentalClassStat[] {
+  const counts = new Map<number, number>();
+  for (let index = 0; index < labelmap.length; index += 1) {
+    const value = labelmap[index];
+    if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  const voxelMm3 = spacing[0] * spacing[1] * spacing[2];
+  return group.segments.map((segment) => {
+    const voxelCount = counts.get(segment.value) ?? 0;
+    return {
+      value: segment.value,
+      key: String(segment.value),
+      name: segment.name,
+      color: segment.color,
+      voxelCount,
+      volumeMm3: voxelCount * voxelMm3,
+    };
+  });
 }
 
 function buildLabelmapBuffers(
@@ -341,6 +384,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [anatomyRunning, setAnatomyRunning] = useState(false);
   const [anatomyProgress, setAnatomyProgress] =
     useState<DentalAnatomyProgress | null>(null);
+  const [anatomyHistory, setAnatomyHistory] = useState<AnatomyHistoryEntry[]>([]);
   const [faceRunning, setFaceRunning] = useState(false);
   const [faceProgress, setFaceProgress] = useState<{
     completed: number;
@@ -351,6 +395,15 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [surfacePreviews, setSurfacePreviews] = useState<SurfaceMeshPreview[]>([]);
   const [surfaceStatus, setSurfaceStatus] = useState<string | undefined>();
   const [maskStatus, setMaskStatus] = useState<string | undefined>();
+  const [tissueOverlayMode, setTissueOverlayMode] =
+    useState<TissueOverlayMode>('off');
+  const [visibleTissuePresets, setVisibleTissuePresets] = useState<
+    Record<TissuePresetId, boolean>
+  >(() =>
+    Object.fromEntries(
+      TISSUE_PRESETS.map((preset) => [preset.id, preset.id !== 'dentalMaterial']),
+    ) as Record<TissuePresetId, boolean>,
+  );
   const [sliceProbe, setSliceProbe] = useState<SliceProbe>(null);
   const [manualToothTarget, setManualToothTarget] =
     useState<ManualToothRecoveryTarget | null>(() => {
@@ -368,6 +421,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const dicomImportEngineRef = useRef(app.dicomImportEngine);
   const surfaceAbortRef = useRef<AbortController | null>(null);
   const maskAbortRef = useRef<AbortController | null>(null);
+  const anatomyAbortRef = useRef<AbortController | null>(null);
   const maskEditSessionRef = useRef<MaskEditSession | null>(null);
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
@@ -600,6 +654,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const maskOverlays = useMemo<Partial<Record<VolumeAxis, SliceImage | null>>>(
     () => {
       if (!app.cursor || !app.volume) return {};
+      const tissueLayers = TISSUE_PRESETS.map((preset) => ({
+        preset,
+        visible:
+          tissueOverlayMode === 'interpretation' &&
+          (visibleTissuePresets[preset.id] ?? true),
+      }));
       const labelmapLayers = studyState.segmentGroups
         .map((group) => {
           const buffer = labelmapBuffers[group.id];
@@ -634,7 +694,41 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         })
         .filter((layer): layer is NonNullable<typeof layer> => layer != null);
 
-      const coronal = labelmapLayers.length
+      const tissueCoronal =
+        tissueOverlayMode === 'interpretation'
+          ? extractTissueOverlayImage(
+              app.volume.voxels,
+              tissueLayers,
+              VolumeAxis.Coronal,
+              app.cursor,
+              app.volume.meta.dimensions,
+              app.volume.meta.spacing,
+            )
+          : null;
+      const tissueSagittal =
+        tissueOverlayMode === 'interpretation'
+          ? extractTissueOverlayImage(
+              app.volume.voxels,
+              tissueLayers,
+              VolumeAxis.Sagittal,
+              app.cursor,
+              app.volume.meta.dimensions,
+              app.volume.meta.spacing,
+            )
+          : null;
+      const tissueAxial =
+        tissueOverlayMode === 'interpretation'
+          ? extractTissueOverlayImage(
+              app.volume.voxels,
+              tissueLayers,
+              VolumeAxis.Axial,
+              app.cursor,
+              app.volume.meta.dimensions,
+              app.volume.meta.spacing,
+            )
+          : null;
+
+      const coronal = tissueCoronal ?? (labelmapLayers.length
         ? extractLabelmapOverlayImage(
           labelmapLayers,
           VolumeAxis.Coronal,
@@ -648,8 +742,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
-        );
-      const sagittal = labelmapLayers.length
+        ));
+      const sagittal = tissueSagittal ?? (labelmapLayers.length
         ? extractLabelmapOverlayImage(
           labelmapLayers,
           VolumeAxis.Sagittal,
@@ -663,8 +757,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
-        );
-      const axial = labelmapLayers.length
+        ));
+      const axial = tissueAxial ?? (labelmapLayers.length
         ? extractLabelmapOverlayImage(
           labelmapLayers,
           VolumeAxis.Axial,
@@ -678,7 +772,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           app.cursor,
           app.volume.meta.dimensions,
           app.volume.meta.spacing,
-        );
+        ));
 
       return {
         [VolumeAxis.Coronal]: withWatershedSeedMarkers(
@@ -712,6 +806,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       app.volume,
       maskBuffers,
       labelmapBuffers,
+      tissueOverlayMode,
+      visibleTissuePresets,
       studyState.maskWorkflow.watershedSeeds,
       studyState.masks,
       studyState.segmentGroups,
@@ -855,6 +951,28 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   }, [app.cursor]);
 
   useEffect(() => {
+    viewport3DRef.current?.setRenderOptions(
+      tissueOverlayMode === 'interpretation'
+        ? {
+            renderStyle: 'mip',
+            threshold: 0.42,
+            opacity: 0.42,
+            climLow: 0.08,
+            climHigh: 0.95,
+            colormap: 'bone',
+          }
+        : {
+            renderStyle: 'mip',
+            threshold: 0.5,
+            opacity: 1,
+            climLow: 0,
+            climHigh: 1,
+            colormap: 'grayscale',
+          },
+    );
+  }, [tissueOverlayMode]);
+
+  useEffect(() => {
     const controller = new AbortController();
     if (!app.volume || !scanStudy) {
       queueMicrotask(() => {
@@ -984,6 +1102,25 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     });
   };
 
+  const restoreAnatomyHistoryEntry = (entry: AnatomyHistoryEntry) => {
+    if (!studyState.study || !studyState.activeImageId) return;
+    const group = buildDentalSegmentGroup(
+      studyState.study.id,
+      studyState.activeImageId,
+      entry.stats,
+      entry.groupName,
+    );
+    setLabelmapBuffers((current) => ({
+      ...current,
+      [group.id]: uint16ArrayToBytes(entry.labelmap),
+    }));
+    setStudyState((current) => ({
+      ...current,
+      segmentGroups: [...current.segmentGroups, group],
+      activeSegmentGroupId: group.id,
+    }));
+  };
+
   // Run DentalSegmentator full-anatomy segmentation in-place and add the result
   // as a multi-label segment group, rendered by the existing overlay pipeline.
   const runFullAnatomy = async () => {
@@ -995,15 +1132,36 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     ) {
       return;
     }
+    const controller = new AbortController();
+    const scanId = app.volume.meta.scanId;
+    anatomyAbortRef.current = controller;
     setAnatomyRunning(true);
     setAnatomyProgress({ completed: 0, total: 1 });
     try {
-      const result = await segmentDentalAnatomy(app.volume, setAnatomyProgress);
-      const stats = summarizeDentalLabels(result.labelmap, result.spacing);
+      const result = await segmentDentalAnatomy(app.volume, setAnatomyProgress, {
+        signal: controller.signal,
+      });
+      const groupName = getDentalSegVariant(result.variant).groupName;
+      const stats = summarizeDentalVariant(
+        result.labelmap,
+        result.spacing,
+        result.variant,
+      );
+      setAnatomyHistory((current) => [
+        {
+          scanId,
+          createdAt: Date.now(),
+          labelmap: new Uint16Array(result.labelmap),
+          stats,
+          groupName,
+        },
+        ...current.filter((entry) => entry.scanId !== scanId),
+      ].slice(0, 8));
       const group = buildDentalSegmentGroup(
         studyState.study.id,
         studyState.activeImageId,
         stats,
+        groupName,
       );
       setLabelmapBuffers((current) => ({
         ...current,
@@ -1015,12 +1173,23 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         activeSegmentGroupId: group.id,
       }));
     } catch (error) {
-      console.error('Full anatomy segmentation failed', error);
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        console.error('Full anatomy segmentation failed', error);
+      }
     } finally {
       setAnatomyRunning(false);
       setAnatomyProgress(null);
+      if (anatomyAbortRef.current === controller) anatomyAbortRef.current = null;
     }
   };
+
+  const cancelFullAnatomy = () => {
+    anatomyAbortRef.current?.abort();
+  };
+
+  const currentAnatomyHistory = app.volume
+    ? anatomyHistory.filter((entry) => entry.scanId === app.volume?.meta.scanId)
+    : [];
 
   // Threshold the soft-tissue face and add its outer surface as a 3-D face.
   const runFaceSurface = async () => {
@@ -1251,6 +1420,23 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }
   };
 
+  const toggleTissuePreset = (presetId: TissuePresetId) => {
+    setVisibleTissuePresets((current) => ({
+      ...current,
+      [presetId]: !(current[presetId] ?? true),
+    }));
+  };
+
+  const createTissueMask = (presetId: TissuePresetId) => {
+    const preset = TISSUE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    createThresholdMask({
+      label: preset.label,
+      range: preset.range,
+      color: preset.color,
+    });
+  };
+
   const regionGrowFromCursor = (preset: {
     label: string;
     range: [number, number];
@@ -1315,6 +1501,88 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       activeMaskId,
       activeTool,
     );
+  };
+
+  const updateActiveSegmentLabelmap = (
+    transform: (labelmap: Uint16Array, segmentValue: number) => Uint16Array,
+  ) => {
+    const group = studyState.segmentGroups.find(
+      (item) => item.id === studyState.activeSegmentGroupId,
+    );
+    const segmentValue = group?.activeSegmentValue;
+    if (!group || segmentValue === undefined) return;
+    const bytes = labelmapBuffers[group.id];
+    if (!bytes) return;
+    const snapshot = snapshotMasks();
+    const nextLabelmap = transform(bytesToUint16Array(bytes), segmentValue);
+    const counts = new Map<number, number>();
+    for (let index = 0; index < nextLabelmap.length; index += 1) {
+      const value = nextLabelmap[index];
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    setUndoStack((current) => [...current, snapshot].slice(-24));
+    setRedoStack([]);
+    setLabelmapBuffers((current) => ({
+      ...current,
+      [group.id]: uint16ArrayToBytes(nextLabelmap),
+    }));
+    setStudyState((current) => ({
+      ...current,
+      segmentGroups: current.segmentGroups.map((item) =>
+        item.id === group.id
+          ? {
+              ...item,
+              segments: item.segments.map((segment) => ({
+                ...segment,
+                voxelCount: counts.get(segment.value) ?? 0,
+                updatedAt: Date.now(),
+              })),
+              updatedAt: Date.now(),
+            }
+          : item,
+      ),
+      maskWorkflow: {
+        ...current.maskWorkflow,
+        canUndo: true,
+        canRedo: false,
+      },
+    }));
+  };
+
+  const keepLargestSegmentIsland = () => {
+    if (!app.volume) return;
+    const dims = volumeMaskDims(app.volume.meta.dimensions);
+    updateActiveSegmentLabelmap((labelmap, segmentValue) => {
+      const kept = keepLargestMaskComponent(
+        labelmapToMask(labelmap, segmentValue),
+        dims,
+        26,
+      );
+      const out = new Uint16Array(labelmap);
+      for (let index = 0; index < out.length; index += 1) {
+        if (labelmap[index] === segmentValue && !kept[index]) out[index] = 0;
+      }
+      return out;
+    });
+  };
+
+  const removeSmallSegmentIslands = () => {
+    if (!app.volume) return;
+    const dims = volumeMaskDims(app.volume.meta.dimensions);
+    updateActiveSegmentLabelmap((labelmap, segmentValue) => {
+      const cleaned = removeSmallComponentsPerLabel(
+        labelmap,
+        dims,
+        app.volume?.meta.spacing ?? [1, 1, 1],
+        60,
+        { connectivity: 26 },
+      );
+      const out = new Uint16Array(labelmap);
+      for (let index = 0; index < out.length; index += 1) {
+        if (labelmap[index] === segmentValue) out[index] = cleaned[index];
+      }
+      return out;
+    });
   };
 
   const keepLargestActiveMaskComponent = async () => {
@@ -2234,6 +2502,39 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
+  const exportActiveAnatomy = async () => {
+    const volume = app.volume;
+    const group = studyState.segmentGroups.find(
+      (item) => item.id === studyState.activeSegmentGroupId,
+    );
+    if (!volume || !group) return;
+    const bytes = labelmapBuffers[group.id];
+    if (!bytes) return;
+    try {
+      const labelmap = bytesToUint16Array(bytes);
+      const stats = summarizeSegmentGroupLabels(
+        labelmap,
+        group,
+        volume.meta.spacing,
+      );
+      const archive = await buildAnatomySurfaceArchive({
+        labelmap,
+        stats,
+        dims: volumeMaskDims(volume.meta.dimensions),
+        spacing: volume.meta.spacing,
+        quality: 'balanced',
+      });
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${group.name.replace(/[^a-z0-9_-]+/gi, '_')}-exports.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Anatomy export failed.');
+    }
+  };
+
   const applyProjectArchive = (archive: Awaited<ReturnType<typeof readProjectArchive>>) => {
     const volume = app.volume;
     if (!volume) return;
@@ -2491,6 +2792,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               spacing={app.spacing}
               maskStatus={maskStatus}
               surfaceStatus={surfaceStatus}
+              tissueOverlayMode={tissueOverlayMode}
+              visibleTissuePresets={visibleTissuePresets}
               windowBounds={app.windowBounds}
               levelBounds={app.levelBounds}
               windowLevelDraft={app.windowLevelDraft}
@@ -2505,10 +2808,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onCancelMaskOperation={cancelMaskOperation}
               onCancelSurfaceGeneration={cancelSurfaceGeneration}
               onCreateThresholdMask={createThresholdMask}
+              onCreateTissueMask={createTissueMask}
               onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
               onDeleteMeasurement={deleteMeasurement}
               onDownloadSurface={downloadSurface}
               onDownloadSurfacePly={downloadSurfacePly}
+              onExportActiveAnatomy={() => void exportActiveAnatomy()}
               onExportProject={() => void exportProject()}
               onFillMaskHoles={fillActiveMaskHoles}
               onImportProject={(file) => void importProject(file)}
@@ -2524,6 +2829,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onAddSegment={addSegment}
               onDeleteSegment={deleteSegment}
               onSelectSegment={selectSegment}
+              onKeepLargestSegmentIsland={keepLargestSegmentIsland}
+              onRemoveSmallSegmentIslands={removeSmallSegmentIslands}
               onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
               onApplyWatershedSeeds={applyWatershedSeeds}
               onClearWatershedSeeds={clearWatershedSeeds}
@@ -2532,14 +2839,22 @@ export default function ViewerPage({ app }: ViewerPageProps) {
               onRedoMaskEdit={redoMaskEdit}
               onRegionGrowFromCursor={regionGrowFromCursor}
               onToggleSurfaceVisibility={toggleSurfaceVisibility}
+              onToggleTissuePreset={toggleTissuePreset}
+              onTissueOverlayModeChange={setTissueOverlayMode}
               onToggleMaskVisibility={toggleMaskVisibility}
               onUndoMaskEdit={undoMaskEdit}
               onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
               onOpenDirectory={() => void app.openDirectory()}
               onOpenTeeth={openTeeth}
               onRunAnatomy={runFullAnatomy}
+              onCancelAnatomy={cancelFullAnatomy}
               anatomyRunning={anatomyRunning}
               anatomyProgress={anatomyProgress}
+              anatomyHistoryCount={currentAnatomyHistory.length}
+              onRestoreLatestAnatomy={() => {
+                const entry = currentAnatomyHistory[0];
+                if (entry) restoreAnatomyHistoryEntry(entry);
+              }}
               onRunFaceSurface={runFaceSurface}
               faceRunning={faceRunning}
               faceProgress={faceProgress}
@@ -2580,6 +2895,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   spacing={app.spacing}
                   maskStatus={maskStatus}
                   surfaceStatus={surfaceStatus}
+                  tissueOverlayMode={tissueOverlayMode}
+                  visibleTissuePresets={visibleTissuePresets}
                   windowBounds={app.windowBounds}
                   levelBounds={app.levelBounds}
                   windowLevelDraft={app.windowLevelDraft}
@@ -2594,10 +2911,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onCancelMaskOperation={cancelMaskOperation}
                   onCancelSurfaceGeneration={cancelSurfaceGeneration}
                   onCreateThresholdMask={createThresholdMask}
+                  onCreateTissueMask={createTissueMask}
                   onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
                   onDeleteMeasurement={deleteMeasurement}
                   onDownloadSurface={downloadSurface}
                   onDownloadSurfacePly={downloadSurfacePly}
+                  onExportActiveAnatomy={() => void exportActiveAnatomy()}
                   onExportProject={() => void exportProject()}
                   onFillMaskHoles={fillActiveMaskHoles}
                   onImportProject={(file) => void importProject(file)}
@@ -2613,6 +2932,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onAddSegment={addSegment}
                   onDeleteSegment={deleteSegment}
                   onSelectSegment={selectSegment}
+                  onKeepLargestSegmentIsland={keepLargestSegmentIsland}
+                  onRemoveSmallSegmentIslands={removeSmallSegmentIslands}
                   onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
                   onApplyWatershedSeeds={applyWatershedSeeds}
                   onClearWatershedSeeds={clearWatershedSeeds}
@@ -2621,14 +2942,22 @@ export default function ViewerPage({ app }: ViewerPageProps) {
                   onRedoMaskEdit={redoMaskEdit}
                   onRegionGrowFromCursor={regionGrowFromCursor}
                   onToggleSurfaceVisibility={toggleSurfaceVisibility}
+                  onToggleTissuePreset={toggleTissuePreset}
+                  onTissueOverlayModeChange={setTissueOverlayMode}
                   onToggleMaskVisibility={toggleMaskVisibility}
                   onUndoMaskEdit={undoMaskEdit}
                   onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
                   onOpenDirectory={() => void app.openDirectory()}
                   onOpenTeeth={openTeeth}
                   onRunAnatomy={runFullAnatomy}
+                  onCancelAnatomy={cancelFullAnatomy}
                   anatomyRunning={anatomyRunning}
                   anatomyProgress={anatomyProgress}
+                  anatomyHistoryCount={currentAnatomyHistory.length}
+                  onRestoreLatestAnatomy={() => {
+                    const entry = currentAnatomyHistory[0];
+                    if (entry) restoreAnatomyHistoryEntry(entry);
+                  }}
                   onRunFaceSurface={runFaceSurface}
                   faceRunning={faceRunning}
                   faceProgress={faceProgress}

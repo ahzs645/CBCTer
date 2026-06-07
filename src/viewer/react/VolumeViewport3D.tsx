@@ -197,6 +197,8 @@ export const VolumeViewport3D = memo(
       applyRender(partial);
       if (partial.opacity !== undefined) setOpacity(partial.opacity);
       if (partial.threshold !== undefined) setThreshold(partial.threshold);
+      if (partial.colormap !== undefined) setColormap(partial.colormap);
+      if (partial.renderStyle !== undefined) setPreset('custom');
     },
     frameSurfaces: () => {
       instanceRef.current?.frameSurfaces();
@@ -400,6 +402,7 @@ export const VolumeViewport3D = memo(
                   { value: 'bone', label: labels.presets.bone },
                   { value: 'soft', label: labels.presets.soft },
                   { value: 'xray', label: labels.presets.xray },
+                  { value: 'custom', label: labels.presets.custom },
                 ]}
               />
               <RangeField

@@ -118,6 +118,8 @@
     "toothExtraction": "Tooth extraction",
     "fullAnatomy": "Full anatomy",
     "fullAnatomyRunning": "Segmenting anatomy…",
+    "cancelFullAnatomy": "Stop anatomy segmentation",
+    "restoreFullAnatomy": "Restore anatomy result ({{count}})",
     "faceSurface": "Face surface",
     "faceSurfaceRunning": "Building face…",
     "panoramic": "Panoramic view",
@@ -147,6 +149,12 @@
       "crop": "Crop bounds",
       "cropFullVolume": "Full volume"
     },
+    "tissue": {
+      "title": "Tissue interpretation",
+      "voxelOnly": "Voxel view only",
+      "interpretationOverlay": "Tissue preset overlay",
+      "createMask": "Mask"
+    },
     "masks": {
       "threshold": "Threshold mask",
       "createThresholdMask": "Create mask",
@@ -173,7 +181,9 @@
       "redo": "Redo",
       "empty": "No masks yet. Create a threshold mask to start a client-side layer.",
       "manual": "Manual mask",
-      "segmentGroups": "Segment groups"
+      "segmentGroups": "Segment groups",
+      "segmentKeepLargest": "Largest island",
+      "segmentRemoveSmall": "Remove specks"
     },
     "surfaces": {
       "pipeline": "Surface pipeline",
@@ -196,6 +206,7 @@
     "export": {
       "clientSide": "Client-side artifacts",
       "downloadProject": "Download project package",
+      "downloadAnatomy": "Download anatomy formats",
       "importProject": "Restore project package",
       "saveLocal": "Save local",
       "restoreLocal": "Restore local",
@@ -281,11 +292,27 @@
     "needVolume": "Load a CBCT volume first to run full anatomy segmentation.",
     "goToImport": "Go to import",
     "description": "Segment skull, mandible, upper/lower teeth, and the mandibular canal in one pass. Runs the nnU-Net model in your browser on the CPU (multi-threaded wasm).",
+    "model": "Model",
+    "variants": {
+      "full": "Full anatomy (5 classes)",
+      "pediatric": "Pediatric (primary teeth)",
+      "universal": "Universal — per-tooth FDI"
+    },
     "run": "Run segmentation",
     "running": "Segmenting…",
+    "cancel": "Stop segmentation",
     "windowProgress": "Patch {{completed}} of {{total}}",
     "segments": "Segments",
     "slice": "Preview slice (axial)",
+    "surfaceQuality": "Surface smoothing",
+    "qualityDraft": "Draft",
+    "qualityBalanced": "Balanced",
+    "qualityFinal": "Final",
+    "export": "Export STL surfaces + labelmap",
+    "exporting": "Exporting…",
+    "cancelExport": "Stop export",
+    "exportProgress": "{{label}} · {{phase}} · {{completed}}/{{total}}",
+    "runDetails": "Run details",
     "previewTitle": "Multi-label overlay",
     "previewEmpty": "Run segmentation to preview the labelled anatomy.",
     "axial": "Axial",
@@ -357,12 +384,13 @@
     "resetView": "Reset view",
     "threshold": "Threshold",
     "opacity": "Opacity",
-    "presets": {
-      "default": "Default",
-      "bone": "Bone surface",
-      "soft": "Soft tissue",
-      "xray": "X-ray"
-    },
+      "presets": {
+        "default": "Default",
+        "bone": "Bone surface",
+        "soft": "Soft tissue",
+        "xray": "X-ray",
+        "custom": "Custom"
+      },
     "colormap": "Colormap",
     "colormaps": {
       "grayscale": "Grayscale",

@@ -6,7 +6,14 @@
 import { createStudySegment, createStudySegmentGroup } from '../../domain/studyState';
 import type { StudySegment, StudySegmentGroup } from '../../domain/types';
 import type { Vec3 } from '../../types';
-import { DENTAL_SEGMENTATOR_LABELS } from './dentalSegmentator';
+import {
+  DENTAL_SEGMENTATOR_LABELS,
+  type DentalSegmentatorLabel,
+} from './dentalSegmentator';
+import {
+  getDentalSegVariant,
+  type DentalSegVariantId,
+} from './dentalSegVariants';
 
 export interface DentalClassStat {
   value: number;
@@ -17,10 +24,15 @@ export interface DentalClassStat {
   volumeMm3: number;
 }
 
-/** Per-class voxel counts and physical volumes for every DentalSegmentator label. */
+/**
+ * Per-class voxel counts and physical volumes for a set of labels. Defaults to
+ * the base DentalSegmentator labels; pass a variant's labels for pediatric /
+ * universal. Classes absent from the labelmap are reported with a zero count.
+ */
 export function summarizeDentalLabels(
   labelmap: Uint16Array,
   spacing: Vec3,
+  labels: DentalSegmentatorLabel[] = DENTAL_SEGMENTATOR_LABELS,
 ): DentalClassStat[] {
   const counts = new Map<number, number>();
   for (let i = 0; i < labelmap.length; i += 1) {
@@ -28,10 +40,19 @@ export function summarizeDentalLabels(
     if (value !== 0) counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   const voxelMm3 = spacing[0] * spacing[1] * spacing[2];
-  return DENTAL_SEGMENTATOR_LABELS.map((label) => {
+  return labels.map((label) => {
     const voxelCount = counts.get(label.value) ?? 0;
     return { ...label, voxelCount, volumeMm3: voxelCount * voxelMm3 };
   });
+}
+
+/** Per-class stats for a named model variant. */
+export function summarizeDentalVariant(
+  labelmap: Uint16Array,
+  spacing: Vec3,
+  variantId: DentalSegVariantId,
+): DentalClassStat[] {
+  return summarizeDentalLabels(labelmap, spacing, getDentalSegVariant(variantId).labels);
 }
 
 export function buildDentalSegments(stats: DentalClassStat[]): StudySegment[] {
@@ -50,9 +71,10 @@ export function buildDentalSegmentGroup(
   studyId: string,
   imageId: string,
   stats: DentalClassStat[],
+  name = 'Full anatomy (DentalSegmentator)',
 ): StudySegmentGroup {
   return createStudySegmentGroup(studyId, imageId, {
-    name: 'Full anatomy (DentalSegmentator)',
+    name,
     segments: buildDentalSegments(stats),
   });
 }

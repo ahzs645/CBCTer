@@ -24,11 +24,11 @@ export interface DentalSegmentatorLabel {
 
 /** Output classes (0 = background), in channel order. */
 export const DENTAL_SEGMENTATOR_LABELS: DentalSegmentatorLabel[] = [
-  { value: 1, key: 'upperSkull', name: 'Upper Skull', color: '#d8c3a5' },
-  { value: 2, key: 'mandible', name: 'Mandible', color: '#e8a87c' },
-  { value: 3, key: 'upperTeeth', name: 'Upper Teeth', color: '#54b6e8' },
-  { value: 4, key: 'lowerTeeth', name: 'Lower Teeth', color: '#70d878' },
-  { value: 5, key: 'mandibularCanal', name: 'Mandibular canal', color: '#ea5d5d' },
+  { value: 1, key: 'upperSkull', name: 'Maxilla & Upper Skull', color: '#e3dd90' },
+  { value: 2, key: 'mandible', name: 'Mandible', color: '#d4a1e6' },
+  { value: 3, key: 'upperTeeth', name: 'Upper Teeth', color: '#dc9565' },
+  { value: 4, key: 'lowerTeeth', name: 'Lower Teeth', color: '#ebdfb4' },
+  { value: 5, key: 'mandibularCanal', name: 'Mandibular canal', color: '#d8654f' },
 ];
 
 /** Number of model output channels including background. */

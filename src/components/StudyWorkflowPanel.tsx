@@ -28,12 +28,17 @@ import { createFullCropBounds } from '../domain/studyState';
 import { useTranslation } from '../i18n';
 import { SURFACE_GENERATION_PRESETS } from '../lib/surface';
 import type { SurfaceGenerationQuality } from '../lib/surface';
+import {
+  TISSUE_PRESETS,
+  type TissuePresetId,
+} from '../lib/segmentation/tissuePresets';
 import type { Vec3 } from '../types';
 import { cn } from '../utils/cn';
 import { Button } from './Button';
 import { Select } from './Select';
 
 type WorkflowTab = 'study' | 'masks' | 'surfaces' | 'measures' | 'export';
+type TissueOverlayMode = 'off' | 'interpretation';
 
 interface ThresholdPreset {
   id: string;
@@ -57,13 +62,17 @@ interface StudyWorkflowPanelProps {
   state: StudyState;
   maskStatus?: string;
   surfaceStatus?: string;
+  tissueOverlayMode: TissueOverlayMode;
+  visibleTissuePresets: Record<TissuePresetId, boolean>;
   onCancelMaskOperation: () => void;
   onCancelSurfaceGeneration: () => void;
   onCreateThresholdMask: (preset: ThresholdPreset) => void;
+  onCreateTissueMask: (presetId: TissuePresetId) => void;
   onCreateSurfaceFromActiveMask: (quality: SurfaceGenerationQuality) => void;
   onDownloadSurface: (surfaceId: string) => void;
   onDownloadSurfacePly: (surfaceId: string) => void;
   onDeleteMeasurement: (measurementId: string) => void;
+  onExportActiveAnatomy: () => void;
   onExportProject: () => void;
   onFillMaskHoles: () => void;
   onKeepLargestMaskComponent: () => void;
@@ -104,6 +113,8 @@ interface StudyWorkflowPanelProps {
   onAddSegment: (groupId: string) => void;
   onDeleteSegment: (groupId: string, segmentId: string) => void;
   onSelectSegment: (groupId: string, segmentId: string) => void;
+  onKeepLargestSegmentIsland: () => void;
+  onRemoveSmallSegmentIslands: () => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -111,6 +122,8 @@ interface StudyWorkflowPanelProps {
   onRegionGrowFromCursor: (preset: ThresholdPreset) => void;
   onToggleSurfaceVisibility: (surfaceId: string) => void;
   onToggleMaskVisibility: (maskId: string) => void;
+  onToggleTissuePreset: (presetId: TissuePresetId) => void;
+  onTissueOverlayModeChange: (mode: TissueOverlayMode) => void;
   onUndoMaskEdit: () => void;
 }
 
@@ -132,13 +145,17 @@ export function StudyWorkflowPanel({
   state,
   maskStatus,
   surfaceStatus,
+  tissueOverlayMode,
+  visibleTissuePresets,
   onCancelMaskOperation,
   onCancelSurfaceGeneration,
   onCreateThresholdMask,
+  onCreateTissueMask,
   onCreateSurfaceFromActiveMask,
   onDownloadSurface,
   onDownloadSurfacePly,
   onDeleteMeasurement,
+  onExportActiveAnatomy,
   onExportProject,
   onFillMaskHoles,
   onKeepLargestMaskComponent,
@@ -154,6 +171,8 @@ export function StudyWorkflowPanel({
   onAddSegment,
   onDeleteSegment,
   onSelectSegment,
+  onKeepLargestSegmentIsland,
+  onRemoveSmallSegmentIslands,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -161,6 +180,8 @@ export function StudyWorkflowPanel({
   onRegionGrowFromCursor,
   onToggleSurfaceVisibility,
   onToggleMaskVisibility,
+  onToggleTissuePreset,
+  onTissueOverlayModeChange,
   onUndoMaskEdit,
 }: StudyWorkflowPanelProps) {
   const { t } = useTranslation();
@@ -298,6 +319,62 @@ export function StudyWorkflowPanel({
               {state.cropBounds
                 ? `${state.cropBounds.min.join(', ')} to ${state.cropBounds.max.join(', ')}`
                 : t('workflow.study.cropFullVolume')}
+            </div>
+          </div>
+          <div className="rounded border border-slate-800 bg-slate-950 p-2">
+            <div className="mb-1.5 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              {t('workflow.tissue.title')}
+            </div>
+            <Select
+              block
+              size="sm"
+              value={tissueOverlayMode}
+              onChange={(value) =>
+                onTissueOverlayModeChange(value as TissueOverlayMode)
+              }
+              options={[
+                { value: 'off', label: t('workflow.tissue.voxelOnly') },
+                {
+                  value: 'interpretation',
+                  label: t('workflow.tissue.interpretationOverlay'),
+                },
+              ]}
+            />
+            <div className="mt-2 space-y-1">
+              {TISSUE_PRESETS.map((preset) => (
+                <div
+                  key={preset.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded border border-slate-800 bg-slate-950/70 px-2 py-1.5"
+                >
+                  <label className="flex min-w-0 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={visibleTissuePresets[preset.id] ?? true}
+                      onChange={() => onToggleTissuePreset(preset.id)}
+                    />
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-sm"
+                      style={{ backgroundColor: preset.color }}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs text-slate-200">
+                        {preset.label}
+                      </span>
+                      <span className="block text-[10px] text-slate-500">
+                        {formatRange(preset.range)}
+                      </span>
+                    </span>
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onCreateTissueMask(preset.id)}
+                  >
+                    {t('workflow.tissue.createMask')}
+                  </Button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -628,6 +705,24 @@ export function StudyWorkflowPanel({
                           </span>
                         ))}
                       </div>
+                      {state.activeSegmentGroupId === group.id ? (
+                        <div className="mt-1.5 grid grid-cols-2 gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onKeepLargestSegmentIsland}
+                          >
+                            {t('workflow.masks.segmentKeepLargest')}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onRemoveSmallSegmentIslands}
+                          >
+                            {t('workflow.masks.segmentRemoveSmall')}
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -922,6 +1017,16 @@ export function StudyWorkflowPanel({
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
             {t('workflow.export.downloadProject')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            block
+            disabled={!state.activeSegmentGroupId}
+            onClick={onExportActiveAnatomy}
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('workflow.export.downloadAnatomy')}
           </Button>
           <input
             ref={projectInputRef}

@@ -115,6 +115,12 @@
     "openFolder": "Відкрити папку",
     "backToImport": "Повернутися до імпорту",
     "toothExtraction": "Виділення зубів",
+    "fullAnatomy": "Повна анатомія",
+    "fullAnatomyRunning": "Сегментація анатомії…",
+    "cancelFullAnatomy": "Зупинити сегментацію анатомії",
+    "restoreFullAnatomy": "Відновити результат анатомії ({{count}})",
+    "faceSurface": "Поверхня обличчя",
+    "faceSurfaceRunning": "Створення обличчя…",
     "panoramic": "Панорамний вид",
     "voxelsLabel": "{{dimensions}} вокселів",
     "spacingLabel": "{{spacing}} мм"
@@ -142,6 +148,12 @@
       "crop": "Межі обрізання",
       "cropFullVolume": "Повний об'єм"
     },
+    "tissue": {
+      "title": "Інтерпретація тканин",
+      "voxelOnly": "Лише воксельний вигляд",
+      "interpretationOverlay": "Накладка пресетів тканин",
+      "createMask": "Маска"
+    },
     "masks": {
       "threshold": "Порогова маска",
       "createThresholdMask": "Створити маску",
@@ -168,7 +180,9 @@
       "redo": "Повторити",
       "empty": "Масок ще немає. Створіть порогову маску, щоб почати клієнтський шар.",
       "manual": "Ручна маска",
-      "segmentGroups": "Групи сегментів"
+      "segmentGroups": "Групи сегментів",
+      "segmentKeepLargest": "Найбільший острів",
+      "segmentRemoveSmall": "Прибрати цятки"
     },
     "surfaces": {
       "pipeline": "Конвеєр поверхонь",
@@ -191,6 +205,7 @@
     "export": {
       "clientSide": "Клієнтські артефакти",
       "downloadProject": "Завантажити пакет проєкту",
+      "downloadAnatomy": "Завантажити формати анатомії",
       "importProject": "Відновити пакет проєкту",
       "saveLocal": "Зберегти локально",
       "restoreLocal": "Відновити локально",
@@ -243,6 +258,40 @@
     "flagReview": "Позначити на перевірку",
     "hide": "Сховати",
     "downloadStl": "Завантажити STL для мітки {{label}}"
+  },
+  "anatomy": {
+    "title": "Повна сегментація анатомії",
+    "subtitle": "Багатокласова CBCT-сегментація (DentalSegmentator nnU-Net).",
+    "backToViewer": "Переглядач",
+    "backToImport": "Повернутися до імпорту",
+    "needVolume": "Спочатку завантажте CBCT-об'єм.",
+    "goToImport": "До імпорту",
+    "description": "Сегментує череп, нижню щелепу, верхні/нижні зуби та нижньощелепний канал за один запуск.",
+    "model": "Модель",
+    "variants": {
+      "full": "Повна анатомія (5 класів)",
+      "pediatric": "Дитяча (молочні зуби)",
+      "universal": "Універсальна — FDI по зубах"
+    },
+    "run": "Запустити сегментацію",
+    "running": "Сегментація…",
+    "cancel": "Зупинити сегментацію",
+    "windowProgress": "Патч {{completed}} з {{total}}",
+    "segments": "Сегменти",
+    "slice": "Зріз попереднього перегляду (аксіальний)",
+    "surfaceQuality": "Згладжування поверхні",
+    "qualityDraft": "Чернетка",
+    "qualityBalanced": "Збалансовано",
+    "qualityFinal": "Фінальна",
+    "export": "Експорт STL-поверхонь + labelmap",
+    "exporting": "Експорт…",
+    "cancelExport": "Зупинити експорт",
+    "exportProgress": "{{label}} · {{phase}} · {{completed}}/{{total}}",
+    "runDetails": "Деталі запуску",
+    "previewTitle": "Багатоміткова накладка",
+    "previewEmpty": "Запустіть сегментацію для попереднього перегляду анатомії.",
+    "axial": "Аксіальний",
+    "perfNote": "Повнооб'ємна 3D-інференція ресурсоємна; перший запуск завантажує модель."
   },
   "panoramic": {
     "title": "Панорамна реконструкція",
@@ -314,7 +363,8 @@
       "default": "Типовий",
       "bone": "Кісткова поверхня",
       "soft": "М'які тканини",
-      "xray": "Рентген"
+      "xray": "Рентген",
+      "custom": "Власний"
     },
     "colormap": "Кольорова мапа",
     "colormaps": {

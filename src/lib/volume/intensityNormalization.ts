@@ -35,6 +35,31 @@ export const DENTAL_SEGMENTATOR_CT_NORMALIZATION: CtNormalizationParams = {
   std: 611.7098999023438,
 };
 
+/**
+ * CTNormalization for the **PediatricDentalSegmentator** model
+ * (DCBIA-OrthoLab/SlicerAutomatedDentalTools, release `PEDIATRICDENTALSEG_MODEL`,
+ * `nnUNetPlans` 3d_fullres). Read from the shipped `plans.json`
+ * foreground_intensity_properties (0.5 / 99.5 clip percentiles).
+ */
+export const PEDIATRIC_DENTAL_SEG_CT_NORMALIZATION: CtNormalizationParams = {
+  lowerBound: -50,
+  upperBound: 2562,
+  mean: 801.7435,
+  std: 493.4995,
+};
+
+/**
+ * CTNormalization for the **UniversalLabDentalSegmentator** model
+ * (DCBIA-OrthoLab/SlicerAutomatedDentalTools, release `UNIVERSALLAB_MODEL`,
+ * `nnUNetResEncUNetLPlans` 3d_fullres). Read from the shipped `plans.json`.
+ */
+export const UNIVERSAL_DENTAL_SEG_CT_NORMALIZATION: CtNormalizationParams = {
+  lowerBound: -47,
+  upperBound: 2530,
+  mean: 780.1467,
+  std: 487.8516,
+};
+
 /** nnU-Net CTNormalization: clip to [lower, upper], then (x − mean) / std. */
 export function ctNormalize(
   data: ArrayLike<number>,

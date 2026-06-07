@@ -31,5 +31,36 @@ committed). If/when it is shipped, retain this attribution and cite:
 > Isensee F, et al. nnU-Net: a self-configuring method for deep learning-based
 > biomedical image segmentation. *Nat Methods* 18, 203–211 (2021).
 
+**PediatricDentalSegmentator** and **UniversalLabDentalSegmentator** (from
+DCBIA-OrthoLab/SlicerAutomatedDentalTools' BATCHDENTALSEG module, releases
+`PEDIATRICDENTALSEG_MODEL` and `UNIVERSALLAB_MODEL`) — the exported ONNX files
+(`public/models/dentalsegmentator-pediatric.onnx`,
+`public/models/dentalsegmentator-universal.onnx`) are built locally via
+`scripts/export_dentalseg_onnx.py` and are **gitignored**.
+
+These weights are **not** CC-BY. The repository's `LICENCE` is the **3D Slicer
+Software License Agreement** (a BSD-style Brigham & Women's Hospital agreement;
+GitHub reports the repo as "NOASSERTION"), and the README's "Apache 2.0" claim
+conflicts with it. The Slicer agreement's grant covers "Software" including data
+and permits redistribution **provided** the full license text and the Brigham
+attribution preamble are reproduced and modified versions are clearly marked. If
+these models are shipped, the 3D Slicer Software License Agreement text MUST be
+distributed alongside the weights, and the following retained:
+
+> Gillot M, et al. SlicerAutomatedDentalTools (BATCHDENTALSEG /
+> DentalSegmentator variants). DCBIA-OrthoLab.
+> https://github.com/DCBIA-OrthoLab/SlicerAutomatedDentalTools
+>
+> Trained model weights © Brigham and Women's Hospital, distributed under the
+> 3D Slicer Software License Agreement.
+
+> Isensee F, et al. nnU-Net: a self-configuring method for deep learning-based
+> biomedical image segmentation. *Nat Methods* 18, 203–211 (2021).
+
+**Status:** the per-asset weight license is unconfirmed (the SADT release notes
+are empty and the README/LICENCE conflict is unresolved). Confirmation from the
+DCBIA-OrthoLab maintainers should be obtained; until then treat shipping as
+"best-effort compliant" under the repo's Slicer agreement.
+
 Any other future bundled model must have its weight license verified and
 recorded here before shipping — see `docs/source-repos/LICENSING.md`.

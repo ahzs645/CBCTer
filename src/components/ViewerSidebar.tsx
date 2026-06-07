@@ -11,12 +11,14 @@ import {
   ListVideo,
   ScanLine,
   SlidersHorizontal,
+  Square,
   SunMedium,
 } from 'lucide-react';
 import { formatSpacing } from '../app/helpers';
 import type { StudyState, StudyTool } from '../domain/types';
 import { useTranslation } from '../i18n';
 import type { SurfaceGenerationQuality } from '../lib/surface';
+import type { TissuePresetId } from '../lib/segmentation/tissuePresets';
 import type {
   ImportIssue,
   ImportProgress,
@@ -56,6 +58,8 @@ interface ViewerSidebarProps {
   spacing: Vec3;
   maskStatus?: string;
   surfaceStatus?: string;
+  tissueOverlayMode: 'off' | 'interpretation';
+  visibleTissuePresets: Record<TissuePresetId, boolean>;
   volumeMeta: ParsedVolumeMeta | null;
   windowBounds: RangeBounds;
   windowLevelDraft: SliceWindowLevel;
@@ -64,8 +68,10 @@ interface ViewerSidebarProps {
   onCancelMaskOperation: () => void;
   onCancelSurfaceGeneration: () => void;
   onCreateThresholdMask: (preset: ThresholdMaskPreset) => void;
+  onCreateTissueMask: (presetId: TissuePresetId) => void;
   onCreateSurfaceFromActiveMask: (quality: SurfaceGenerationQuality) => void;
   onDeleteMeasurement: (measurementId: string) => void;
+  onExportActiveAnatomy: () => void;
   onDownloadSurface: (surfaceId: string) => void;
   onDownloadSurfacePly: (surfaceId: string) => void;
   onExportProject: () => void;
@@ -108,6 +114,8 @@ interface ViewerSidebarProps {
   onAddSegment: (groupId: string) => void;
   onDeleteSegment: (groupId: string, segmentId: string) => void;
   onSelectSegment: (groupId: string, segmentId: string) => void;
+  onKeepLargestSegmentIsland: () => void;
+  onRemoveSmallSegmentIslands: () => void;
   onAddWatershedSeedAtCursor: () => void;
   onApplyWatershedSeeds: () => void;
   onClearWatershedSeeds: () => void;
@@ -116,8 +124,11 @@ interface ViewerSidebarProps {
   onOpenDirectory: () => void;
   onOpenTeeth: () => void;
   onRunAnatomy: () => void;
+  onCancelAnatomy: () => void;
   anatomyRunning: boolean;
   anatomyProgress: { completed: number; total: number } | null;
+  anatomyHistoryCount: number;
+  onRestoreLatestAnatomy: () => void;
   onRunFaceSurface: () => void;
   faceRunning: boolean;
   faceProgress: { completed: number; total: number } | null;
@@ -126,6 +137,8 @@ interface ViewerSidebarProps {
   onRedoMaskEdit: () => void;
   onRegionGrowFromCursor: (preset: ThresholdMaskPreset) => void;
   onToggleSurfaceVisibility: (surfaceId: string) => void;
+  onToggleTissuePreset: (presetId: TissuePresetId) => void;
+  onTissueOverlayModeChange: (mode: 'off' | 'interpretation') => void;
   onWindowChange: (value: number) => void;
   onWindowCommit: (value: number) => void;
   onToggleMaskVisibility: (maskId: string) => void;
@@ -145,6 +158,8 @@ export function ViewerSidebar({
   spacing,
   maskStatus,
   surfaceStatus,
+  tissueOverlayMode,
+  visibleTissuePresets,
   volumeMeta,
   windowBounds,
   windowLevelDraft,
@@ -153,8 +168,10 @@ export function ViewerSidebar({
   onCancelMaskOperation,
   onCancelSurfaceGeneration,
   onCreateThresholdMask,
+  onCreateTissueMask,
   onCreateSurfaceFromActiveMask,
   onDeleteMeasurement,
+  onExportActiveAnatomy,
   onDownloadSurface,
   onDownloadSurfacePly,
   onExportProject,
@@ -172,6 +189,8 @@ export function ViewerSidebar({
   onAddSegment,
   onDeleteSegment,
   onSelectSegment,
+  onKeepLargestSegmentIsland,
+  onRemoveSmallSegmentIslands,
   onAddWatershedSeedAtCursor,
   onApplyWatershedSeeds,
   onClearWatershedSeeds,
@@ -180,8 +199,11 @@ export function ViewerSidebar({
   onOpenDirectory,
   onOpenTeeth,
   onRunAnatomy,
+  onCancelAnatomy,
   anatomyRunning,
   anatomyProgress,
+  anatomyHistoryCount,
+  onRestoreLatestAnatomy,
   onRunFaceSurface,
   faceRunning,
   faceProgress,
@@ -190,6 +212,8 @@ export function ViewerSidebar({
   onRedoMaskEdit,
   onRegionGrowFromCursor,
   onToggleSurfaceVisibility,
+  onToggleTissuePreset,
+  onTissueOverlayModeChange,
   onWindowChange,
   onWindowCommit,
   onToggleMaskVisibility,
@@ -283,12 +307,16 @@ export function ViewerSidebar({
           spacing={spacing}
           maskStatus={maskStatus}
           surfaceStatus={surfaceStatus}
+          tissueOverlayMode={tissueOverlayMode}
+          visibleTissuePresets={visibleTissuePresets}
           state={studyState}
           onCancelMaskOperation={onCancelMaskOperation}
           onCancelSurfaceGeneration={onCancelSurfaceGeneration}
           onCreateThresholdMask={onCreateThresholdMask}
+          onCreateTissueMask={onCreateTissueMask}
           onCreateSurfaceFromActiveMask={onCreateSurfaceFromActiveMask}
           onDeleteMeasurement={onDeleteMeasurement}
+          onExportActiveAnatomy={onExportActiveAnatomy}
           onDownloadSurface={onDownloadSurface}
           onDownloadSurfacePly={onDownloadSurfacePly}
           onExportProject={onExportProject}
@@ -306,6 +334,8 @@ export function ViewerSidebar({
           onAddSegment={onAddSegment}
           onDeleteSegment={onDeleteSegment}
           onSelectSegment={onSelectSegment}
+          onKeepLargestSegmentIsland={onKeepLargestSegmentIsland}
+          onRemoveSmallSegmentIslands={onRemoveSmallSegmentIslands}
           onAddWatershedSeedAtCursor={onAddWatershedSeedAtCursor}
           onApplyWatershedSeeds={onApplyWatershedSeeds}
           onClearWatershedSeeds={onClearWatershedSeeds}
@@ -313,6 +343,8 @@ export function ViewerSidebar({
           onRegionGrowFromCursor={onRegionGrowFromCursor}
           onToggleSurfaceVisibility={onToggleSurfaceVisibility}
           onToggleMaskVisibility={onToggleMaskVisibility}
+          onToggleTissuePreset={onToggleTissuePreset}
+          onTissueOverlayModeChange={onTissueOverlayModeChange}
           onUndoMaskEdit={onUndoMaskEdit}
         />
 
@@ -415,6 +447,12 @@ export function ViewerSidebar({
               ? t('viewerSidebar.fullAnatomyRunning')
               : t('viewerSidebar.fullAnatomy')}
           </Button>
+          {anatomyRunning ? (
+            <Button variant="ghost" block onClick={onCancelAnatomy}>
+              <Square className="h-4 w-4" aria-hidden="true" />
+              {t('viewerSidebar.cancelFullAnatomy')}
+            </Button>
+          ) : null}
           {anatomyRunning && anatomyProgress ? (
             <div className="h-1 overflow-hidden rounded-full bg-slate-800">
               <span
@@ -428,6 +466,19 @@ export function ViewerSidebar({
                 }}
               />
             </div>
+          ) : null}
+          {anatomyHistoryCount > 0 ? (
+            <Button
+              variant="ghost"
+              block
+              onClick={onRestoreLatestAnatomy}
+              disabled={anatomyRunning}
+            >
+              <Brain className="h-4 w-4" aria-hidden="true" />
+              {t('viewerSidebar.restoreFullAnatomy', {
+                count: anatomyHistoryCount,
+              })}
+            </Button>
           ) : null}
           <Button
             variant="ghost"

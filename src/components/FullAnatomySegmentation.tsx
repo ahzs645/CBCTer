@@ -1,15 +1,24 @@
-import { Brain, LoaderCircle, Play } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Brain, Download, LoaderCircle, Play, Square } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import { APP_ROUTES } from '../constants';
 import { useTranslation } from '../i18n';
 import {
+  buildAnatomySurfaceArchive,
+  type AnatomyExportProgress,
+} from '../lib/segmentation/anatomyExport';
+import {
   type DentalAnatomyProgress,
   type DentalAnatomyResult,
   segmentDentalAnatomy,
 } from '../lib/segmentation/dentalSegmentation';
-import { summarizeDentalLabels } from '../lib/segmentation/dentalSegmentGroup';
+import { summarizeDentalVariant } from '../lib/segmentation/dentalSegmentGroup';
+import {
+  DEFAULT_DENTAL_SEG_VARIANT,
+  DENTAL_SEG_VARIANTS,
+  type DentalSegVariantId,
+} from '../lib/segmentation/dentalSegVariants';
 import {
   extractLabelmapOverlayImage,
   type LabelmapOverlayLayer,
@@ -21,6 +30,8 @@ import { SliceCanvas } from '../viewer/react/SliceCanvas';
 import { Button } from './Button';
 import { Notice } from './Notice';
 import { RangeField } from './RangeField';
+import { Select } from './Select';
+import type { SurfaceGenerationQuality } from '../lib/surface';
 
 interface FullAnatomySegmentationProps {
   app: ViewerApp;
@@ -38,15 +49,29 @@ export function FullAnatomySegmentation({ app }: FullAnatomySegmentationProps) {
   const volume = app.volume;
   const [width, height, depth] = app.dimensions;
 
+  const [variant, setVariant] = useState<DentalSegVariantId>(
+    DEFAULT_DENTAL_SEG_VARIANT,
+  );
   const [running, setRunning] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<DentalAnatomyProgress | null>(null);
+  const [exportProgress, setExportProgress] =
+    useState<AnatomyExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DentalAnatomyResult | null>(null);
   const [visibility, setVisibility] = useState<Record<number, boolean>>({});
   const [sliceZ, setSliceZ] = useState(Math.floor(depth / 2));
+  const [surfaceQuality, setSurfaceQuality] =
+    useState<SurfaceGenerationQuality>('balanced');
+  const [logs, setLogs] = useState<string[]>([]);
+  const runAbortRef = useRef<AbortController | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
 
   const stats = useMemo(
-    () => (result ? summarizeDentalLabels(result.labelmap, result.spacing) : []),
+    () =>
+      result
+        ? summarizeDentalVariant(result.labelmap, result.spacing, result.variant)
+        : [],
     [result],
   );
 
@@ -106,25 +131,90 @@ export function FullAnatomySegmentation({ app }: FullAnatomySegmentationProps) {
   }
 
   const run = async () => {
+    const controller = new AbortController();
+    runAbortRef.current = controller;
     setRunning(true);
     setError(null);
     setResult(null);
+    setLogs([
+      `${new Date().toLocaleTimeString()} :: Starting DentalSegmentator run`,
+      `${new Date().toLocaleTimeString()} :: Small-island cleanup: 60 mm3, mandibular canal preserved`,
+    ]);
     setProgress({ completed: 0, total: 1 });
     try {
-      const res = await segmentDentalAnatomy(volume, setProgress, {
-        minComponentMm3: 0,
+      const res = await segmentDentalAnatomy(volume, (next) => {
+        setProgress(next);
+        setLogs((current) => [
+          ...current,
+          `${new Date().toLocaleTimeString()} :: Patch ${next.completed} of ${next.total}`,
+        ].slice(-80));
+      }, {
+        signal: controller.signal,
+        variant,
       });
       setResult(res);
       const vis: Record<number, boolean> = {};
-      for (const stat of summarizeDentalLabels(res.labelmap, res.spacing)) {
+      for (const stat of summarizeDentalVariant(res.labelmap, res.spacing, res.variant)) {
         vis[stat.value] = true;
       }
       setVisibility(vis);
       setSliceZ(Math.floor(depth / 2));
+      setLogs((current) => [
+        ...current,
+        `${new Date().toLocaleTimeString()} :: Inference completed`,
+      ]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Segmentation failed.');
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        setLogs((current) => [
+          ...current,
+          `${new Date().toLocaleTimeString()} :: Run canceled`,
+        ]);
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Segmentation failed.');
+      }
     } finally {
       setRunning(false);
+      runAbortRef.current = null;
+    }
+  };
+
+  const cancelRun = () => runAbortRef.current?.abort();
+  const cancelExport = () => exportAbortRef.current?.abort();
+
+  const exportResult = async () => {
+    if (!result) return;
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExporting(true);
+    setError(null);
+    try {
+      const archive = await buildAnatomySurfaceArchive({
+        labelmap: result.labelmap,
+        stats,
+        dims: result.dims,
+        spacing: result.spacing,
+        quality: surfaceQuality,
+        signal: controller.signal,
+        onProgress: setExportProgress,
+      });
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'cbcter-full-anatomy-surfaces.zip';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setLogs((current) => [
+        ...current,
+        `${new Date().toLocaleTimeString()} :: Exported anatomy surfaces`,
+      ]);
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
+        setError(cause instanceof Error ? cause.message : 'Export failed.');
+      }
+    } finally {
+      setExporting(false);
+      setExportProgress(null);
+      exportAbortRef.current = null;
     }
   };
 
@@ -144,6 +234,22 @@ export function FullAnatomySegmentation({ app }: FullAnatomySegmentationProps) {
         </div>
         <p className="text-xs text-slate-400">{t('anatomy.description')}</p>
 
+        <label className="block space-y-1">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            {t('anatomy.model')}
+          </span>
+          <Select
+            block
+            size="sm"
+            value={variant}
+            onChange={(value) => setVariant(value as DentalSegVariantId)}
+            options={Object.values(DENTAL_SEG_VARIANTS).map((config) => ({
+              value: config.id,
+              label: t(`anatomy.variants.${config.i18nKey}`),
+            }))}
+          />
+        </label>
+
         <Button variant="primary" block onClick={run} disabled={running}>
           {running ? (
             <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -152,6 +258,12 @@ export function FullAnatomySegmentation({ app }: FullAnatomySegmentationProps) {
           )}
           {running ? t('anatomy.running') : t('anatomy.run')}
         </Button>
+        {running ? (
+          <Button variant="ghost" block onClick={cancelRun}>
+            <Square className="h-4 w-4" aria-hidden="true" />
+            {t('anatomy.cancel')}
+          </Button>
+        ) : null}
 
         {running ? (
           <div>
@@ -211,7 +323,65 @@ export function FullAnatomySegmentation({ app }: FullAnatomySegmentationProps) {
               value={sliceZ}
               onChange={setSliceZ}
             />
+            <label className="block space-y-1">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                {t('anatomy.surfaceQuality')}
+              </span>
+              <Select
+                block
+                size="sm"
+                value={surfaceQuality}
+                onChange={(value) =>
+                  setSurfaceQuality(value as SurfaceGenerationQuality)
+                }
+                options={[
+                  { value: 'draft', label: t('anatomy.qualityDraft') },
+                  { value: 'balanced', label: t('anatomy.qualityBalanced') },
+                  { value: 'final', label: t('anatomy.qualityFinal') },
+                ]}
+              />
+            </label>
+            <Button
+              variant="ghost"
+              block
+              onClick={() => void exportResult()}
+              disabled={exporting}
+            >
+              {exporting ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="h-4 w-4" aria-hidden="true" />
+              )}
+              {exporting ? t('anatomy.exporting') : t('anatomy.export')}
+            </Button>
+            {exporting ? (
+              <Button variant="ghost" block onClick={cancelExport}>
+                <Square className="h-4 w-4" aria-hidden="true" />
+                {t('anatomy.cancelExport')}
+              </Button>
+            ) : null}
+            {exportProgress ? (
+              <p className="text-[11px] text-slate-500">
+                {t('anatomy.exportProgress', {
+                  label: exportProgress.label,
+                  phase: exportProgress.phase,
+                  completed: exportProgress.completed,
+                  total: exportProgress.total,
+                })}
+              </p>
+            ) : null}
           </>
+        ) : null}
+
+        {logs.length > 0 ? (
+          <details className="rounded border border-slate-800 bg-slate-950 p-2 text-[11px] text-slate-500">
+            <summary className="cursor-pointer text-slate-300">
+              {t('anatomy.runDetails')}
+            </summary>
+            <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap font-mono">
+              {logs.join('\n')}
+            </pre>
+          </details>
         ) : null}
 
         <Notice compact>{t('anatomy.perfNote')}</Notice>

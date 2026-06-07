@@ -55,7 +55,7 @@ export interface VolumeViewport3DLabels {
   fps: (value: number) => string;
   objCount: (count: number) => string;
   previewError: string;
-  presets: { default: string; bone: string; soft: string; xray: string };
+  presets: { default: string; bone: string; soft: string; xray: string; custom: string };
   colormaps: { grayscale: string; bone: string; hot: string; viridis: string };
   axisViews: ToggleLabels;
   sidebar: ToggleLabels;
@@ -83,6 +83,7 @@ export const defaultVolumeViewport3DLabels: VolumeViewport3DLabels = {
     bone: 'Bone surface',
     soft: 'Soft tissue',
     xray: 'X-ray',
+    custom: 'Custom',
   },
   colormaps: {
     grayscale: 'Grayscale',

@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-"""Export the DentalSegmentator nnU-Net (3d_fullres) to ONNX for onnxruntime-web.
+"""Export a DentalSegmentator-family nnU-Net (3d_fullres) to ONNX for onnxruntime-web.
 
-Reconstructs the PlainConvUNet from the model's ``plans.json`` (classic nnU-Net
-v2 format), loads ``fold_0/checkpoint_final.pth`` weights with ``strict=True``
-(which validates the architecture matches the weights), disables deep
-supervision, and exports a single-output (logits) ONNX graph at the plans patch
-size.
+Reconstructs the network from the model's ``plans.json``, loads
+``fold_0/checkpoint_final.pth`` weights with ``strict=True`` (which validates the
+architecture matches the weights), disables deep supervision, and exports a
+single-output (logits) ONNX graph at the plans patch size.
 
-Weights: Dataset112_DentalSegmentator_v100, Zenodo DOI 10.5281/zenodo.10829674
-(CC-BY-4.0). Download + unzip, then point ``--model-dir`` at the
-``nnUNetTrainer__nnUNetPlans__3d_fullres`` folder.
+Supports three model variants, auto-detected from the plans:
+  - **base** DentalSegmentator (PlainConvUNet, classic plans format) —
+    Dataset112, Zenodo DOI 10.5281/zenodo.10829674 (CC-BY-4.0).
+  - **PediatricDentalSegmentator** (PlainConvUNet, newer plans format) —
+    SADT release ``PEDIATRICDENTALSEG_MODEL``.
+  - **UniversalLabDentalSegmentator** (ResidualEncoderUNet / nnUNetResEncUNetLPlans,
+    55 classes = per-tooth FDI) — SADT release ``UNIVERSALLAB_MODEL``.
+
+Pediatric/Universal weights are under the 3D Slicer Software License Agreement
+(see THIRD_PARTY_NOTICES.md), not CC-BY. Download + unzip, then point
+``--model-dir`` at the ``..._3d_fullres`` folder.
 
 Requirements: ``pip install torch dynamic_network_architectures onnx``.
 
-Usage:
+Usage (or use the npm scripts segment:export-dentalseg[-pediatric|-universal]):
     python scripts/export_dentalseg_onnx.py \
-        --model-dir /path/to/Dataset112_.../nnUNetTrainer__nnUNetPlans__3d_fullres \
+        --model-dir /path/to/Dataset.../nnUNetTrainer__..._3d_fullres \
         --output public/models/dentalsegmentator.onnx
 """
 import argparse
@@ -32,17 +39,20 @@ def build_network(plans: dict, dataset: dict) -> torch.nn.Module:
     input_channels = len(dataset["channel_names"])
 
     if "architecture" in cfg:
-        # Newer nnU-Net plans format (e.g. AMASSS): everything is explicit in
-        # architecture.arch_kwargs.
+        # Newer nnU-Net plans format (e.g. AMASSS, Pediatric, Universal):
+        # everything is explicit in architecture.arch_kwargs.
         ak = cfg["architecture"]["arch_kwargs"]
-        return PlainConvUNet(
+        class_name = cfg["architecture"].get("network_class_name", "")
+        # The UniversalLab model is a ResidualEncoderUNet (nnUNetResEncUNetLPlans),
+        # which takes n_blocks_per_stage instead of PlainConvUNet's n_conv_per_stage.
+        is_resenc = "Residual" in class_name or "n_blocks_per_stage" in ak
+        common = dict(
             input_channels=input_channels,
             n_stages=ak["n_stages"],
             features_per_stage=ak["features_per_stage"],
             conv_op=torch.nn.Conv3d,
             kernel_sizes=[tuple(k) for k in ak["kernel_sizes"]],
             strides=[tuple(s) for s in ak["strides"]],
-            n_conv_per_stage=ak["n_conv_per_stage"],
             num_classes=num_classes,
             n_conv_per_stage_decoder=ak["n_conv_per_stage_decoder"],
             conv_bias=ak.get("conv_bias", True),
@@ -53,6 +63,28 @@ def build_network(plans: dict, dataset: dict) -> torch.nn.Module:
             nonlin_kwargs=ak.get("nonlin_kwargs", {"inplace": True}),
             deep_supervision=False,
         )
+        if is_resenc:
+            # ResidualEncoderUNet moved modules across versions — try both paths.
+            try:
+                from dynamic_network_architectures.architectures.residual_unet import (
+                    ResidualEncoderUNet,
+                )
+            except ImportError:  # pragma: no cover - version shim
+                from dynamic_network_architectures.architectures.unet import (
+                    ResidualEncoderUNet,
+                )
+            extra = {}
+            # nnUNetResEncUNetLPlans uses the default BasicBlockD; pass through the
+            # optional bottleneck/stem hints only when the plans specify them.
+            for key in ("bottleneck_channels", "stem_channels"):
+                if key in ak:
+                    extra[key] = ak[key]
+            return ResidualEncoderUNet(
+                n_blocks_per_stage=ak["n_blocks_per_stage"],
+                **common,
+                **extra,
+            )
+        return PlainConvUNet(n_conv_per_stage=ak["n_conv_per_stage"], **common)
 
     # Older format (e.g. DentalSegmentator): derive from top-level keys.
     n_stages = len(cfg["conv_kernel_sizes"])

@@ -21,13 +21,45 @@ import onnxruntime as ort
 import pydicom
 from scipy.ndimage import zoom
 
-LABELS = {0: "background", 1: "Upper Skull", 2: "Mandible", 3: "Upper Teeth",
-          4: "Lower Teeth", 5: "Mandibular canal"}
-COLORS = {1: (216, 195, 165), 2: (232, 168, 124), 3: (84, 182, 232),
-          4: (112, 216, 120), 5: (234, 93, 93)}
-CT_NORM = dict(lower=-208.0, upper=3070.0, mean=1178.261474609375, std=611.7098999023438)
-MODEL_SPACING = (0.43164101243019104, 0.31200000643730164, 0.43164101243019104)
-PATCH = (128, 160, 112)
+ANATOMY_LABELS = {0: "background", 1: "Upper Skull", 2: "Mandible",
+                  3: "Upper Teeth", 4: "Lower Teeth", 5: "Mandibular canal"}
+ANATOMY_COLORS = {1: (216, 195, 165), 2: (232, 168, 124), 3: (84, 182, 232),
+                  4: (112, 216, 120), 5: (234, 93, 93)}
+
+
+def _universal_labels():
+    # Per-tooth FDI + mandible/maxilla/canal; matches dataset.json value order.
+    names = {0: "background"}
+    perm_upper = ["UR3M", "UR2M", "UR1M", "UR2PM", "UR1PM", "URC", "UR2I", "UR1I",
+                  "UL1I", "UL2I", "ULC", "UL1PM", "UL2PM", "UL1M", "UL2M", "UL3M"]
+    perm_lower = ["LL3M", "LL2M", "LL1M", "LL2PM", "LL1PM", "LLC", "LL2I", "LL1I",
+                  "LR1I", "LR2I", "LRC", "LR1PM", "LR2PM", "LR1M", "LR2M", "LR3M"]
+    primary = ["ur2m", "ur1m", "urc", "ur2i", "ur1i", "ul1i", "ul2i", "ulc",
+               "ul1m", "ul2m", "ll2m", "ll1m", "llc", "ll2i", "ll1i", "lr1i",
+               "lr2i", "lrc", "lr1m", "lr2m"]
+    for i, n in enumerate(perm_upper + perm_lower + primary):
+        names[i + 1] = n
+    names[53] = "Mandible"
+    names[54] = "Maxilla"
+    names[55] = "Mandibular canal"
+    return names
+
+
+VARIANTS = {
+    "full": dict(
+        labels=ANATOMY_LABELS, colors=ANATOMY_COLORS,
+        ctnorm=dict(lower=-208.0, upper=3070.0, mean=1178.261474609375, std=611.7098999023438),
+        spacing=(0.43164101243019104, 0.31200000643730164, 0.43164101243019104),
+        patch=(128, 160, 112)),
+    "pediatric": dict(
+        labels=ANATOMY_LABELS, colors=ANATOMY_COLORS,
+        ctnorm=dict(lower=-50.0, upper=2562.0, mean=801.7435, std=493.4995),
+        spacing=(0.4, 0.4, 0.4), patch=(128, 128, 128)),
+    "universal": dict(
+        labels=_universal_labels(), colors={},
+        ctnorm=dict(lower=-47.0, upper=2530.0, mean=780.1467, std=487.8516),
+        spacing=(0.4, 0.4, 0.4), patch=(160, 192, 192)),
+}
 
 
 def load_dicom(dicom_dir):
@@ -65,9 +97,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dicom-dir", required=True)
     ap.add_argument("--model", default="public/models/dentalsegmentator.onnx")
+    ap.add_argument("--variant", choices=sorted(VARIANTS), default="full",
+                    help="Which model's spacing/patch/CTNorm/labels to use.")
     ap.add_argument("--output-dir", default="outputs/dentalseg-validation")
     args = ap.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
+
+    cfg = VARIANTS[args.variant]
+    LABELS, COLORS = cfg["labels"], cfg["colors"]
+    CT_NORM, MODEL_SPACING, PATCH = cfg["ctnorm"], cfg["spacing"], cfg["patch"]
+    print(f"variant: {args.variant}  ({len(LABELS) - 1} foreground classes)")
 
     vol, spacing = load_dicom(args.dicom_dir)
     print(f"loaded volume {vol.shape} spacing(z,y,x)={tuple(round(s,3) for s in spacing)} "
@@ -111,13 +150,16 @@ def main():
     labelmap = labels_padded[z0:z1, y0:y1, x0:x1]
 
     voxel_mm3 = MODEL_SPACING[0] * MODEL_SPACING[1] * MODEL_SPACING[2]
+    foreground = [v for v in LABELS if v != 0]
     print("\n=== per-class result ===")
-    for v, name in LABELS.items():
+    for v in [0, *foreground]:
         count = int((labelmap == v).sum())
-        print(f"  {v} {name:18s}: {count:>10d} voxels  {count*voxel_mm3/1000:8.2f} cm3")
+        if count == 0 and v != 0:
+            continue
+        print(f"  {v} {LABELS[v]:18s}: {count:>10d} voxels  {count*voxel_mm3/1000:8.2f} cm3")
 
-    present = [LABELS[v] for v in range(1, 6) if (labelmap == v).sum() > 0]
-    print(f"\nstructures present: {len(present)}/5 -> {present}")
+    present = [LABELS[v] for v in foreground if (labelmap == v).sum() > 0]
+    print(f"\nstructures present: {len(present)}/{len(foreground)} -> {present}")
 
     # Mid-plane overlays for visual sanity.
     try:

@@ -33,7 +33,21 @@ const QUADRANT_NAMES: Record<number, string> = {
   2: 'Upper Left',
   3: 'Lower Left',
   4: 'Lower Right',
+  // Primary (deciduous) dentition quadrants.
+  5: 'Upper Right',
+  6: 'Upper Left',
+  7: 'Lower Left',
+  8: 'Lower Right',
 };
+
+/** Primary dentition has 5 teeth per quadrant (no premolars/third molar). */
+const PRIMARY_POSITION_NAMES = [
+  'Central Incisor',
+  'Lateral Incisor',
+  'Canine',
+  'First Molar',
+  'Second Molar',
+];
 
 /** FDI tooth number (11–48) → human-readable name, e.g. 11 → "Upper Right Central Incisor". */
 export const FDI_NUMBERING: Record<number, string> = (() => {
@@ -46,6 +60,28 @@ export const FDI_NUMBERING: Record<number, string> = (() => {
   }
   return map;
 })();
+
+/** Primary FDI tooth number (51–85) → name, e.g. 51 → "Upper Right Central Incisor". */
+export const PRIMARY_FDI_NUMBERING: Record<number, string> = (() => {
+  const map: Record<number, string> = {};
+  for (let quadrant = 5; quadrant <= 8; quadrant += 1) {
+    for (let position = 1; position <= 5; position += 1) {
+      map[quadrant * 10 + position] =
+        `${QUADRANT_NAMES[quadrant]} ${PRIMARY_POSITION_NAMES[position - 1]}`;
+    }
+  }
+  return map;
+})();
+
+/**
+ * Name for any FDI number, permanent (11–48) or primary (51–85). Primary teeth
+ * are suffixed "(primary)" so they read unambiguously in clinical UI.
+ */
+export function fdiToothName(fdi: number): string {
+  if (FDI_NUMBERING[fdi]) return FDI_NUMBERING[fdi];
+  if (PRIMARY_FDI_NUMBERING[fdi]) return `${PRIMARY_FDI_NUMBERING[fdi]} (primary)`;
+  return `Tooth ${fdi}`;
+}
 
 export interface ToothInput {
   /** Tooth centroid in a consistent frame `[x, y, z]` (world mm or voxels). */

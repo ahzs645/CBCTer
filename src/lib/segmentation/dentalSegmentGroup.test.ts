@@ -25,7 +25,7 @@ describe('dental segment group', () => {
     const group = buildDentalSegmentGroup('study-1', 'image-1', stats);
     expect(group.segments).toHaveLength(5);
     expect(group.segments.map((s) => s.value)).toEqual([1, 2, 3, 4, 5]);
-    expect(group.segments[0].name).toBe('Upper Skull');
+    expect(group.segments[0].name).toBe('Maxilla & Upper Skull');
     expect(group.activeSegmentValue).toBe(1);
   });
 });

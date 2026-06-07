@@ -6,6 +6,11 @@ import {
   type DentalSegPatchRunner,
 } from '../lib/segmentation/dentalSegInference';
 import { modelUrl } from '../lib/segmentation/modelUrl';
+import {
+  DEFAULT_DENTAL_SEG_VARIANT,
+  getDentalSegVariant,
+  type DentalSegVariantId,
+} from '../lib/segmentation/dentalSegVariants';
 
 /**
  * DentalSegmentator (nnU-Net) multi-class inference worker. Thin adapter: it
@@ -41,6 +46,8 @@ export interface DentalSegRequest {
   spacing: Vec3;
   /** Optional per-class small-component cleanup threshold (mm³). */
   minComponentMm3?: number;
+  /** Which DentalSegmentator model to run. Defaults to the base "full" model. */
+  variant?: DentalSegVariantId;
 }
 
 export type DentalSegResponse =
@@ -53,20 +60,25 @@ export type DentalSegResponse =
     }
   | { type: 'error'; message: string };
 
-let sessionPromise: Promise<ort.InferenceSession> | null = null;
+// One ONNX session per model file (variants share the worker but not weights).
+const sessions = new Map<string, Promise<ort.InferenceSession>>();
 
-function getSession(): Promise<ort.InferenceSession> {
-  if (!sessionPromise) {
-    sessionPromise = ort.InferenceSession.create(
-      modelUrl('dentalsegmentator.onnx'),
-      { executionProviders },
-    );
+function getSession(modelFile: string): Promise<ort.InferenceSession> {
+  let session = sessions.get(modelFile);
+  if (!session) {
+    session = ort.InferenceSession.create(modelUrl(modelFile), {
+      executionProviders,
+    });
+    sessions.set(modelFile, session);
   }
-  return sessionPromise;
+  return session;
 }
 
 async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
-  const session = await getSession();
+  const variant = getDentalSegVariant(
+    request.variant ?? DEFAULT_DENTAL_SEG_VARIANT,
+  );
+  const session = await getSession(variant.modelFile);
   // Int16 HU voxels (half the transfer/memory of Float32); resampled to Float32
   // at the much smaller model grid inside runDentalSegmentation.
   const source = new Int16Array(request.data);
@@ -83,6 +95,11 @@ async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
     request.spacing,
     runPatch,
     {
+      modelSpacing: variant.spacing,
+      patchSize: variant.patchSize,
+      classCount: variant.classCount,
+      normalization: variant.normalization,
+      canalLabel: variant.canalLabel,
       // No window overlap: ~8 full-res patches instead of ~18, validated correct
       // on real CBCT, and keeps memory/time in check for full-volume inference.
       overlap: 0,

@@ -84,6 +84,7 @@ export function useVolumeViewport3DLabels(): VolumeViewport3DLabels {
         bone: t('volumeViewport3d.presets.bone'),
         soft: t('volumeViewport3d.presets.soft'),
         xray: t('volumeViewport3d.presets.xray'),
+        custom: t('volumeViewport3d.presets.custom'),
       },
       colormaps: {
         grayscale: t('volumeViewport3d.colormaps.grayscale'),
