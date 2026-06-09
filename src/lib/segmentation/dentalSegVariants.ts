@@ -155,7 +155,10 @@ export const DENTAL_SEG_VARIANTS: Record<DentalSegVariantId, DentalSegVariantCon
     modelFile: 'dentalsegmentator-universal.onnx',
     labels: UNIVERSAL_LABELS,
     classCount: UNIVERSAL_LABELS.length + 1,
-    patchSize: [160, 192, 192],
+    // Trained at [160,192,192] but exported/run at [128,128,128] (÷32, FCN) so the
+    // per-patch 56-class output tensor (~1.3GB→~0.47GB) fits the wasm heap. The
+    // sliding window tiles to cover the volume. MUST match the export --patch.
+    patchSize: [128, 128, 128],
     spacing: [0.4, 0.4, 0.4],
     normalization: UNIVERSAL_DENTAL_SEG_CT_NORMALIZATION,
     canalLabel: 55,

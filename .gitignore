@@ -39,3 +39,4 @@ __pycache__/
 
 # PHI-bearing DICOM studies should stay outside the repo unless de-identified.
 *.dcm
+public/anatomy-test-cbct/

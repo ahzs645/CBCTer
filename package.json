@@ -33,7 +33,7 @@
     "segment:validate-onnx": "python3 scripts/validate_onnx_pipeline.py",
     "segment:export-dentalseg": "python3 scripts/export_dentalseg_onnx.py --model-dir \"$DENTALSEG_MODEL_DIR\" --output public/models/dentalsegmentator.raw.onnx && python3 scripts/rewrite_convtranspose_webgpu.py --input public/models/dentalsegmentator.raw.onnx --output public/models/dentalsegmentator.onnx --validate",
     "segment:export-dentalseg-pediatric": "python3 scripts/export_dentalseg_onnx.py --model-dir \"$PEDIATRIC_MODEL_DIR\" --output public/models/dentalsegmentator-pediatric.raw.onnx && python3 scripts/rewrite_convtranspose_webgpu.py --input public/models/dentalsegmentator-pediatric.raw.onnx --output public/models/dentalsegmentator-pediatric.onnx --validate",
-    "segment:export-dentalseg-universal": "python3 scripts/export_dentalseg_onnx.py --model-dir \"$UNIVERSAL_MODEL_DIR\" --output public/models/dentalsegmentator-universal.raw.onnx && python3 scripts/rewrite_convtranspose_webgpu.py --input public/models/dentalsegmentator-universal.raw.onnx --output public/models/dentalsegmentator-universal.onnx --validate"
+    "segment:export-dentalseg-universal": "python3 scripts/export_dentalseg_onnx.py --model-dir \"$UNIVERSAL_MODEL_DIR\" --patch 128 128 128 --output public/models/dentalsegmentator-universal.raw.onnx && python3 scripts/rewrite_convtranspose_webgpu.py --input public/models/dentalsegmentator-universal.raw.onnx --output public/models/dentalsegmentator-universal.onnx --validate"
   },
   "dependencies": {
     "@itk-wasm/dicom": "^7.6.4",

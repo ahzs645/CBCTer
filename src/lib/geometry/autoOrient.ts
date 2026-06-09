@@ -26,7 +26,8 @@ import {
   type RigidAlignment,
 } from './rigidAlignment';
 import { applyMatrixToLandmarks, resampleVolumeWithMatrix, worldToVoxelMatrix } from './autoMatrix';
-import type { Interpolation, ResampledMatrixVolume } from './autoMatrix';
+import type { ResampledMatrixVolume } from './autoMatrix';
+import type { Interpolation } from '../volume/resample';
 
 export interface LandmarkMatch {
   labels: string[];

@@ -116,12 +116,20 @@ def main() -> None:
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--output", default="public/models/dentalsegmentator.onnx")
     parser.add_argument("--opset", type=int, default=17)
+    parser.add_argument(
+        "--patch", type=int, nargs=3, metavar=("D", "H", "W"), default=None,
+        help="Override the export input patch (D H W). nnU-Net nets are fully "
+             "convolutional, so a SMALLER patch still runs (must be divisible by "
+             "the total downsample, 32 for these 6-stage nets). Used to shrink the "
+             "per-patch output tensor so the model fits the onnxruntime-web wasm "
+             "heap (e.g. Universal [160,192,192]->[128,128,128]). The app's variant "
+             "patchSize MUST match this so the sliding window feeds the right size.")
     args = parser.parse_args()
 
     plans = json.load(open(os.path.join(args.model_dir, "plans.json")))
     dataset = json.load(open(os.path.join(args.model_dir, "dataset.json")))
     cfg = plans["configurations"]["3d_fullres"]
-    patch = cfg["patch_size"]
+    patch = args.patch if args.patch else cfg["patch_size"]
 
     network = build_network(plans, dataset)
     ckpt = torch.load(
