@@ -29,8 +29,19 @@ FDI_TEETH = [
 FDI_TO_CLASS = {fdi: idx for idx, fdi in enumerate(FDI_TEETH)}
 
 
-def load(path: Path) -> np.ndarray:
-    return sitk.GetArrayFromImage(sitk.ReadImage(str(path)))  # (z, y, x)
+def _resample(img: "sitk.Image", target_spacing: float, is_label: bool) -> "sitk.Image":
+    osp, osz = img.GetSpacing(), img.GetSize()
+    nsz = [max(1, int(round(sz * sp / target_spacing))) for sz, sp in zip(osz, osp)]
+    interp = sitk.sitkNearestNeighbor if is_label else sitk.sitkLinear
+    return sitk.Resample(img, nsz, sitk.Transform(), interp, img.GetOrigin(),
+                         (target_spacing,) * 3, img.GetDirection(), 0.0, img.GetPixelID())
+
+
+def load(path: Path, target_spacing=None, is_label: bool = False) -> np.ndarray:
+    img = sitk.ReadImage(str(path))
+    if target_spacing is not None:
+        img = _resample(img, float(target_spacing), is_label)
+    return sitk.GetArrayFromImage(img)  # (z, y, x)
 
 
 def normalize(image: np.ndarray, ct_window=None) -> np.ndarray:
@@ -126,6 +137,9 @@ def main() -> None:
                    help="match each volume's intensity histogram to this reference volume before slicing")
     p.add_argument("--ct-window", nargs=2, type=float, default=None, metavar=("LO", "HI"),
                    help="fixed HU window for normalization (e.g. -113.8 4021), scanner-robust like nnU-Net")
+    p.add_argument("--target-spacing", type=float, default=None,
+                   help="resample every volume to this isotropic mm/voxel before slicing (matches nnU-Net; "
+                        "makes teeth the same pixel scale across scanners)")
     args = p.parse_args()
 
     ref_volume = None
@@ -146,10 +160,10 @@ def main() -> None:
 
     exported = 0
     for case_id, image_path, label_path in pairs:
-        volume = load(image_path).astype(np.float32, copy=False)
+        volume = load(image_path, args.target_spacing, is_label=False).astype(np.float32, copy=False)
         if ref_volume is not None:
             volume = match_histograms(volume, ref_volume).astype(np.float32, copy=False)
-        labels = load(label_path).astype(np.int16, copy=False)
+        labels = load(label_path, args.target_spacing, is_label=True).astype(np.int16, copy=False)
         if volume.shape != labels.shape:
             print(f"[skip] shape mismatch {case_id}: {volume.shape} vs {labels.shape}")
             continue
