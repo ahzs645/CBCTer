@@ -70,7 +70,8 @@ cells = [
          "slice_set(CLINIC_DS, CLIN, 'val')",
          "# absolute paths in data.yaml",
          "for y in [f'{OUT}/data.yaml', f'{CLIN}/data.yaml']:",
-         "    open(y,'w').write(re.sub(r'^path: .*', f'path: {os.path.dirname(y)}', open(y).read(), flags=re.M))",
+         "    s = re.sub(r'^path: .*', f'path: {os.path.dirname(y)}', open(y).read(), flags=re.M)",
+         "    open(y,'w').write(s)",
          "print('TF2 train', len(glob.glob(f'{OUT}/images/train/*.png')), 'val', len(glob.glob(f'{OUT}/images/val/*.png')))",
          "print('clinic', len(glob.glob(f'{CLIN}/images/val/*.png')))"),
 

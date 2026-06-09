@@ -111,7 +111,8 @@ cells = [
          "subprocess.run(['python',EXP,'--dataset-dir',f'{WORK}/clinic-raw/Dataset_clinic','--output-dir',CLIN,",
          "                '--split','val','--stride','8','--target-spacing','0.3','--ct-window','-113.8','4021'], check=True)",
          "for y in [f'{OUT}/data.yaml', f'{CLIN}/data.yaml']:",
-         "    open(y,'w').write(re.sub(r'^path: .*', f'path: {os.path.dirname(y)}', open(y).read(), flags=re.M))",
+         "    s = re.sub(r'^path: .*', f'path: {os.path.dirname(y)}', open(y).read(), flags=re.M)",
+         "    open(y,'w').write(s)",
          "import glob as g; print('train', len(g.glob(f'{OUT}/images/train/*.png')), 'val', len(g.glob(f'{OUT}/images/val/*.png')), 'clinic', len(g.glob(f'{CLIN}/images/val/*.png')))"),
 
     md("## 7. Train the student + evaluate clinic"),
