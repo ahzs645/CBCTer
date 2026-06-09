@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Generate the single-class + 3D-assembly Colab notebook.
+Trains a single-class 'tooth' YOLO (high recall, scanner-robust), then assembles
+per-slice masks into 3D tooth instances via connected-components (browser-deployable,
+no conv3d) and evaluates at the TOOTH-INSTANCE level on the clinic scan — the metric
+per-slice mAP was underselling."""
+import json
+from pathlib import Path
+
+NAS = "/content/drive/MyDrive/UniFi Drive_UNAS Pro 8/UNAS Pro 8_Main Backup/Main/cbct"
+WORK = "/content/drive/MyDrive/cbct"
+
+def md(*l): return {"cell_type": "markdown", "metadata": {}, "source": _nl(l)}
+def code(*l): return {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": _nl(l)}
+def _nl(l): return [s + ("\n" if i < len(l) - 1 else "") for i, s in enumerate(l)]
+
+cells = [
+    md("# CBCT — Single-class detector + 3D assembly (Colab GPU)",
+       "",
+       "The 2D model finds teeth (good recall) but can't number them cross-scanner. So: train",
+       "**single-class 'tooth'** (offload numbering), then **assemble per-slice masks into 3D tooth",
+       "instances** with connected-components (browser-deployable, no conv3d). 3D coherence filters",
+       "the per-slice false positives. Evaluated at the **tooth-instance level** on the clinic scan.",
+       "",
+       "**Runtime → T4 GPU, Run all.**"),
+
+    md("## 1. Setup"),
+    code("!nvidia-smi -L"),
+    code("!pip -q install ultralytics SimpleITK scikit-image scipy opencv-python-headless onnx onnxslim"),
+    code("from google.colab import drive; drive.mount('/content/drive')"),
+    code("import os, glob, re, zipfile, subprocess, shutil, importlib.util, numpy as np",
+         f"NAS={NAS!r}; WORK={WORK!r}",
+         "TARGET_SPACING=0.3; STRIDE=8; CTW=('-113.8','4021')",
+         "EXPORTER=f'{WORK}/export_toothfairy2_mha_yolo_slices.py'",
+         "TF2_ZIP=f'{NAS}/datasets/ToothFairy2_Dataset.zip'",
+         "CLINIC_DS=f'{WORK}/clinic-raw/Dataset_clinic'",
+         "for p in (EXPORTER, TF2_ZIP, CLINIC_DS): assert os.path.exists(p), p",
+         "# import exporter helpers (load/_resample/normalize) for the 3D step",
+         "spec=importlib.util.spec_from_file_location('exp', EXPORTER); exp=importlib.util.module_from_spec(spec); spec.loader.exec_module(exp)",
+         "print('setup OK')"),
+
+    md("## 2. Extract TF2 + slice SINGLE-CLASS (spacing + CT window)"),
+    code("os.makedirs('/content/tf2', exist_ok=True)",
+         "z=zipfile.ZipFile(TF2_ZIP)",
+         "cases=[re.sub(r'.*imagesTr/','',n).replace('_0000.mha','') for n in sorted(z.namelist()) if re.search(r'imagesTr/[^/]+_0000\\.mha$', n)][:64]",
+         "mem=[]",
+         "for c in cases: mem+=[f'Dataset112_ToothFairy2/imagesTr/{c}_0000.mha', f'Dataset112_ToothFairy2/labelsTr/{c}.mha']",
+         "z.extractall('/content/tf2', mem)",
+         "val=[c for i,c in enumerate(cases) if (i+1)%5==0]; train=[c for c in cases if c not in val]",
+         "OUT='/content/data/tf2-1cls'; shutil.rmtree(OUT, ignore_errors=True)",
+         "def slc(ds,out,split,cases=None):",
+         "    cmd=['python',EXPORTER,'--dataset-dir',ds,'--output-dir',out,'--split',split,'--stride',str(STRIDE),",
+         "         '--target-spacing',str(TARGET_SPACING),'--ct-window',*CTW,'--single-class']",
+         "    if cases: cmd+=['--cases',*cases]",
+         "    subprocess.run(cmd, check=True)",
+         "slc('/content/tf2/Dataset112_ToothFairy2', OUT, 'val', val)",
+         "slc('/content/tf2/Dataset112_ToothFairy2', OUT, 'train', train)",
+         "CLIN='/content/data/clinic-1cls'; shutil.rmtree(CLIN, ignore_errors=True)",
+         "slc(CLINIC_DS, CLIN, 'val')",
+         "for y in [f'{OUT}/data.yaml', f'{CLIN}/data.yaml']:",
+         "    s=re.sub(r'^path: .*', f'path: {os.path.dirname(y)}', open(y).read(), flags=re.M); open(y,'w').write(s)",
+         "print('train', len(glob.glob(f'{OUT}/images/train/*.png')), 'val', len(glob.glob(f'{OUT}/images/val/*.png')), 'clinic', len(glob.glob(f'{CLIN}/images/val/*.png')))"),
+
+    md("## 3. Train single-class 'tooth'"),
+    code("from ultralytics import YOLO",
+         "m=YOLO('yolov8n-seg.pt')",
+         "m.train(data=f'{OUT}/data.yaml', epochs=40, imgsz=512, batch=16, device=0, patience=12, workers=2,",
+         "        project='/content/runs', name='fdi-1cls', exist_ok=True)"),
+
+    md("## 4. Per-slice sanity check — does single-class find clinic teeth?"),
+    code("best='/content/runs/fdi-1cls/weights/best.pt'; m=YOLO(best)",
+         "print('TF2 held-out:', round(m.val(data=f'{OUT}/data.yaml', imgsz=512, device=0).box.map50,4))",
+         "rc=m.val(data=f'{CLIN}/data.yaml', imgsz=512, device=0).box",
+         "print('CLINIC per-slice: mAP50', round(rc.map50,4), 'recall', round(rc.mr,4), 'precision', round(rc.mp,4))"),
+
+    md("## 5. 3D assembly on the clinic scan — the real test",
+      "",
+      "Run the detector on **every axial slice**, stack masks → 3D, connected-components + size",
+      "filter → tooth instances. Then match against the clinic's ground-truth teeth (instance level)."),
+    code("import cv2",
+         "from scipy import ndimage",
+         "CIMG=f'{CLINIC_DS}/imagesTr/cbct_aug2025_0000.nii.gz'; CLAB=f'{CLINIC_DS}/labelsTr/cbct_aug2025.nii.gz'",
+         "vol=exp.load(CIMG, TARGET_SPACING, is_label=False)",
+         "lab=exp.load(CLAB, TARGET_SPACING, is_label=True).astype(np.int16)",
+         "print('clinic resampled', vol.shape)",
+         "CONF=0.25; H,W=vol.shape[1],vol.shape[2]",
+         "pred3d=np.zeros(vol.shape, np.uint8)",
+         "for zi in range(vol.shape[0]):",
+         "    rgb=np.stack([exp.normalize(vol[zi], (-113.8,4021))]*3, -1)",
+         "    r=m.predict(rgb, imgsz=512, conf=CONF, verbose=False)[0]",
+         "    if r.masks is not None:",
+         "        for poly in r.masks.xy:",
+         "            if len(poly)>=3: cv2.fillPoly(pred3d[zi], [poly.astype(np.int32)], 1)",
+         "print('predicted tooth voxels', int(pred3d.sum()))"),
+    code("# 3D connected components + tooth-size filter (this removes per-slice false positives)",
+         "lbl3d,n=ndimage.label(pred3d)",
+         "sizes=ndimage.sum(np.ones_like(lbl3d), lbl3d, range(1,n+1))",
+         "MIN_VOX=1500   # ~tooth-sized at 0.3mm; tune",
+         "comps=[i+1 for i,s in enumerate(sizes) if s>=MIN_VOX]",
+         "pred_masks=[lbl3d==c for c in comps]",
+         "print(f'{n} raw components -> {len(comps)} tooth-sized')",
+         "# ground-truth teeth = each FDI value present",
+         "gt_vals=[int(v) for v in np.unique(lab) if 11<=int(v)<=48]",
+         "gt_masks=[lab==v for v in gt_vals]",
+         "# instance match: a GT tooth is found if some predicted comp overlaps >10% of it",
+         "matched=sum(1 for g in gt_masks if any(((g&pm).sum() > 0.1*min(int(g.sum()),int(pm.sum()))) for pm in pred_masks))",
+         "fp=sum(1 for pm in pred_masks if not any((g&pm).sum()>0 for g in gt_masks))",
+         "print(f'=== 3D INSTANCE-LEVEL on clinic ===')",
+         "print(f'GT teeth: {len(gt_vals)} | predicted instances: {len(comps)}')",
+         "print(f'instance recall: {matched}/{len(gt_vals)} = {matched/max(1,len(gt_vals)):.2f} | false positives: {fp}')"),
+
+    md("**Read:** instance recall = fraction of real teeth recovered as distinct 3D components; FP =",
+       "spurious components. If recall is high with few FPs, the 2D-detect → 3D-assemble path works",
+       "on your scanner (and numbering by position is the next step). Tune `CONF` / `MIN_VOX` if needed."),
+
+    md("## 6. Save the single-class model to Drive"),
+    code("m.export(format='onnx', imgsz=512, opset=12, simplify=True)",
+         "dst=f'{WORK}-outputs/fdi-1cls'; os.makedirs(dst, exist_ok=True)",
+         "for f in ['best.pt','best.onnx']: shutil.copy(f'/content/runs/fdi-1cls/weights/{f}', f'{dst}/{f}')",
+         "print('saved to', dst)"),
+]
+
+nb={"cells":cells, "metadata":{"accelerator":"GPU","colab":{"provenance":[],"gpuType":"T4"},
+    "kernelspec":{"display_name":"Python 3","name":"python3"},"language_info":{"name":"python"}},
+    "nbformat":4,"nbformat_minor":0}
+out=Path("notebooks/cbct_singleclass_3d_colab.ipynb"); out.parent.mkdir(exist_ok=True)
+out.write_text(json.dumps(nb, indent=1)); print("wrote", out)

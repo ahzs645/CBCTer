@@ -63,7 +63,7 @@ def slice_pair(volume, labels, axis, index):
     raise ValueError(f"unsupported axis {axis}")
 
 
-def polygon_lines(label_slice, min_area, simplify_step):
+def polygon_lines(label_slice, min_area, simplify_step, single_class=False):
     lines = []
     height, width = label_slice.shape
     for label_value in sorted(int(v) for v in np.unique(label_slice) if int(v) > 0):
@@ -72,7 +72,7 @@ def polygon_lines(label_slice, min_area, simplify_step):
         mask = label_slice == label_value
         if int(np.count_nonzero(mask)) < min_area:
             continue
-        class_id = FDI_TO_CLASS[label_value]
+        class_id = 0 if single_class else FDI_TO_CLASS[label_value]
         contours = find_contours(mask.astype(np.uint8), 0.5)
         if not contours:
             continue
@@ -92,10 +92,13 @@ def polygon_lines(label_slice, min_area, simplify_step):
     return lines
 
 
-def write_data_yaml(root: Path) -> None:
+def write_data_yaml(root: Path, single_class=False) -> None:
     text = "path: .\ntrain: images/train\nval: images/val\nnames:\n"
-    for idx, fdi in enumerate(FDI_TEETH):
-        text += f"  {idx}: fdi_{fdi}\n"
+    if single_class:
+        text += "  0: tooth\n"
+    else:
+        for idx, fdi in enumerate(FDI_TEETH):
+            text += f"  {idx}: fdi_{fdi}\n"
     (root / "data.yaml").write_text(text, encoding="utf-8")
 
 
@@ -140,6 +143,8 @@ def main() -> None:
     p.add_argument("--target-spacing", type=float, default=None,
                    help="resample every volume to this isotropic mm/voxel before slicing (matches nnU-Net; "
                         "makes teeth the same pixel scale across scanners)")
+    p.add_argument("--single-class", action="store_true",
+                   help="map all FDI teeth to one 'tooth' class (offload numbering to 3D assembly)")
     args = p.parse_args()
 
     ref_volume = None
@@ -171,7 +176,7 @@ def main() -> None:
             axis_len = {"z": volume.shape[0], "y": volume.shape[1], "x": volume.shape[2]}[axis]
             for index in range(0, axis_len, max(1, args.stride)):
                 image_slice, label_slice = slice_pair(volume, labels, axis, index)
-                lines = polygon_lines(label_slice, args.min_area, args.simplify_step)
+                lines = polygon_lines(label_slice, args.min_area, args.simplify_step, args.single_class)
                 if not lines:
                     continue
                 stem = f"{case_id}_{axis}_{index:04d}"
@@ -184,7 +189,7 @@ def main() -> None:
                 exported += 1
         print(f"[{case_id}] done; running slice total={exported}")
 
-    write_data_yaml(root)
+    write_data_yaml(root, args.single_class)
     summary = {
         "status": "ok",
         "split": args.split,
