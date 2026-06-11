@@ -67,6 +67,14 @@ export default defineConfig(({ mode }) => {
                 ? 'application/wasm'
                 : 'text/javascript',
             );
+            // This pre-middleware bypasses Vite's `server.headers`, so the COI
+            // headers must be set here too. The page is cross-origin-isolated, so
+            // ORT's threaded pthread module-worker (ort-wasm-simd-threaded.jsep.mjs)
+            // is rejected (HTTP 503) unless this worker script also carries COOP+COEP
+            // — which silently hangs InferenceSession.create. See yolo-worker-coi-503.
+            for (const [key, value] of Object.entries(coiHeaders)) {
+              res.setHeader(key, value);
+            }
             createReadStream(filePath).on('error', next).pipe(res);
           });
         },
