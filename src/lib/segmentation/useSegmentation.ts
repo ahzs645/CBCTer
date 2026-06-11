@@ -7,7 +7,12 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { LoadedVolume } from '../../types';
-import { type GenerateProgress, generateLibrary } from './generateLibrary';
+import {
+  type GenerateProgress,
+  type GeneratedLibrary,
+  generateLibrary,
+  generateLibraryYolo,
+} from './generateLibrary';
 import type { ToothRoi } from './roi';
 import {
   getManualToothRevision,
@@ -46,6 +51,13 @@ export interface UseSegmentation {
     volume: LoadedVolume,
     roi: ToothRoi,
     coreThreshold?: number,
+  ) => Promise<void>;
+  /** Whole-volume single-class YOLO detector (no ROI). `coreThreshold` tunes
+   * watershed separation; `conf` is the detector confidence threshold. */
+  generateYolo: (
+    volume: LoadedVolume,
+    coreThreshold?: number,
+    conf?: number,
   ) => Promise<void>;
   assetRoot: string;
   visibleItems: SegmentationItem[];
@@ -129,19 +141,14 @@ export function useSegmentation(
     [revokeGenerated],
   );
 
-  const generate = useCallback(
-    async (volume: LoadedVolume, roi: ToothRoi, coreThreshold?: number) => {
+  const runGenerated = useCallback(
+    async (build: () => Promise<GeneratedLibrary>) => {
       setGenerating(true);
       setError(null);
       setGenProgress(null);
       revokeGenerated();
       try {
-        const { manifest: built, urls } = await generateLibrary(
-          volume,
-          roi,
-          setGenProgress,
-          { coreThreshold, fdi: { jaw: 'both' } },
-        );
+        const { manifest: built, urls } = await build();
         generatedUrls.current = urls;
         setManifest(built);
         setAssetRootOverride('');
@@ -161,6 +168,30 @@ export function useSegmentation(
       }
     },
     [revokeGenerated],
+  );
+
+  const generate = useCallback(
+    (volume: LoadedVolume, roi: ToothRoi, coreThreshold?: number) =>
+      runGenerated(() =>
+        generateLibrary(volume, roi, setGenProgress, {
+          coreThreshold,
+          fdi: { jaw: 'both' },
+        }),
+      ),
+    [runGenerated],
+  );
+
+  const generateYolo = useCallback(
+    (volume: LoadedVolume, coreThreshold?: number, conf?: number) =>
+      runGenerated(() =>
+        generateLibraryYolo(
+          volume,
+          setGenProgress,
+          { coreThreshold, fdi: { jaw: 'both' } },
+          { conf },
+        ),
+      ),
+    [runGenerated],
   );
 
   useEffect(() => {
@@ -244,6 +275,7 @@ export function useSegmentation(
     generating,
     genProgress,
     generate,
+    generateYolo,
     assetRoot,
     visibleItems,
     selectedItem,

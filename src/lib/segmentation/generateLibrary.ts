@@ -2,7 +2,8 @@ import type { LoadedVolume } from '../../types';
 import { maskProjectionDataUrl } from './maskPreview';
 import { maskToBinaryStl } from './maskMesh';
 import type { ToothRoi } from './roi';
-import { segmentToothROI } from './toothInference';
+import { segmentToothROI, type ToothSegmentationResult } from './toothInference';
+import { segmentToothVolumeYolo, type YoloVolumeOptions } from './segmentToothVolumeYolo';
 import { archAxesFromMeta, assignFdiToItems, type ToothFdiOptions } from './toothFdi';
 import type { SegmentationItem, SegmentationManifest } from './types';
 import { watershedSplit } from './watershed';
@@ -100,13 +101,36 @@ export async function generateLibrary(
   options: GenerateOptions = {},
 ): Promise<GeneratedLibrary> {
   const segmentation = await segmentToothROI(volume, roi, (p) =>
-    onProgress?.({
-      phase: 'inference',
-      completed: p.completed,
-      total: p.total,
-    }),
+    onProgress?.({ phase: 'inference', completed: p.completed, total: p.total }),
   );
+  return buildLibraryFromSegmentation(volume, segmentation, onProgress, options);
+}
 
+/**
+ * Whole-volume single-class YOLO tooth segmentation, then the same separation →
+ * FDI → mesh → manifest pipeline. The mask is in the 0.3 mm resampled grid
+ * (origin [0,0,0]); meshes are scaled by that spacing so world sizes are correct.
+ */
+export async function generateLibraryYolo(
+  volume: LoadedVolume,
+  onProgress?: (progress: GenerateProgress) => void,
+  options: GenerateOptions = {},
+  yoloOptions: YoloVolumeOptions = {},
+): Promise<GeneratedLibrary> {
+  const segmentation = await segmentToothVolumeYolo(
+    volume,
+    (p) => onProgress?.({ phase: 'inference', completed: p.completed, total: p.total }),
+    yoloOptions,
+  );
+  return buildLibraryFromSegmentation(volume, segmentation, onProgress, options);
+}
+
+async function buildLibraryFromSegmentation(
+  volume: LoadedVolume,
+  segmentation: ToothSegmentationResult,
+  onProgress: ((progress: GenerateProgress) => void) | undefined,
+  options: GenerateOptions,
+): Promise<GeneratedLibrary> {
   onProgress?.({ phase: 'separation', completed: 0, total: 1 });
   const { mask, dims, origin, spacing, voxelCount } = segmentation;
   const [, height, width] = dims;

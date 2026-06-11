@@ -177,6 +177,21 @@ export function BrowserLibraryGenerator({
               {seg.generating ? t('teeth.gen.generating') : t('teeth.gen.run')}
             </Button>
 
+            <Button
+              variant="ghost"
+              block
+              disabled={seg.generating}
+              onClick={() => void seg.generateYolo(volume, separation)}
+              title="Single-class YOLO detector over the whole volume (ignores the ROI box); separates teeth in 3D and numbers them."
+            >
+              {seg.generating ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+              )}
+              Detect all teeth (YOLO · whole volume)
+            </Button>
+
             {seg.generating ? (
               <div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
