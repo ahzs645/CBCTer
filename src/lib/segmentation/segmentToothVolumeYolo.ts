@@ -6,9 +6,9 @@ import type {
 } from '../../workers/toothSegYolo.worker';
 
 export interface YoloVolumeOptions {
-  /** Detection confidence threshold (default 0.25). */
+  /** Detection confidence threshold (browser default 0.15). */
   conf?: number;
-  /** Mask binarization threshold on sigmoid prob (default 0.5). */
+  /** Mask binarization threshold on sigmoid prob (browser default 0.7). */
   maskThreshold?: number;
 }
 
@@ -45,6 +45,10 @@ export function segmentToothVolumeYolo(
         worker.terminate();
         resolve({
           mask: new Uint8Array(data.mask),
+          seedLabels:
+            data.seedLabels && data.seedCount > 0
+              ? new Uint16Array(data.seedLabels)
+              : undefined,
           dims: data.dims,
           origin: [0, 0, 0],
           spacing: data.spacing,

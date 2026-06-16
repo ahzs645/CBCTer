@@ -16,8 +16,14 @@ const TOOTH_COLORS = [
 
 /** Components below this are treated as noise and never counted as candidates. */
 const NOISE_FLOOR = 200;
-/** Mirrors the Python audit `--min-voxels` default for tooth candidacy. */
-const MIN_TOOTH_VOXELS = 4000;
+/**
+ * Minimum separated component size to emit as a tooth candidate.
+ *
+ * The single-class YOLO path runs on a 0.3 mm grid; 4000 voxels there was only
+ * ~108 mm3 and admitted many small tooth-like fragments. 8000 keeps the clinic
+ * scan's annotated teeth while pruning the most common false-positive fragments.
+ */
+const DEFAULT_MIN_TOOTH_VOXELS = 8000;
 /** Safety cap on emitted instances (keeps meshing/preview work bounded). */
 const MAX_ITEMS = 64;
 
@@ -82,9 +88,11 @@ function quality(
  * the empty string — URLs are already absolute.
  */
 export interface GenerateOptions {
-  /** Watershed core threshold (voxels): lower merges touching teeth (coarser),
-   * higher separates them (finer). */
+  /** Watershed core threshold (voxels): lower usually splits touching teeth more,
+   * higher usually merges them by requiring deeper/fewer seed cores. */
   coreThreshold?: number;
+  /** Minimum separated component voxel count to emit as a tooth candidate. */
+  minToothVoxels?: number;
   /**
    * Assign FDI (ISO 3950) tooth numbers to the separated instances. When set,
    * each manifest item gets `fdi`/`fdiName`/`quadrant`. Axes default to the
@@ -138,13 +146,16 @@ async function buildLibraryFromSegmentation(
   // connected-components would merge into a single blob.
   const { labels, components } = watershedSplit(mask, dims, {
     coreThreshold: options.coreThreshold,
+    markerLabels: segmentation.seedLabels,
   });
 
   const candidateCount = components.filter(
     (component) => component.voxels >= NOISE_FLOOR,
   ).length;
+  const minToothVoxels =
+    options.minToothVoxels ?? DEFAULT_MIN_TOOTH_VOXELS;
   const kept = components
-    .filter((component) => component.voxels >= MIN_TOOTH_VOXELS)
+    .filter((component) => component.voxels >= minToothVoxels)
     .sort((a, b) => b.voxels - a.voxels)
     .slice(0, MAX_ITEMS);
 

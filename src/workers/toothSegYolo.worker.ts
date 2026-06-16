@@ -1,15 +1,21 @@
 /// <reference lib="webworker" />
 import * as ort from 'onnxruntime-web';
 import { resampleVolume } from '../lib/volume/resample';
-import { decodeYoloSegMask } from '../lib/segmentation/yoloSegDecode';
+import { decodeYoloSegMasks, type YoloMaskInstance } from '../lib/segmentation/yoloSegDecode';
 import type { Vec3 } from '../types';
 
 // Match the single-class training preprocessing: resample to 0.3 mm isotropic,
-// fixed CT window, per-axial-slice YOLOv8-seg, union mask -> 3D tooth volume.
+// fixed CT window, per-axial-slice YOLOv8-seg, union mask plus tracked
+// per-detection seed labels -> 3D tooth volume.
 const INPUT = 512;
 const TARGET_SPACING = 0.3;
+const DEFAULT_CONF = 0.15;
+const DEFAULT_MASK_THRESHOLD = 0.7;
 const HU_LO = -113.8;
 const HU_HI = 4021;
+const MAX_TRACK_GAP = 2;
+const MIN_TRACK_OVERLAP = 0.12;
+const MAX_SEED_LABEL = 65535;
 
 const BASE = import.meta.env.BASE_URL;
 ort.env.wasm.wasmPaths = `${BASE}ort/`;
@@ -31,6 +37,8 @@ export type ToothYoloResponse =
   | {
       type: 'result';
       mask: ArrayBuffer; // Uint8 [oD, oH, oW]
+      seedLabels?: ArrayBuffer; // Uint16 [oD, oH, oW], 0 = unseeded
+      seedCount: number;
       dims: [number, number, number];
       spacing: Vec3;
       voxelCount: number;
@@ -85,6 +93,107 @@ function preprocessSlice(slice: Float32Array, h: number, w: number) {
   return { chw, padX, padY, newW, newH };
 }
 
+interface SliceSeed {
+  pixels: Int32Array; // y * width + x in the resampled volume slice
+  score: number;
+}
+
+interface ActiveTrack {
+  id: number;
+  lastZ: number;
+  pixels: Int32Array;
+}
+
+function sparseIntersection(a: Int32Array, b: Int32Array): number {
+  let i = 0;
+  let j = 0;
+  let count = 0;
+  while (i < a.length && j < b.length) {
+    const av = a[i];
+    const bv = b[j];
+    if (av === bv) {
+      count += 1;
+      i += 1;
+      j += 1;
+    } else if (av < bv) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+  return count;
+}
+
+function mapInstanceToVolumeSlice(
+  instance: YoloMaskInstance,
+  padX: number,
+  padY: number,
+  newW: number,
+  newH: number,
+  volumeW: number,
+  volumeH: number,
+): SliceSeed | null {
+  const mapped: number[] = [];
+  const xMax = padX + newW;
+  const yMax = padY + newH;
+
+  for (let i = 0; i < instance.pixels.length; i += 1) {
+    const pixel = instance.pixels[i];
+    const ly = Math.floor(pixel / INPUT);
+    const lx = pixel - ly * INPUT;
+    if (lx < padX || lx >= xMax || ly < padY || ly >= yMax) continue;
+
+    const x = Math.min(
+      volumeW - 1,
+      Math.max(0, Math.floor(((lx - padX + 0.5) * volumeW) / newW)),
+    );
+    const y = Math.min(
+      volumeH - 1,
+      Math.max(0, Math.floor(((ly - padY + 0.5) * volumeH) / newH)),
+    );
+    mapped.push(y * volumeW + x);
+  }
+
+  if (mapped.length === 0) return null;
+  mapped.sort((a, b) => a - b);
+  let write = 0;
+  for (let read = 0; read < mapped.length; read += 1) {
+    if (read > 0 && mapped[read] === mapped[read - 1]) continue;
+    mapped[write] = mapped[read];
+    write += 1;
+  }
+
+  return {
+    pixels: Int32Array.from(mapped.slice(0, write)),
+    score: instance.detection.score,
+  };
+}
+
+function chooseTrack(
+  seed: SliceSeed,
+  z: number,
+  activeTracks: Map<number, ActiveTrack>,
+  usedTracks: Set<number>,
+): number | null {
+  let bestTrack: ActiveTrack | null = null;
+  let bestScore = 0;
+
+  for (const track of activeTracks.values()) {
+    if (usedTracks.has(track.id)) continue;
+    const gap = z - track.lastZ;
+    if (gap < 1 || gap > MAX_TRACK_GAP) continue;
+    const intersection = sparseIntersection(seed.pixels, track.pixels);
+    if (intersection === 0) continue;
+    const score = intersection / Math.min(seed.pixels.length, track.pixels.length);
+    if (score > bestScore) {
+      bestScore = score;
+      bestTrack = track;
+    }
+  }
+
+  return bestTrack && bestScore >= MIN_TRACK_OVERLAP ? bestTrack.id : null;
+}
+
 async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
   const session = await getSession();
   const inputName = session.inputNames[0];
@@ -100,10 +209,13 @@ async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
   );
   const [oD, oH, oW] = rdims;
   const mask3d = new Uint8Array(oD * oH * oW);
+  const seedLabels = new Uint16Array(oD * oH * oW);
   let voxelCount = 0;
+  let nextTrackId = 1;
   const sliceLen = oH * oW;
-  const conf = req.conf ?? 0.25;
-  const maskThreshold = req.maskThreshold ?? 0.5;
+  const conf = req.conf ?? DEFAULT_CONF;
+  const maskThreshold = req.maskThreshold ?? DEFAULT_MASK_THRESHOLD;
+  const activeTracks = new Map<number, ActiveTrack>();
 
   for (let z = 0; z < oD; z += 1) {
     const slice = vol.subarray(z * sliceLen, (z + 1) * sliceLen);
@@ -119,7 +231,7 @@ async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
       else if (t.dims.length === 4) proto = t;
     }
     if (det && proto) {
-      const { mask } = decodeYoloSegMask(
+      const { mask, instances } = decodeYoloSegMasks(
         det.data as Float32Array,
         det.dims as [number, number, number],
         proto.data as Float32Array,
@@ -139,6 +251,30 @@ async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
           }
         }
       }
+
+      const seeds = instances
+        .map((instance) => mapInstanceToVolumeSlice(instance, padX, padY, newW, newH, oW, oH))
+        .filter((seed): seed is SliceSeed => seed !== null && seed.pixels.length > 0)
+        .sort((a, b) => b.score - a.score);
+      const usedTracks = new Set<number>();
+      for (const seed of seeds) {
+        let trackId = chooseTrack(seed, z, activeTracks, usedTracks);
+        if (trackId === null) {
+          if (nextTrackId > MAX_SEED_LABEL) continue;
+          trackId = nextTrackId;
+          nextTrackId += 1;
+        }
+        usedTracks.add(trackId);
+        activeTracks.set(trackId, { id: trackId, lastZ: z, pixels: seed.pixels });
+
+        for (let i = 0; i < seed.pixels.length; i += 1) {
+          const index = base + seed.pixels[i];
+          if (mask3d[index] && seedLabels[index] === 0) seedLabels[index] = trackId;
+        }
+      }
+    }
+    for (const [trackId, track] of activeTracks) {
+      if (z - track.lastZ > MAX_TRACK_GAP) activeTracks.delete(trackId);
     }
     self.postMessage({ type: 'progress', completed: z + 1, total: oD } satisfies ToothYoloResponse);
   }
@@ -146,6 +282,8 @@ async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
   return {
     type: 'result',
     mask: mask3d.buffer,
+    seedLabels: seedLabels.buffer,
+    seedCount: nextTrackId - 1,
     dims: [oD, oH, oW],
     spacing: [TARGET_SPACING, TARGET_SPACING, TARGET_SPACING],
     voxelCount,
@@ -155,7 +293,11 @@ async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
 self.onmessage = async (event: MessageEvent<ToothYoloRequest>) => {
   try {
     const response = await run(event.data);
-    const transfer = response.type === 'result' ? [response.mask] : [];
+    const transfer: Transferable[] = [];
+    if (response.type === 'result') {
+      transfer.push(response.mask);
+      if (response.seedLabels) transfer.push(response.seedLabels);
+    }
     self.postMessage(response, transfer);
   } catch (error) {
     self.postMessage({

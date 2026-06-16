@@ -20,11 +20,15 @@ interface BrowserLibraryGeneratorProps {
 const DEFAULT_SIZE = 160;
 const MIN_SIZE = 96;
 const MAX_SIZE = 240;
-// Watershed core threshold in voxels: lower merges touching teeth (coarser),
-// higher separates them (finer).
+// Watershed core threshold in voxels: lower usually splits touching teeth more,
+// higher usually merges them by requiring deeper/fewer seed cores.
 const DEFAULT_SEPARATION = 7;
 const MIN_SEPARATION = 3;
 const MAX_SEPARATION = 16;
+const DEFAULT_MIN_TOOTH_VOXELS = 8000;
+const MIN_TOOTH_VOXELS = 4000;
+const MAX_TOOTH_VOXELS = 30000;
+const TOOTH_VOXELS_STEP = 1000;
 
 /**
  * Empty-state for the library tab when no manifest is loaded: generate the
@@ -51,6 +55,9 @@ export function BrowserLibraryGenerator({
   // Watershed marker distance (voxels): lower splits touching teeth more,
   // higher merges them. See watershedSplit().
   const [separation, setSeparation] = useState(DEFAULT_SEPARATION);
+  const [minToothVoxels, setMinToothVoxels] = useState(
+    DEFAULT_MIN_TOOTH_VOXELS,
+  );
 
   const buildRoi = (): ToothRoi => {
     const half = Math.round(size / 2);
@@ -159,12 +166,28 @@ export function BrowserLibraryGenerator({
               onChange={setSeparation}
               hint={t('teeth.gen.separationHint')}
             />
+            <RangeField
+              label={t('teeth.gen.minToothVoxels')}
+              min={MIN_TOOTH_VOXELS}
+              max={MAX_TOOTH_VOXELS}
+              step={TOOTH_VOXELS_STEP}
+              value={minToothVoxels}
+              onChange={setMinToothVoxels}
+              hint={t('teeth.gen.minToothVoxelsHint')}
+            />
 
             <Button
               variant="primary"
               block
               disabled={seg.generating}
-              onClick={() => void seg.generate(volume, buildRoi(), separation)}
+              onClick={() =>
+                void seg.generate(
+                  volume,
+                  buildRoi(),
+                  separation,
+                  minToothVoxels,
+                )
+              }
             >
               {seg.generating ? (
                 <LoaderCircle
@@ -181,7 +204,14 @@ export function BrowserLibraryGenerator({
               variant="ghost"
               block
               disabled={seg.generating}
-              onClick={() => void seg.generateYolo(volume, separation)}
+              onClick={() =>
+                void seg.generateYolo(
+                  volume,
+                  separation,
+                  undefined,
+                  minToothVoxels,
+                )
+              }
               title="Single-class YOLO detector over the whole volume (ignores the ROI box); separates teeth in 3D and numbers them."
             >
               {seg.generating ? (

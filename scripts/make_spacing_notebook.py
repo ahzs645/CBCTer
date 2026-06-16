@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 NAS = "/content/drive/MyDrive/UniFi Drive_UNAS Pro 8/UNAS Pro 8_Main Backup/Main/cbct"  # read-only backup
-WORK = "/content/drive/MyDrive/cbct"        # exporter + clinic-raw + outputs (writable)
+WORK = "/content/drive/MyDrive/Projects/Health/CBCT/cbct-notebook"        # exporter + clinic-raw + outputs (writable)
 
 def md(*l): return {"cell_type": "markdown", "metadata": {}, "source": _nl(l)}
 def code(*l): return {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": _nl(l)}

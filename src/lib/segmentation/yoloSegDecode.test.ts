@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   MASK_COEFFS,
+  buildInstanceMasks,
   buildUnionMask,
   decodeDetections,
   decodeYoloSegMask,
+  decodeYoloSegMasks,
 } from './yoloSegDecode';
 
 const CH = 5 + MASK_COEFFS; // 37
@@ -63,6 +65,26 @@ describe('yoloSegDecode', () => {
     expect(mask[6 * inputSize + 6]).toBe(0); // just outside box (x2=6 exclusive)
   });
 
+  it('keeps per-detection instance masks before unioning', () => {
+    const inputSize = 8;
+    const protoH = 4;
+    const protoW = 4;
+    const out0 = makeOut0([
+      { cx: 2, cy: 2, w: 2, h: 2, score: 0.9, coeff0: 10 },
+      { cx: 6, cy: 6, w: 2, h: 2, score: 0.8, coeff0: 10 },
+    ]);
+    const protos = new Float32Array(MASK_COEFFS * protoH * protoW);
+    for (let i = 0; i < protoH * protoW; i += 1) protos[i] = 1;
+
+    const dets = decodeDetections(out0, CH, 2);
+    const instances = buildInstanceMasks(dets, protos, protoH, protoW, inputSize);
+
+    expect(instances).toHaveLength(2);
+    expect([...instances[0].pixels]).toContain(2 * inputSize + 2);
+    expect([...instances[0].pixels]).not.toContain(6 * inputSize + 6);
+    expect([...instances[1].pixels]).toContain(6 * inputSize + 6);
+  });
+
   it('end-to-end decode returns a non-empty mask', () => {
     const out0 = makeOut0([{ cx: 4, cy: 4, w: 4, h: 4, score: 0.9, coeff0: 10 }]);
     const protos = new Float32Array(MASK_COEFFS * 4 * 4).fill(0);
@@ -70,5 +92,22 @@ describe('yoloSegDecode', () => {
     const { mask, count } = decodeYoloSegMask(out0, [1, CH, 1], protos, [1, 32, 4, 4], 8);
     expect(count).toBe(1);
     expect(mask.reduce((s, v) => s + v, 0)).toBeGreaterThan(0);
+  });
+
+  it('end-to-end decode returns sparse instances matching the union mask', () => {
+    const out0 = makeOut0([{ cx: 4, cy: 4, w: 4, h: 4, score: 0.9, coeff0: 10 }]);
+    const protos = new Float32Array(MASK_COEFFS * 4 * 4).fill(0);
+    for (let i = 0; i < 16; i += 1) protos[i] = 1;
+
+    const { mask, instances } = decodeYoloSegMasks(
+      out0,
+      [1, CH, 1],
+      protos,
+      [1, 32, 4, 4],
+      8,
+    );
+
+    expect(instances).toHaveLength(1);
+    for (const pixel of instances[0].pixels) expect(mask[pixel]).toBe(1);
   });
 });

@@ -46,18 +46,22 @@ export interface UseSegmentation {
   /** Progress of the in-browser generation, or null when idle. */
   genProgress: GenerateProgress | null;
   /** Run the UNet over `roi` and build a library entirely in the browser.
-   * `coreThreshold` tunes watershed separation granularity (voxels). */
+   * `coreThreshold` tunes watershed separation granularity; `minToothVoxels`
+   * filters out small separated fragments before meshing. */
   generate: (
     volume: LoadedVolume,
     roi: ToothRoi,
     coreThreshold?: number,
+    minToothVoxels?: number,
   ) => Promise<void>;
   /** Whole-volume single-class YOLO detector (no ROI). `coreThreshold` tunes
-   * watershed separation; `conf` is the detector confidence threshold. */
+   * watershed separation; `conf` is the detector confidence threshold;
+   * `minToothVoxels` filters out small separated fragments before meshing. */
   generateYolo: (
     volume: LoadedVolume,
     coreThreshold?: number,
     conf?: number,
+    minToothVoxels?: number,
   ) => Promise<void>;
   assetRoot: string;
   visibleItems: SegmentationItem[];
@@ -171,10 +175,16 @@ export function useSegmentation(
   );
 
   const generate = useCallback(
-    (volume: LoadedVolume, roi: ToothRoi, coreThreshold?: number) =>
+    (
+      volume: LoadedVolume,
+      roi: ToothRoi,
+      coreThreshold?: number,
+      minToothVoxels?: number,
+    ) =>
       runGenerated(() =>
         generateLibrary(volume, roi, setGenProgress, {
           coreThreshold,
+          minToothVoxels,
           fdi: { jaw: 'both' },
         }),
       ),
@@ -182,12 +192,17 @@ export function useSegmentation(
   );
 
   const generateYolo = useCallback(
-    (volume: LoadedVolume, coreThreshold?: number, conf?: number) =>
+    (
+      volume: LoadedVolume,
+      coreThreshold?: number,
+      conf?: number,
+      minToothVoxels?: number,
+    ) =>
       runGenerated(() =>
         generateLibraryYolo(
           volume,
           setGenProgress,
-          { coreThreshold, fdi: { jaw: 'both' } },
+          { coreThreshold, minToothVoxels, fdi: { jaw: 'both' } },
           { conf },
         ),
       ),

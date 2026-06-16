@@ -18,9 +18,14 @@ const DEFAULT_CORE_THRESHOLD = 7;
 
 export interface WatershedOptions {
   /** Granularity knob (voxels): the distance-transform depth a region must
-   * reach to count as a separate tooth core. Lower merges touching teeth
-   * (coarser), higher separates them (finer). */
+   * reach to count as a separate tooth core. Lower usually splits touching
+   * teeth more, higher usually merges them by requiring deeper/fewer cores. */
   coreThreshold?: number;
+  /**
+   * Optional labeled marker volume in the same frame as `mask`.
+   * Positive values are used directly as watershed seed ids.
+   */
+  markerLabels?: Uint16Array | Int32Array;
 }
 
 /** 1D squared distance transform of a sampled function (Felzenszwalb). */
@@ -195,6 +200,10 @@ export function watershedSplit(
   dims: [number, number, number],
   options: WatershedOptions = {},
 ): WatershedResult {
+  if (options.markerLabels && options.markerLabels.length !== mask.length) {
+    throw new Error('watershed marker labels must have the same length as the mask');
+  }
+
   const [depth, height, width] = dims;
   const slice = height * width;
 
@@ -207,15 +216,6 @@ export function watershedSplit(
   const compMaxIdx = new Int32Array(fg.components.length + 1).fill(-1);
   const compHasSeed = new Uint8Array(fg.components.length + 1);
 
-  // Markers = connected "cores": foreground voxels deep enough (distance ≥
-  // coreThreshold) to be a tooth center. One connected core per tooth — far
-  // less over-splitting than one-marker-per-local-max — and the threshold is
-  // the granularity knob: lower lets cores of touching teeth merge (coarser,
-  // fewer teeth), higher shrinks cores so they separate (finer, more teeth).
-  // Any fg component with no core still gets its peak voxel so nothing is left
-  // unlabeled.
-  const coreThreshold = options.coreThreshold ?? DEFAULT_CORE_THRESHOLD;
-  const seedMask = new Uint8Array(mask.length);
   for (let i = 0; i < mask.length; i += 1) {
     if (mask[i] === 0) continue;
     const comp = fg.labels[i];
@@ -224,24 +224,58 @@ export function watershedSplit(
       compMaxVal[comp] = dv;
       compMaxIdx[comp] = i;
     }
-    if (dv >= coreThreshold) {
-      seedMask[i] = 1;
-      compHasSeed[comp] = 1;
-    }
   }
-  for (let c = 1; c < fg.components.length + 1; c += 1) {
-    if (!compHasSeed[c] && compMaxIdx[c] >= 0) seedMask[compMaxIdx[c]] = 1;
-  }
-
-  // Each connected core is one marker basin.
-  const markers = labelComponents(seedMask, dims, 26);
 
   const labels = new Int32Array(mask.length);
   const heap = new MaxHeap(dist);
-  for (let i = 0; i < mask.length; i += 1) {
-    if (seedMask[i]) {
-      labels[i] = markers.labels[i];
+  const markerLabels = options.markerLabels;
+  if (markerLabels) {
+    let maxMarker = 0;
+    for (let i = 0; i < mask.length; i += 1) {
+      if (mask[i] === 0) continue;
+      const marker = markerLabels[i];
+      if (marker <= 0) continue;
+      labels[i] = marker;
       heap.push(i);
+      compHasSeed[fg.labels[i]] = 1;
+      if (marker > maxMarker) maxMarker = marker;
+    }
+    for (let c = 1; c < fg.components.length + 1; c += 1) {
+      if (compHasSeed[c] || compMaxIdx[c] < 0) continue;
+      maxMarker += 1;
+      labels[compMaxIdx[c]] = maxMarker;
+      heap.push(compMaxIdx[c]);
+    }
+  } else {
+    // Markers = connected "cores": foreground voxels deep enough (distance ≥
+    // coreThreshold) to be a tooth center. One connected core per tooth — far
+    // less over-splitting than one-marker-per-local-max — and the threshold is
+    // the granularity knob: lower allows more seed cores, while higher keeps only
+    // deeper cores and can merge touching teeth into larger basins.
+    // Any fg component with no core still gets its peak voxel so nothing is left
+    // unlabeled.
+    const coreThreshold = options.coreThreshold ?? DEFAULT_CORE_THRESHOLD;
+    const seedMask = new Uint8Array(mask.length);
+    for (let i = 0; i < mask.length; i += 1) {
+      if (mask[i] === 0) continue;
+      const comp = fg.labels[i];
+      if (dist[i] >= coreThreshold) {
+        seedMask[i] = 1;
+        compHasSeed[comp] = 1;
+      }
+    }
+    for (let c = 1; c < fg.components.length + 1; c += 1) {
+      if (!compHasSeed[c] && compMaxIdx[c] >= 0) seedMask[compMaxIdx[c]] = 1;
+    }
+
+    // Each connected core is one marker basin.
+    const markers = labelComponents(seedMask, dims, 26);
+
+    for (let i = 0; i < mask.length; i += 1) {
+      if (seedMask[i]) {
+        labels[i] = markers.labels[i];
+        heap.push(i);
+      }
     }
   }
 

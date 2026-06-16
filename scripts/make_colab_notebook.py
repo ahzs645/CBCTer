@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Read-only NAS backup synced to Drive; outputs go to a separate writable folder.
 INPUT_DIR = "/content/drive/MyDrive/UniFi Drive_UNAS Pro 8/UNAS Pro 8_Main Backup/Main/cbct"
-OUT_DIR = "/content/drive/MyDrive/cbct-outputs"
+OUT_DIR = "/content/drive/MyDrive/Projects/Health/CBCT/cbct-outputs"
 
 def md(*lines):
     return {"cell_type": "markdown", "metadata": {}, "source": _nl(lines)}

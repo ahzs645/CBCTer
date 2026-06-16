@@ -8,6 +8,11 @@ import type {
 export interface ToothSegmentationResult {
   /** Binary mask in [D, H, W] order over the ROI crop. */
   mask: Uint8Array;
+  /**
+   * Optional labeled watershed seeds in the same frame as `mask`.
+   * `0` is background/unseeded; positive values are marker ids.
+   */
+  seedLabels?: Uint16Array | Int32Array;
   /** [depth, height, width] of the crop. */
   dims: [number, number, number];
   /** ROI origin in volume voxel coords [x, y, z]. */

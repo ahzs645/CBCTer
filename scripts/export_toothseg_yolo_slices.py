@@ -11,9 +11,9 @@ import argparse
 import json
 from pathlib import Path
 
-import nibabel as nib
 import numpy as np
 from PIL import Image
+import SimpleITK as sitk
 from skimage.measure import find_contours
 
 TOOTHSEG_LABEL_TO_FDI = {
@@ -54,12 +54,39 @@ TOOTHSEG_LABEL_TO_FDI = {
 FDI_TO_CLASS = {fdi: idx for idx, fdi in enumerate(sorted(TOOTHSEG_LABEL_TO_FDI.values()))}
 
 
-def load(path: Path) -> np.ndarray:
-    return np.asanyarray(nib.load(str(path)).dataobj)
+def _resample(img: "sitk.Image", target_spacing: float, is_label: bool) -> "sitk.Image":
+    spacing = img.GetSpacing()
+    size = img.GetSize()
+    new_size = [
+        max(1, int(round(sz * sp / float(target_spacing))))
+        for sz, sp in zip(size, spacing)
+    ]
+    interp = sitk.sitkNearestNeighbor if is_label else sitk.sitkLinear
+    return sitk.Resample(
+        img,
+        new_size,
+        sitk.Transform(),
+        interp,
+        img.GetOrigin(),
+        (float(target_spacing),) * 3,
+        img.GetDirection(),
+        0.0,
+        img.GetPixelID(),
+    )
 
 
-def normalize(image: np.ndarray) -> np.ndarray:
-    lo, hi = np.percentile(image, [0.5, 99.5])
+def load(path: Path, target_spacing: float | None = None, is_label: bool = False) -> np.ndarray:
+    img = sitk.ReadImage(str(path))
+    if target_spacing is not None:
+        img = _resample(img, target_spacing, is_label)
+    return sitk.GetArrayFromImage(img)
+
+
+def normalize(image: np.ndarray, ct_window: tuple[float, float] | None = None) -> np.ndarray:
+    if ct_window is None:
+        lo, hi = np.percentile(image, [0.5, 99.5])
+    else:
+        lo, hi = ct_window
     scaled = np.clip((image - lo) / max(float(hi - lo), 1.0), 0, 1)
     return (scaled * 255).astype(np.uint8)
 
@@ -79,6 +106,7 @@ def polygon_lines(
     min_area: int,
     simplify_step: int,
     single_class: bool,
+    label_mode: str,
 ) -> list[str]:
     lines: list[str] = []
     height, width = label_slice.shape
@@ -86,10 +114,19 @@ def polygon_lines(
         mask = label_slice == label_value
         if int(np.count_nonzero(mask)) < min_area:
             continue
-        fdi = TOOTHSEG_LABEL_TO_FDI.get(label_value)
-        if fdi is None:
-            continue
-        class_id = 0 if single_class else FDI_TO_CLASS[fdi]
+        if single_class:
+            class_id = 0
+        elif label_mode == "nonzero":
+            class_id = label_value - 1
+        else:
+            fdi = (
+                TOOTHSEG_LABEL_TO_FDI.get(label_value)
+                if label_mode == "toothseg"
+                else label_value
+            )
+            if fdi not in FDI_TO_CLASS:
+                continue
+            class_id = FDI_TO_CLASS[fdi]
         contours = find_contours(mask.astype(np.uint8), 0.5)
         if not contours:
             continue
@@ -120,12 +157,26 @@ def main() -> None:
     parser.add_argument("--simplify-step", type=int, default=4)
     parser.add_argument("--val-every", type=int, default=5)
     parser.add_argument("--single-class", action="store_true", help="Use one 'tooth' class instead of 32 FDI classes.")
+    parser.add_argument(
+        "--label-mode",
+        choices=("toothseg", "fdi", "nonzero"),
+        default="toothseg",
+        help=(
+            "toothseg maps ToothSeg class ids 1..32 to FDI classes; fdi expects "
+            "voxel values 11..48; nonzero treats every nonzero value as one "
+            "instance and is the safest teacher mode for recovered labelmaps."
+        ),
+    )
+    parser.add_argument("--target-spacing", type=float, default=None)
+    parser.add_argument("--ct-window", nargs=2, type=float, default=None, metavar=("LO", "HI"))
+    parser.add_argument("--case-id", default="toothseg_teacher")
     args = parser.parse_args()
 
-    volume = load(args.volume).astype(np.float32, copy=False)
-    labels = load(args.labels).astype(np.int16, copy=False)
+    volume = load(args.volume, args.target_spacing, is_label=False).astype(np.float32, copy=False)
+    labels = load(args.labels, args.target_spacing, is_label=True).astype(np.int16, copy=False)
     if volume.shape != labels.shape:
         raise RuntimeError(f"shape mismatch: volume={volume.shape} labels={labels.shape}")
+    ct_window = tuple(args.ct_window) if args.ct_window is not None else None
 
     root = args.output_dir
     for split in ("train", "val"):
@@ -134,25 +185,38 @@ def main() -> None:
 
     exported = []
     sequence = 0
+    label_values = sorted(int(v) for v in np.unique(labels) if int(v) > 0)
     for axis in args.axes:
         axis_len = {"z": volume.shape[0], "y": volume.shape[1], "x": volume.shape[2]}[axis]
         for index in range(0, axis_len, max(1, args.stride)):
             image_slice, label_slice = slice_pair(volume, labels, axis, index)
-            lines = polygon_lines(label_slice, args.min_area, args.simplify_step, args.single_class)
+            lines = polygon_lines(
+                label_slice,
+                args.min_area,
+                args.simplify_step,
+                args.single_class,
+                args.label_mode,
+            )
             if not lines:
                 continue
             split = "val" if sequence % max(2, args.val_every) == 0 else "train"
-            stem = f"{axis}_{index:04d}"
+            stem = f"{args.case_id}_{axis}_{index:04d}"
             image_path = root / "images" / split / f"{stem}.png"
             label_path = root / "labels" / split / f"{stem}.txt"
-            Image.fromarray(normalize(image_slice)).save(image_path)
+            Image.fromarray(normalize(image_slice, ct_window)).convert("RGB").save(image_path)
             label_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             exported.append({"axis": axis, "index": index, "split": split, "objects": len(lines)})
             sequence += 1
 
-    names = ["tooth"] if args.single_class else [f"fdi_{fdi}" for fdi in sorted(FDI_TO_CLASS)]
+    if args.single_class:
+        names = ["tooth"]
+    elif args.label_mode == "nonzero":
+        max_label = max(label_values) if label_values else 0
+        names = [f"label_{value}" for value in range(1, max_label + 1)]
+    else:
+        names = [f"fdi_{fdi}" for fdi in sorted(FDI_TO_CLASS)]
     data_yaml = {
-        "path": ".",
+        "path": str(root),
         "train": "images/train",
         "val": "images/val",
         "names": {idx: name for idx, name in enumerate(names)},
@@ -167,7 +231,9 @@ def main() -> None:
         "labels": str(args.labels),
         "outputDir": str(root),
         "singleClass": args.single_class,
+        "labelMode": args.label_mode,
         "classCount": len(names),
+        "labelValues": label_values,
         "sliceCount": len(exported),
         "trainSlices": sum(1 for item in exported if item["split"] == "train"),
         "valSlices": sum(1 for item in exported if item["split"] == "val"),
@@ -176,6 +242,8 @@ def main() -> None:
         "stride": args.stride,
         "minArea": args.min_area,
         "simplifyStep": args.simplify_step,
+        "targetSpacing": args.target_spacing,
+        "ctWindow": list(ct_window) if ct_window is not None else None,
     }
     (root / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
