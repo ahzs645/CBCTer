@@ -3,6 +3,7 @@ import type { ToothSegmentationResult, SegmentationProgress } from './toothInfer
 import type {
   ToothYoloRequest,
   ToothYoloResponse,
+  ToothYoloModelVariant,
 } from '../../workers/toothSegYolo.worker';
 
 export interface YoloVolumeOptions {
@@ -10,6 +11,8 @@ export interface YoloVolumeOptions {
   conf?: number;
   /** Mask binarization threshold on sigmoid prob (browser default 0.7). */
   maskThreshold?: number;
+  /** `2p5d` requires public/models/tooth-yolov8n-seg-2p5d.onnx. */
+  modelVariant?: ToothYoloModelVariant;
 }
 
 /**
@@ -71,6 +74,7 @@ export function segmentToothVolumeYolo(
       spacing: volume.meta.spacing,
       conf: options.conf,
       maskThreshold: options.maskThreshold,
+      modelVariant: options.modelVariant,
     };
     worker.postMessage(request, [request.voxels]);
   });

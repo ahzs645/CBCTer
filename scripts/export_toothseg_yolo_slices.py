@@ -101,6 +101,31 @@ def slice_pair(volume: np.ndarray, labels: np.ndarray, axis: str, index: int) ->
     raise ValueError(f"unsupported axis {axis}")
 
 
+def image_context(
+    volume: np.ndarray,
+    axis: str,
+    index: int,
+    context_slices: int,
+    ct_window: tuple[float, float] | None,
+) -> Image.Image:
+    """Build an RGB image from physical neighbors around the labeled center slice.
+
+    ``context_slices=0`` preserves the legacy grayscale-to-RGB behavior. A
+    positive value maps ``center-offset``, ``center``, and ``center+offset`` to
+    RGB, clamping at volume boundaries. The volume is normally resampled before
+    this function, so the offset has a consistent physical meaning.
+    """
+    axis_len = {"z": volume.shape[0], "y": volume.shape[1], "x": volume.shape[2]}[axis]
+    offset = max(0, int(context_slices))
+    indices = [
+        max(0, min(axis_len - 1, index - offset)),
+        index,
+        max(0, min(axis_len - 1, index + offset)),
+    ]
+    channels = [normalize(slice_pair(volume, volume, axis, i)[0], ct_window) for i in indices]
+    return Image.fromarray(np.stack(channels, axis=-1), mode="RGB")
+
+
 def polygon_lines(
     label_slice: np.ndarray,
     min_area: int,
@@ -156,6 +181,12 @@ def main() -> None:
     parser.add_argument("--min-area", type=int, default=80)
     parser.add_argument("--simplify-step", type=int, default=4)
     parser.add_argument("--val-every", type=int, default=5)
+    parser.add_argument(
+        "--split",
+        choices=("train", "val"),
+        default=None,
+        help="Force every exported slice into one patient-level split.",
+    )
     parser.add_argument("--single-class", action="store_true", help="Use one 'tooth' class instead of 32 FDI classes.")
     parser.add_argument(
         "--label-mode",
@@ -169,6 +200,15 @@ def main() -> None:
     )
     parser.add_argument("--target-spacing", type=float, default=None)
     parser.add_argument("--ct-window", nargs=2, type=float, default=None, metavar=("LO", "HI"))
+    parser.add_argument(
+        "--context-slices",
+        type=int,
+        default=0,
+        help=(
+            "Use center-offset/center/center+offset as RGB channels. With the "
+            "recommended 0.3 mm resampling, --context-slices 2 gives +/-0.6 mm context."
+        ),
+    )
     parser.add_argument("--case-id", default="toothseg_teacher")
     args = parser.parse_args()
 
@@ -199,11 +239,13 @@ def main() -> None:
             )
             if not lines:
                 continue
-            split = "val" if sequence % max(2, args.val_every) == 0 else "train"
+            split = args.split or (
+                "val" if sequence % max(2, args.val_every) == 0 else "train"
+            )
             stem = f"{args.case_id}_{axis}_{index:04d}"
             image_path = root / "images" / split / f"{stem}.png"
             label_path = root / "labels" / split / f"{stem}.txt"
-            Image.fromarray(normalize(image_slice, ct_window)).convert("RGB").save(image_path)
+            image_context(volume, axis, index, args.context_slices, ct_window).save(image_path)
             label_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             exported.append({"axis": axis, "index": index, "split": split, "objects": len(lines)})
             sequence += 1
@@ -244,6 +286,13 @@ def main() -> None:
         "simplifyStep": args.simplify_step,
         "targetSpacing": args.target_spacing,
         "ctWindow": list(ct_window) if ct_window is not None else None,
+        "contextSlices": args.context_slices,
+        "contextMm": (
+            args.context_slices * args.target_spacing
+            if args.target_spacing is not None
+            else None
+        ),
+        "forcedSplit": args.split,
     }
     (root / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))

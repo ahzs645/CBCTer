@@ -107,6 +107,65 @@ export interface FdiOptions {
   anteriorAxis?: Vec3;
 }
 
+interface ProjectedTooth {
+  index: number;
+  lr: number;
+  ap: number;
+}
+
+/**
+ * Infer interior missing-tooth slots from unusually large centroid gaps.
+ *
+ * This deliberately stays conservative: it never invents more missing slots
+ * than the quadrant can contain, and it leaves ordinary/ambiguous spacing as
+ * consecutive rank order. Semantic teacher probabilities can eventually
+ * replace this geometry-only fallback with a full min-cost assignment.
+ */
+function inferArchSlots(sorted: ProjectedTooth[]): number[] {
+  if (sorted.length < 3 || sorted.length >= 8) {
+    return sorted.map((_, index) => index + 1);
+  }
+
+  const gaps = sorted.slice(1).map((entry, index) => {
+    const previous = sorted[index];
+    return Math.hypot(entry.lr - previous.lr, entry.ap - previous.ap);
+  });
+  const finite = gaps.filter((gap) => Number.isFinite(gap) && gap > 0).sort((a, b) => a - b);
+  if (finite.length < 2) return sorted.map((_, index) => index + 1);
+
+  // Estimate normal neighbor spacing from the smaller 60% so a true missing
+  // tooth gap does not inflate the baseline.
+  const normalCount = Math.max(2, Math.ceil(finite.length * 0.6));
+  const normal = finite.slice(0, normalCount);
+  const typical = normal[Math.floor(normal.length / 2)];
+  if (!(typical > 0)) return sorted.map((_, index) => index + 1);
+
+  const availableMissingSlots = 8 - sorted.length;
+  const candidates = gaps
+    .map((gap, index) => ({
+      index,
+      ratio: gap / typical,
+      requested: Math.min(2, Math.max(0, Math.round(gap / typical) - 1)),
+    }))
+    .filter((candidate) => candidate.ratio >= 1.65 && candidate.requested > 0)
+    .sort((a, b) => b.ratio - a.ratio);
+
+  const extraAfter = new Int8Array(gaps.length);
+  let remaining = availableMissingSlots;
+  for (const candidate of candidates) {
+    if (remaining <= 0) break;
+    const add = Math.min(candidate.requested, remaining);
+    extraAfter[candidate.index] = add;
+    remaining -= add;
+  }
+
+  const slots = [1];
+  for (let index = 0; index < gaps.length; index += 1) {
+    slots.push(slots[slots.length - 1] + 1 + extraAfter[index]);
+  }
+  return slots;
+}
+
 /**
  * Assign FDI numbers to a set of tooth instances. Input order is preserved in
  * the output; each entry is augmented with {@link FdiFields}.
@@ -128,7 +187,7 @@ export function assignFdiNumbers<T extends ToothInput>(
   const rightQuadrant = options.jaw === 'upper' ? 1 : 4;
 
   // Project each tooth onto the left↔right and anterior↔posterior axes.
-  const projected = teeth.map((tooth, index) => {
+  const projected: ProjectedTooth[] = teeth.map((tooth, index) => {
     const d = subtract(tooth.position, principal.center);
     const lr = dot(d, left);
     const ap = dot(d, anterior);
@@ -142,14 +201,13 @@ export function assignFdiNumbers<T extends ToothInput>(
     quadrant: number,
     out: (T & FdiFields)[],
   ) => {
-    side
-      .slice()
-      .sort(
-        (a, b) =>
-          Math.atan2(Math.abs(a.lr), a.ap) - Math.atan2(Math.abs(b.lr), b.ap),
-      )
-      .forEach((entry, order) => {
-        const positionInQuadrant = Math.min(order + 1, 8);
+    const sorted = side.slice().sort(
+      (a, b) =>
+        Math.atan2(Math.abs(a.lr), a.ap) - Math.atan2(Math.abs(b.lr), b.ap),
+    );
+    const slots = inferArchSlots(sorted);
+    sorted.forEach((entry, order) => {
+        const positionInQuadrant = slots[order];
         const fdi = quadrant * 10 + positionInQuadrant;
         out[entry.index] = {
           ...teeth[entry.index],

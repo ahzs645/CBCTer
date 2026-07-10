@@ -60,4 +60,25 @@ describe('FDI numbering', () => {
     expect(result[0].quadrant).toBe(3); // lower left
     expect(result[1].quadrant).toBe(4); // lower right
   });
+
+  it('preserves an interior FDI gap when a tooth is missing', () => {
+    const halfArch: Array<[number, number]> = [
+      [3, 12],
+      [6, 11],
+      // canine at the third slot is missing
+      [11, 6],
+      [12.5, 3],
+      [13.5, -1],
+      [14, -5],
+      [14, -9],
+    ];
+    const result = assignFdiNumbers(
+      halfArch.map(([x, y]) => ({ position: [x, y, 0] as Vec3 })),
+      { jaw: 'upper', leftAxis: [1, 0, 0], anteriorAxis: [0, 1, 0] },
+    );
+
+    expect(result.map((tooth) => tooth.fdi)).toEqual([
+      21, 22, 24, 25, 26, 27, 28,
+    ]);
+  });
 });

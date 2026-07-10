@@ -94,20 +94,36 @@ export function assignFdiToItems(
     return result;
   }
 
-  // Split into upper/lower by the superior-axis projection (median threshold).
+  // Split into upper/lower at the largest superior-axis gap. Unlike a median
+  // split, this does not assume both jaws contain the same number of teeth.
   const projections = items.map(
     (item) =>
       itemPosition(item)[0] * superiorAxis[0] +
       itemPosition(item)[1] * superiorAxis[1] +
       itemPosition(item)[2] * superiorAxis[2],
   );
-  const sorted = [...projections].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
+  const sorted = projections
+    .map((projection, index) => ({ projection, index }))
+    .sort((a, b) => a.projection - b.projection);
+  let splitIndex = Math.floor(sorted.length / 2);
+  if (sorted.length >= 4) {
+    let largestGap = -Infinity;
+    // Keep at least two candidates in each jaw; tiny outliers should not define
+    // the anatomical split.
+    for (let index = 2; index <= sorted.length - 2; index += 1) {
+      const gap = sorted[index].projection - sorted[index - 1].projection;
+      if (gap > largestGap) {
+        largestGap = gap;
+        splitIndex = index;
+      }
+    }
+  }
+  const lowerSet = new Set(sorted.slice(0, splitIndex).map((entry) => entry.index));
   const upper: number[] = [];
   const lower: number[] = [];
   items.forEach((_, index) => {
-    if (projections[index] >= median) upper.push(index);
-    else lower.push(index);
+    if (lowerSet.has(index)) lower.push(index);
+    else upper.push(index);
   });
   if (upper.length) annotate(upper, 'upper');
   if (lower.length) annotate(lower, 'lower');

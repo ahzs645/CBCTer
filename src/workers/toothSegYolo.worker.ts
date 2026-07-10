@@ -17,6 +17,17 @@ const MAX_TRACK_GAP = 2;
 const MIN_TRACK_OVERLAP = 0.12;
 const MAX_SEED_LABEL = 65535;
 
+export type ToothYoloModelVariant = 'legacy' | '2p5d';
+
+const MODEL_CONFIG: Record<
+  ToothYoloModelVariant,
+  { filename: string; contextSlices: number }
+> = {
+  legacy: { filename: 'tooth-yolov8n-seg.onnx', contextSlices: 0 },
+  // Trained with RGB = z-2, z, z+2 on the 0.3 mm inference grid.
+  '2p5d': { filename: 'tooth-yolov8n-seg-2p5d.onnx', contextSlices: 2 },
+};
+
 const BASE = import.meta.env.BASE_URL;
 ort.env.wasm.wasmPaths = `${BASE}ort/`;
 const threaded = self.crossOriginIsolated && (navigator.hardwareConcurrency ?? 1) > 1;
@@ -30,6 +41,8 @@ export interface ToothYoloRequest {
   spacing: Vec3; // [x, y, z] mm
   conf?: number;
   maskThreshold?: number;
+  /** Defaults to the shipping single-slice checkpoint. */
+  modelVariant?: ToothYoloModelVariant;
 }
 
 export type ToothYoloResponse =
@@ -45,18 +58,24 @@ export type ToothYoloResponse =
     }
   | { type: 'error'; message: string };
 
-let sessionPromise: Promise<ort.InferenceSession> | null = null;
-function getSession(): Promise<ort.InferenceSession> {
-  if (!sessionPromise) {
-    sessionPromise = ort.InferenceSession.create(`${BASE}models/tooth-yolov8n-seg.onnx`, {
+const sessionPromises = new Map<ToothYoloModelVariant, Promise<ort.InferenceSession>>();
+function getSession(variant: ToothYoloModelVariant): Promise<ort.InferenceSession> {
+  let promise = sessionPromises.get(variant);
+  if (!promise) {
+    promise = ort.InferenceSession.create(`${BASE}models/${MODEL_CONFIG[variant].filename}`, {
       executionProviders,
     });
+    sessionPromises.set(variant, promise);
   }
-  return sessionPromise;
+  return promise;
 }
 
-/** Letterbox one [h,w] slice into a [1,3,512,512] tensor (CT-window normalized, grayscale->RGB). */
-function preprocessSlice(slice: Float32Array, h: number, w: number) {
+/** Letterbox neighbor/center/neighbor [h,w] slices into a [1,3,512,512] tensor. */
+function preprocessSlices(
+  slices: [Float32Array, Float32Array, Float32Array],
+  h: number,
+  w: number,
+) {
   const scale = INPUT / Math.max(h, w);
   const newW = Math.max(1, Math.round(w * scale));
   const newH = Math.max(1, Math.round(h * scale));
@@ -77,17 +96,20 @@ function preprocessSlice(slice: Float32Array, h: number, w: number) {
       const x0 = Math.max(0, Math.min(w - 1, Math.floor(sx)));
       const x1 = Math.min(w - 1, x0 + 1);
       const fx = Math.max(0, Math.min(1, sx - Math.floor(sx)));
-      const v00 = slice[y0 * w + x0];
-      const v01 = slice[y0 * w + x1];
-      const v10 = slice[y1 * w + x0];
-      const v11 = slice[y1 * w + x1];
-      const v = (v00 * (1 - fx) + v01 * fx) * (1 - fy) + (v10 * (1 - fx) + v11 * fx) * fy;
-      let n = (v - HU_LO) / range;
-      n = n < 0 ? 0 : n > 1 ? 1 : n;
       const idx = (padY + oy) * INPUT + (padX + ox);
-      chw[idx] = n;
-      chw[plane + idx] = n;
-      chw[2 * plane + idx] = n;
+      for (let channel = 0; channel < 3; channel += 1) {
+        const slice = slices[channel];
+        const v00 = slice[y0 * w + x0];
+        const v01 = slice[y0 * w + x1];
+        const v10 = slice[y1 * w + x0];
+        const v11 = slice[y1 * w + x1];
+        const v =
+          (v00 * (1 - fx) + v01 * fx) * (1 - fy) +
+          (v10 * (1 - fx) + v11 * fx) * fy;
+        let n = (v - HU_LO) / range;
+        n = n < 0 ? 0 : n > 1 ? 1 : n;
+        chw[channel * plane + idx] = n;
+      }
     }
   }
   return { chw, padX, padY, newW, newH };
@@ -195,7 +217,9 @@ function chooseTrack(
 }
 
 async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
-  const session = await getSession();
+  const modelVariant = req.modelVariant ?? 'legacy';
+  const modelConfig = MODEL_CONFIG[modelVariant];
+  const session = await getSession(modelVariant);
   const inputName = session.inputNames[0];
 
   // Resample whole volume to 0.3 mm isotropic.
@@ -218,8 +242,13 @@ async function run(req: ToothYoloRequest): Promise<ToothYoloResponse> {
   const activeTracks = new Map<number, ActiveTrack>();
 
   for (let z = 0; z < oD; z += 1) {
-    const slice = vol.subarray(z * sliceLen, (z + 1) * sliceLen);
-    const { chw, padX, padY, newW, newH } = preprocessSlice(slice, oH, oW);
+    const context = modelConfig.contextSlices;
+    const z0 = Math.max(0, z - context);
+    const z2 = Math.min(oD - 1, z + context);
+    const slices: [Float32Array, Float32Array, Float32Array] = [z0, z, z2].map(
+      (sliceZ) => vol.subarray(sliceZ * sliceLen, (sliceZ + 1) * sliceLen),
+    ) as [Float32Array, Float32Array, Float32Array];
+    const { chw, padX, padY, newW, newH } = preprocessSlices(slices, oH, oW);
     const tensor = new ort.Tensor('float32', chw, [1, 3, INPUT, INPUT]);
     const out = await session.run({ [inputName]: tensor });
     // Identify outputs by rank: 3D = detections [1,C,N], 4D = prototypes [1,32,ph,pw].

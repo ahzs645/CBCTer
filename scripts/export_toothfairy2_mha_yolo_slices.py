@@ -63,6 +63,19 @@ def slice_pair(volume, labels, axis, index):
     raise ValueError(f"unsupported axis {axis}")
 
 
+def image_context(volume, axis, index, context_slices, ct_window=None):
+    """Return neighbor/center/neighbor slices as RGB for 2.5D inference."""
+    axis_len = {"z": volume.shape[0], "y": volume.shape[1], "x": volume.shape[2]}[axis]
+    offset = max(0, int(context_slices))
+    indices = [
+        max(0, min(axis_len - 1, index - offset)),
+        index,
+        max(0, min(axis_len - 1, index + offset)),
+    ]
+    channels = [normalize(slice_pair(volume, volume, axis, i)[0], ct_window) for i in indices]
+    return Image.fromarray(np.stack(channels, axis=-1), mode="RGB")
+
+
 def polygon_lines(label_slice, min_area, simplify_step, single_class=False):
     lines = []
     height, width = label_slice.shape
@@ -145,6 +158,15 @@ def main() -> None:
                         "makes teeth the same pixel scale across scanners)")
     p.add_argument("--single-class", action="store_true",
                    help="map all FDI teeth to one 'tooth' class (offload numbering to 3D assembly)")
+    p.add_argument(
+        "--context-slices",
+        type=int,
+        default=0,
+        help=(
+            "Use center-offset/center/center+offset as RGB. With --target-spacing 0.3, "
+            "an offset of 2 supplies +/-0.6 mm context."
+        ),
+    )
     args = p.parse_args()
 
     ref_volume = None
@@ -180,7 +202,7 @@ def main() -> None:
                 if not lines:
                     continue
                 stem = f"{case_id}_{axis}_{index:04d}"
-                Image.fromarray(normalize(image_slice, args.ct_window)).convert("RGB").save(
+                image_context(volume, axis, index, args.context_slices, args.ct_window).save(
                     root / "images" / args.split / f"{stem}.png"
                 )
                 (root / "labels" / args.split / f"{stem}.txt").write_text(
@@ -197,6 +219,12 @@ def main() -> None:
         "sliceCount": exported,
         "axes": args.axes,
         "stride": args.stride,
+        "contextSlices": args.context_slices,
+        "contextMm": (
+            args.context_slices * args.target_spacing
+            if args.target_spacing is not None
+            else None
+        ),
     }
     (root / f"summary_{args.split}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
