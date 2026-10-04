@@ -76,7 +76,6 @@ async function fetchRemoteFile(
   entry: RemoteManifestEntry,
   index = 0,
 ): Promise<LoadedDataSourceFile> {
-  await fetchRemoteRange(entry.url, 0, 511).catch(() => null);
   const response = await fetch(entry.url);
   if (!response.ok) {
     throw new Error(
@@ -104,6 +103,9 @@ async function fetchRemoteFile(
   };
 }
 
+// Probe small generic binary responses for JSON without decoding large volumes.
+const MAX_MANIFEST_PROBE_BYTES = 4 * 1024 * 1024;
+
 export async function loadRemoteImport(
   url: string,
 ): Promise<LoadedRemoteImport> {
@@ -129,7 +131,8 @@ export async function loadRemoteImport(
   const looksJson =
     ext === '.json' ||
     first.file.type.includes('json') ||
-    first.file.type === 'application/octet-stream';
+    (first.file.type === 'application/octet-stream' &&
+      first.file.size <= MAX_MANIFEST_PROBE_BYTES);
 
   if (looksJson) {
     try {

@@ -14,10 +14,17 @@ export function clampRoi(roi: ToothRoi, dimensions: Vec3): ToothRoi {
   const clampAxis = (value: number, axis: number) =>
     Math.max(0, Math.min(dimensions[axis], Math.round(value)));
 
+  // `min` must leave room for an exclusive `max <= dimensions[axis]`, so it can
+  // be at most `dimensions[axis] - 1`. Without this cap a degenerate ROI dragged
+  // to the far edge yields `max = dimensions[axis] + 1`, which reads out of
+  // bounds in `extractCropFloat32`.
+  const clampMin = (value: number, axis: number) =>
+    Math.min(dimensions[axis] - 1, clampAxis(value, axis));
+
   const min: Vec3 = [
-    clampAxis(roi.min[0], 0),
-    clampAxis(roi.min[1], 1),
-    clampAxis(roi.min[2], 2),
+    clampMin(roi.min[0], 0),
+    clampMin(roi.min[1], 1),
+    clampMin(roi.min[2], 2),
   ];
   const max: Vec3 = [
     Math.max(min[0] + 1, clampAxis(roi.max[0], 0)),

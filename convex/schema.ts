@@ -24,7 +24,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
   })
     .index("by_app_id", ["appId"])
-    .index("by_owner", ["ownerId"])
+    .index("by_owner", ["ownerId", "updatedAt"])
     .index("by_updated", ["updatedAt"]),
   presets: defineTable({
     appId: v.string(),
