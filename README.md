@@ -112,3 +112,33 @@ creates the curated web result, and validates the curated manifest.
 separation result. It is useful for comparison and review, but the ROI-model
 pipeline remains the primary output because watershed tends to split
 restorations and jaw-adjacent structures into extra fragments on this sample.
+
+## Opening a scan from another app
+
+A page can embed the viewer and hand it a DICOM folder without uploading it
+anywhere. Load the viewer in an iframe with `?handoff=postmessage`; it posts
+`{ type: 'cbcter:ready', protocol: 1 }` to its parent, and loads the folder the
+parent sends back:
+
+```js
+frame.contentWindow.postMessage(
+  {
+    type: 'cbcter:scan-folder',
+    protocol: 1,
+    label: 'Dental CBCT 2026-02-12',
+    entries: files.map((file) => ({
+      name: file.name,
+      relativePath: file.webkitRelativePath || file.name,
+      file,
+    })),
+  },
+  viewerOrigin,
+);
+```
+
+An iframe rather than a popup: the viewer is served with
+`Cross-Origin-Opener-Policy: same-origin`, which cuts `window.opener`. The
+folder is only accepted from the parent window, and `VITE_HANDOFF_ORIGINS`
+(comma-separated) restricts which parent origins may send one. See
+`src/app/sources/embeddedHandoff.ts`. A zipped folder can also be opened
+directly with the folder picker's archive support.

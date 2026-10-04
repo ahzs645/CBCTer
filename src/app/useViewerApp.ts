@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { IDLE_PROGRESS } from '../constants';
 import { loadVolumeFromFolder } from '../lib/import/load-volume';
 import { loadRemoteImport } from '../lib/import/remote';
@@ -7,6 +7,10 @@ import type { ImportParseOptions } from '../lib/import/types';
 import type { DicomImportEngine } from '../domain/types';
 import { loadSample as loadSampleVolume } from './sources/sampleBridge';
 import { loadNifti } from './sources/niftiLoader';
+import {
+  isHandoffRequested,
+  listenForHandoff,
+} from './sources/embeddedHandoff';
 import { ImportStage, ScanFolderSourceKind } from '../types';
 import type {
   ImportIssue,
@@ -166,6 +170,22 @@ export function useViewerApp({
     },
     [dicomImportEngine, resetViewer],
   );
+
+  // Embedded by a health-record app with `?handoff=postmessage`: take the
+  // scan folder it sends and load it like a picked folder. A ref keeps one
+  // listener (and one "ready" signal) for the life of the page.
+  const loadSourceRef = useRef(loadSource);
+  useEffect(() => {
+    loadSourceRef.current = loadSource;
+  }, [loadSource]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isHandoffRequested(window.location.search, window.parent !== window))
+      return;
+    return listenForHandoff((source) => {
+      void loadSourceRef.current(source);
+    });
+  }, []);
 
   const dimensions = viewer.dimensions;
   const spacing = viewer.spacing;

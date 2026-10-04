@@ -32,6 +32,8 @@ export interface RangeBounds {
 export enum ScanFolderSourceKind {
   DirectoryHandle = 'directory-handle',
   FileList = 'file-list',
+  /** Sent by the page embedding the viewer (see embeddedHandoff.ts). */
+  Handoff = 'handoff',
 }
 
 export interface ScanFolderEntry {
