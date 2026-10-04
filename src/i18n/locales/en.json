@@ -30,7 +30,7 @@
     "remoteUrlPlaceholder": "https://example.org/scan.zip or manifest.json",
     "openNifti": "Open NIfTI file",
     "openTeeth": "Open tooth extraction",
-    "supportedFoldersTitle": "Supported folders",
+    "supportedFoldersTitle": "Supported folders and files",
     "supportedFolders": {
       "galileos": {
         "title": "GALILEOS",
@@ -40,15 +40,21 @@
       "oneVolume": {
         "title": "OneVolume CT",
         "description": "Native OneVolume volume stored in CT_0.vol.",
-        "instruction": "Select the <0>CT_*</0> folder, or the export root if you want the app to auto-detect the nested CT study folder."
+        "instruction": "Select the <0>CT_*</0> folder or the whole export folder; only CT_0.vol, CtStatus.csv and Constants1100.xml are read."
       },
       "dicom": {
         "title": "DICOM CT",
-        "description": "Standard DICOM slice stacks exported from compatible CT software.",
-        "instruction": "Select the folder that contains the <0>.dcm</0> slices, usually <1>DICOM/</1>."
+        "description": "Standard DICOM slice stacks, including disc exports whose slices have no file extension (e.g. Sirona Sidexis).",
+        "instruction": "Select the <0>DICOM</0> folder or the series folder (e.g. <1>CT3</1>); the largest CT series is opened."
+      },
+      "package": {
+        "title": "CBCTer scan package",
+        "description": "Slim export made by this app: just the volume and its geometry, no vendor software or patient details. Opens fastest, including on phones.",
+        "instruction": "Use Open ZIP file for a <0>.cbct.zip</0>, or pick the unzipped folder."
       }
     },
-    "referenceNote": "<0>Series_01/</0> is reference material only and is not imported."
+    "referenceNote": "Any of these can also be zipped and opened with Open ZIP file. Vendor viewers, installers and <0>Series_01/</0> are ignored.",
+    "openZip": "Open ZIP file"
   },
   "folderPicker": {
     "title": "Open a scan folder",
@@ -386,13 +392,13 @@
     "resetView": "Reset view",
     "threshold": "Threshold",
     "opacity": "Opacity",
-      "presets": {
-        "default": "Default",
-        "bone": "Bone surface",
-        "soft": "Soft tissue",
-        "xray": "X-ray",
-        "custom": "Custom"
-      },
+    "presets": {
+      "default": "Default",
+      "bone": "Bone surface",
+      "soft": "Soft tissue",
+      "xray": "X-ray",
+      "custom": "Custom"
+    },
     "colormap": "Colormap",
     "colormaps": {
       "grayscale": "Grayscale",
@@ -411,6 +417,186 @@
   },
   "errors": {
     "failedToLoadSelectedScanFolder": "Failed to load the selected scan folder.",
-    "unsupportedFolderLayout": "Unsupported folder layout. Select a GALILEOS study, a OneVolume export root, or a DICOM slice folder."
+    "unsupportedFolderLayout": "Unsupported folder layout. Select a CBCTer scan package, a GALILEOS study, a OneVolume export, or a DICOM folder (or a ZIP of one)."
+  },
+  "dental": {
+    "toolbar": {
+      "tools": "Tools",
+      "navigate": "Navigate",
+      "navigateHint": "Click or drag on a slice to move the crosshair",
+      "contrast": "Contrast",
+      "contrastHint": "Drag on a slice: left/right = brightness, up/down = contrast",
+      "distance": "Distance",
+      "angle": "Angle",
+      "area": "Area + density",
+      "polygon": "Polygon area",
+      "measureHint": "Tap points on a slice to measure",
+      "invert": "Invert",
+      "invertHint": "Invert grayscale (bone dark, like film)",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "resetView": "Reset zoom",
+      "layout": "Layout",
+      "layoutQuad": "MPR + 3D",
+      "layoutFocus": "Axial focus",
+      "layout3d": "3D only",
+      "snapshot": "Save views (PNG)",
+      "report": "Case report",
+      "exportCsv": "Export measurements (CSV)",
+      "panoramic": "Panoramic",
+      "teeth": "Tooth extraction",
+      "shortcuts": "Keyboard shortcuts",
+      "showPanel": "Show panel",
+      "hidePanel": "Hide panel",
+      "more": "More",
+      "backToImport": "Close scan",
+      "studyPanel": "Study tools",
+      "measure": "Measure",
+      "exportPackage": "Export slim package (.cbct.zip)"
+    },
+    "presets": {
+      "title": "Contrast presets",
+      "scan": "Scan default",
+      "auto": "Auto",
+      "bone": "Bone",
+      "teeth": "Teeth",
+      "soft": "Soft tissue",
+      "metal": "Metal / implant",
+      "adaptiveHint": "Presets adapt to this scan's gray values (CBCT values are not true HU)."
+    },
+    "views": {
+      "axial": "Axial",
+      "coronal": "Coronal",
+      "sagittal": "Sagittal",
+      "threeD": "3D",
+      "maximize": "Maximize view",
+      "restore": "Restore layout",
+      "previousSlice": "Previous slice",
+      "nextSlice": "Next slice",
+      "slice": "Slice"
+    },
+    "status": {
+      "position": "Position",
+      "value": "Value",
+      "zoom": "Zoom",
+      "windowLevel": "W {{window}} / L {{level}}",
+      "hover": "Hover a slice to read values"
+    },
+    "measures": {
+      "title": "Measurements",
+      "empty": "No measurements yet. Pick Distance, Angle or Area and tap points on a slice.",
+      "goTo": "Go to slice",
+      "show": "Show",
+      "hide": "Hide",
+      "delete": "Delete",
+      "rename": "Rename measurement",
+      "clearAll": "Delete all",
+      "confirmClearAll": "Delete all measurements?",
+      "planeSlice": "{{plane}} · slice {{slice}}"
+    },
+    "chart": {
+      "title": "Tooth chart",
+      "tab": "Chart",
+      "permanent": "Permanent",
+      "primary": "Primary",
+      "upper": "Upper",
+      "lower": "Lower",
+      "patientRight": "Patient right",
+      "patientLeft": "Patient left",
+      "selectTooth": "Select a tooth to record findings and bookmark its position.",
+      "findings": "Findings",
+      "note": "Note",
+      "notePlaceholder": "e.g. distal caries close to pulp",
+      "pin": "Pin to crosshair",
+      "repin": "Re-pin to crosshair",
+      "goTo": "Go to tooth",
+      "clear": "Clear tooth",
+      "pinned": "Position pinned",
+      "notPinned": "No position pinned",
+      "caseNotes": "Case notes",
+      "caseNotesPlaceholder": "Overall impression, plan, referral notes…",
+      "summary": "{{count}} teeth charted",
+      "exportCsv": "Export chart (CSV)",
+      "conditions": {
+        "caries": "Caries",
+        "periapical": "Periapical lesion",
+        "rootCanal": "Root canal treated",
+        "restoration": "Restoration / crown",
+        "implant": "Implant",
+        "missing": "Missing",
+        "impacted": "Impacted",
+        "boneLoss": "Bone loss",
+        "fracture": "Fracture",
+        "resorption": "Resorption",
+        "other": "Other"
+      }
+    },
+    "report": {
+      "title": "CBCT case report",
+      "scan": "Scan",
+      "format": "Format",
+      "dimensions": "Dimensions",
+      "voxelSize": "Voxel size",
+      "generated": "Generated",
+      "views": "Views at crosshair",
+      "measurements": "Measurements",
+      "name": "Name",
+      "value": "Value",
+      "plane": "Plane",
+      "slice": "Slice",
+      "noMeasurements": "No measurements recorded.",
+      "toothChart": "Tooth chart",
+      "tooth": "Tooth",
+      "findings": "Findings",
+      "note": "Note",
+      "noFindings": "No tooth findings recorded.",
+      "caseNotes": "Case notes",
+      "print": "Print / save as PDF",
+      "popupBlocked": "The report was downloaded because the browser blocked the new tab.",
+      "disclaimer": "Generated by CBCTer for reference and patient communication only. Not a diagnostic device; verify all findings and measurements in certified software before treatment."
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "close": "Close",
+      "items": {
+        "navigate": "Navigate tool",
+        "contrast": "Contrast (window/level) tool",
+        "distance": "Distance",
+        "angle": "Angle",
+        "area": "Area + density (ellipse)",
+        "polygon": "Polygon area",
+        "invert": "Invert grayscale",
+        "presets": "Contrast presets",
+        "slice": "Previous / next slice (Shift = 10)",
+        "wheel": "Page slices · Ctrl/⌘ + wheel to zoom",
+        "zoom": "Zoom in / out / reset",
+        "maximize": "Maximize the active view",
+        "snapshot": "Save views as PNG",
+        "help": "Show this help"
+      }
+    },
+    "package": {
+      "title": "Export slim package",
+      "description": "Saves just this scan's volume as a .cbct.zip that opens directly in CBCTer on any device.",
+      "name": "Package name",
+      "nameHint": "Avoid patient names; the scan ID is used by default",
+      "full": "Full resolution only",
+      "half": "Phone version only (half resolution)",
+      "sizeDetail": "{{dims}} voxels · {{size}} before compression",
+      "preview": "Include a small axial preview image",
+      "excluded": "Left out: vendor viewers and installers, raw projection images, patient name/ID and original file headers. Measurements and the tooth chart are not included (use project export for those).",
+      "export": "Export .cbct.zip",
+      "packing": "Packing…",
+      "done": "Saved ({{size}}). Open it later with Open ZIP file on the import screen.",
+      "both": "Full + phone version (recommended)",
+      "bothDetail": "One package: desktops open full resolution ({{full}}), phones open the half-resolution level ({{half}}) and never load the full data. Sizes before compression.",
+      "levelTitle": "Resolution",
+      "levelFull": "Full",
+      "levelHalf": "Phone",
+      "levelHint": "This package has a full-resolution and a phone (half-resolution) level. Phones open the phone level by default.",
+      "openFull": "Load full resolution",
+      "openHalf": "Switch to phone version (lighter)",
+      "levelBadgeHalf": "phone version"
+    }
   }
 }

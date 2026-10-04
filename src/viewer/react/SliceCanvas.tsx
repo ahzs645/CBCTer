@@ -6,7 +6,11 @@ import { Badge } from '../../components/Badge';
 import { BadgeVariant } from '../../components/Badge.constants';
 import { MeasurementOverlay } from './MeasurementOverlay';
 import type { MeasurementLabels } from '../labels';
-import type { CompletedSliceMeasurement } from './MeasurementOverlay';
+import type {
+  CompletedSliceMeasurement,
+  MeasureMode,
+  SliceMeasurementShape,
+} from './MeasurementOverlay';
 import {
   SliceCanvasFit,
   type SliceCanvasFit as SliceCanvasFitType,
@@ -71,6 +75,14 @@ interface SliceCanvasProps {
     color: string;
     visible: boolean;
   };
+  /** Display the grayscale image inverted (bone dark), as dental films do. */
+  invert?: boolean;
+  /** Controlled measurement tool; hides the per-pane measurement toolbar. */
+  measureMode?: MeasureMode;
+  /** Saved measurements lying on this slice. */
+  measurementShapes?: SliceMeasurementShape[];
+  /** Enables wheel slice paging (Ctrl/⌘ + wheel then zooms). */
+  onSliceStep?: (delta: number) => void;
 }
 
 const FALLBACK_RECT: Rect = {
@@ -124,6 +136,10 @@ export function SliceCanvas({
   onAnnotationSelect,
   onAnnotationMove,
   brushPreview,
+  invert = false,
+  measureMode,
+  measurementShapes,
+  onSliceStep,
 }: SliceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -294,6 +310,7 @@ export function SliceCanvas({
       onProbe?.(point);
     },
     onZoomChange,
+    onSliceStep,
   });
 
   const dragCropHandle = (
@@ -358,6 +375,8 @@ export function SliceCanvas({
       >
         <canvas
           ref={canvasRef}
+          data-slice-canvas={exportName}
+          data-inverted={invert ? 'true' : undefined}
           className={cn(
             'absolute block',
             image?.pixelated !== false && '[image-rendering:pixelated]',
@@ -367,11 +386,13 @@ export function SliceCanvas({
             top: `${imageRect.top}px`,
             width: `${imageRect.width}px`,
             height: `${imageRect.height}px`,
+            filter: invert ? 'invert(1)' : undefined,
           }}
         />
         {overlay ? (
           <canvas
             ref={overlayCanvasRef}
+            data-slice-overlay={exportName}
             className={cn(
               'pointer-events-none absolute block',
               overlay.pixelated !== false && '[image-rendering:pixelated]',
@@ -512,6 +533,8 @@ export function SliceCanvas({
             getCanvas={() => canvasRef.current}
             labels={measurementLabels}
             onMeasurementComplete={onMeasurementComplete}
+            mode={measureMode}
+            shapes={measurementShapes}
           />
         ) : null}
       </div>

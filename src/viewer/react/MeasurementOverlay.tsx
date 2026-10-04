@@ -9,10 +9,19 @@ import type { SliceImage } from '../../types';
 import { cn } from '../../utils/cn';
 import { defaultMeasurementLabels, type MeasurementLabels } from '../labels';
 
-type MeasureMode = 'off' | 'distance' | 'angle' | 'ellipse' | 'polygon';
+export type MeasureMode = 'off' | 'distance' | 'angle' | 'ellipse' | 'polygon';
 interface MeasurePoint {
   xRatio: number;
   yRatio: number;
+}
+
+/** A finished measurement drawn persistently on the slice it belongs to. */
+export interface SliceMeasurementShape {
+  id: string;
+  kind: Exclude<MeasureMode, 'off'>;
+  points: MeasurePoint[];
+  label: string;
+  selected?: boolean;
 }
 
 export interface CompletedSliceMeasurement {
@@ -43,7 +52,17 @@ interface MeasurementOverlayProps {
   getCanvas: () => HTMLCanvasElement | null;
   labels?: MeasurementLabels;
   onMeasurementComplete?: (measurement: CompletedSliceMeasurement) => void;
+  /**
+   * Controlled tool mode. When set, the host app owns tool selection (e.g. a
+   * global toolbar) and the per-pane tool buttons are hidden.
+   */
+  mode?: MeasureMode;
+  /** Saved measurements on this slice, drawn on top of the image. */
+  shapes?: SliceMeasurementShape[];
 }
+
+const SAVED_COLOR = '#fbbf24';
+const SELECTED_COLOR = '#f8fafc';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -65,9 +84,19 @@ export function MeasurementOverlay({
   getCanvas,
   labels = defaultMeasurementLabels,
   onMeasurementComplete,
+  mode: controlledMode,
+  shapes = [],
 }: MeasurementOverlayProps) {
-  const [mode, setMode] = useState<MeasureMode>('off');
+  const [uncontrolledMode, setMode] = useState<MeasureMode>('off');
   const [points, setPoints] = useState<MeasurePoint[]>([]);
+  const controlled = controlledMode !== undefined;
+  const mode = controlledMode ?? uncontrolledMode;
+  // Drop a half-placed measurement when the host switches tools.
+  const [trackedMode, setTrackedMode] = useState(mode);
+  if (trackedMode !== mode) {
+    setTrackedMode(mode);
+    setPoints([]);
+  }
 
   const toggleMode = (next: MeasureMode) => {
     setMode((current) => (current === next ? 'off' : next));
@@ -85,8 +114,12 @@ export function MeasurementOverlay({
       yRatio: clamp((localY - imageRect.top) / Math.max(1, imageRect.height), 0, 1),
     };
     const max = mode === 'angle' ? 3 : mode === 'polygon' ? 4 : 2;
-    setPoints((prev) => {
+    // Computed outside the state updater: React may invoke updaters twice
+    // (StrictMode), which would otherwise record each measurement twice.
+    {
+      const prev = points;
       const next = prev.length >= max ? [point] : [...prev, point];
+      const complete = next.length === max;
       if (mode === 'distance' && next.length === 2) {
         onMeasurementComplete?.({
           kind: 'distance',
@@ -126,8 +159,10 @@ export function MeasurementOverlay({
           densityRoi: { kind: 'polygon', points: next },
         });
       }
-      return next;
-    });
+      // In controlled mode the host persists and redraws finished
+      // measurements, so the in-progress copy is cleared.
+      setPoints(complete && controlled ? [] : next);
+    }
   };
 
   const downloadPng = () => {
@@ -178,6 +213,83 @@ export function MeasurementOverlay({
         />
       ) : null}
 
+      {shapes.length > 0 ? (
+        <svg
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          aria-hidden="true"
+        >
+          {shapes.map((shape) => {
+            const color = shape.selected ? SELECTED_COLOR : SAVED_COLOR;
+            const screen = shape.points.map(toScreen);
+            const anchor = screen[screen.length - 1] ?? { x: 0, y: 0 };
+            return (
+              <g key={shape.id}>
+                {shape.kind === 'ellipse' && screen.length >= 2 ? (
+                  <ellipse
+                    cx={(screen[0].x + screen[1].x) / 2}
+                    cy={(screen[0].y + screen[1].y) / 2}
+                    rx={Math.abs(screen[1].x - screen[0].x) / 2}
+                    ry={Math.abs(screen[1].y - screen[0].y) / 2}
+                    fill={`${color}14`}
+                    stroke={color}
+                    strokeWidth={1.5}
+                  />
+                ) : shape.kind === 'polygon' ? (
+                  <polygon
+                    points={screen.map((point) => `${point.x},${point.y}`).join(' ')}
+                    fill={`${color}14`}
+                    stroke={color}
+                    strokeWidth={1.5}
+                  />
+                ) : (
+                  <polyline
+                    points={screen.map((point) => `${point.x},${point.y}`).join(' ')}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.5}
+                  />
+                )}
+                {shape.kind !== 'ellipse'
+                  ? screen.map((point, index) => (
+                      <circle
+                        key={index}
+                        cx={point.x}
+                        cy={point.y}
+                        r={2.5}
+                        fill={color}
+                        stroke="#0b1220"
+                        strokeWidth={1}
+                      />
+                    ))
+                  : null}
+                <text
+                  x={
+                    shape.kind === 'distance' && screen.length >= 2
+                      ? (screen[0].x + screen[1].x) / 2
+                      : anchor.x + 8
+                  }
+                  y={
+                    shape.kind === 'distance' && screen.length >= 2
+                      ? (screen[0].y + screen[1].y) / 2 - 6
+                      : anchor.y - 8
+                  }
+                  fill={color}
+                  fontSize={11}
+                  fontWeight={600}
+                  stroke="#0b1220"
+                  strokeWidth={3}
+                  paintOrder="stroke"
+                  textAnchor={shape.kind === 'distance' ? 'middle' : 'start'}
+                >
+                  {shape.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
+
+      {controlled ? null : (
       <div className="pointer-events-auto absolute right-2 top-2 flex items-center gap-0.5 rounded-md bg-slate-950/75 p-0.5 ring-1 ring-white/10">
         <button
           type="button"
@@ -248,6 +360,7 @@ export function MeasurementOverlay({
           <Download className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
+      )}
 
       {points.length > 0 ? (
         <svg

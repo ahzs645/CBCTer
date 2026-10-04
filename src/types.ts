@@ -38,6 +38,11 @@ export interface ScanFolderEntry {
   name: string;
   relativePath: string;
   file: File;
+  /**
+   * Set for a `.cbct.zip` scan package that was deliberately left zipped so
+   * the importer can read just the level it needs from it.
+   */
+  archiveKind?: 'cbct-package';
 }
 
 export interface ScanFolderSource {
@@ -50,7 +55,7 @@ export interface DirectoryPickerWindow extends Window {
   showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
 }
 
-export type ScanFormat = 'dicom' | 'galileos' | 'onevolume';
+export type ScanFormat = 'dicom' | 'galileos' | 'onevolume' | 'cbct-package';
 
 export enum ImportStage {
   Idle = 'idle',
@@ -87,6 +92,10 @@ export interface ParsedVolumeMeta {
   dicomSourceAxisMap?: DicomSourceAxisMap;
   /** Anatomical axes in voxel space, when the importer could resolve orientation. */
   patientAxes?: PatientAxes;
+  /** Scan packages: the resolution level that is open. */
+  packageLevel?: 'full' | 'half';
+  /** Scan packages: every level the package carries. */
+  packageLevels?: Array<{ id: 'full' | 'half'; dimensions: Vec3; spacing: Vec3 }>;
 }
 
 export interface LoadedVolume {

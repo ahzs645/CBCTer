@@ -14,6 +14,7 @@ import {
   Square,
   SunMedium,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { formatSpacing } from '../app/helpers';
 import type { StudyState, StudyTool } from '../domain/types';
 import { useTranslation } from '../i18n';
@@ -143,6 +144,10 @@ interface ViewerSidebarProps {
   onWindowCommit: (value: number) => void;
   onToggleMaskVisibility: (maskId: string) => void;
   onUndoMaskEdit: () => void;
+  chartPanel?: ReactNode;
+  measuresPanel?: ReactNode;
+  /** Extra controls in the study card (e.g. the package resolution switch). */
+  studyExtra?: ReactNode;
 }
 
 export function ViewerSidebar({
@@ -218,6 +223,9 @@ export function ViewerSidebar({
   onWindowCommit,
   onToggleMaskVisibility,
   onUndoMaskEdit,
+  chartPanel,
+  measuresPanel,
+  studyExtra,
 }: ViewerSidebarProps) {
   const { t } = useTranslation();
   const sectionLabelClass =
@@ -265,6 +273,7 @@ export function ViewerSidebar({
               spacing: formatSpacing(spacing),
             })}
           </div>
+          {studyExtra}
           {seriesChoices.length > 1 ? (
             <label className="mt-2 block">
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
@@ -346,6 +355,8 @@ export function ViewerSidebar({
           onToggleTissuePreset={onToggleTissuePreset}
           onTissueOverlayModeChange={onTissueOverlayModeChange}
           onUndoMaskEdit={onUndoMaskEdit}
+          chartPanel={chartPanel}
+          measuresPanel={measuresPanel}
         />
 
         <section className="min-w-0 rounded border border-slate-800 bg-slate-950/70 p-2.5">
@@ -430,8 +441,8 @@ export function ViewerSidebar({
         </section>
       </div>
 
-      <section className="shrink-0 min-w-0 rounded border border-slate-800 bg-slate-950/70 p-2.5">
-        <div className="grid grid-cols-1 gap-2">
+      <section className="shrink-0 min-w-0 rounded border border-slate-800 bg-slate-950/70 p-2">
+        <div className="grid grid-cols-2 gap-1.5 [&>button]:min-w-0 [&>button]:text-xs [&>button]:px-2">
           <Button variant="primary" block onClick={onOpenTeeth}>
             <Layers3 className="h-4 w-4" aria-hidden="true" />
             {t('viewerSidebar.toothExtraction')}
@@ -448,13 +459,13 @@ export function ViewerSidebar({
               : t('viewerSidebar.fullAnatomy')}
           </Button>
           {anatomyRunning ? (
-            <Button variant="ghost" block onClick={onCancelAnatomy}>
+            <Button variant="ghost" block onClick={onCancelAnatomy} className="col-span-2">
               <Square className="h-4 w-4" aria-hidden="true" />
               {t('viewerSidebar.cancelFullAnatomy')}
             </Button>
           ) : null}
           {anatomyRunning && anatomyProgress ? (
-            <div className="h-1 overflow-hidden rounded-full bg-slate-800">
+            <div className="col-span-2 h-1 overflow-hidden rounded-full bg-slate-800">
               <span
                 className="block h-full rounded-full bg-sky-400 transition-[width]"
                 style={{
@@ -492,7 +503,7 @@ export function ViewerSidebar({
               : t('viewerSidebar.faceSurface')}
           </Button>
           {faceRunning && faceProgress ? (
-            <div className="h-1 overflow-hidden rounded-full bg-slate-800">
+            <div className="col-span-2 h-1 overflow-hidden rounded-full bg-slate-800">
               <span
                 className="block h-full rounded-full bg-sky-400 transition-[width]"
                 style={{
@@ -518,7 +529,7 @@ export function ViewerSidebar({
             {t('viewerSidebar.backToImport')}
           </Button>
         </div>
-        <Notice className="mt-3" compact>
+        <Notice className="mt-2" compact>
           {t('common.referenceOnly')}
         </Notice>
       </section>

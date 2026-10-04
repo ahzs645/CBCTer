@@ -22,7 +22,11 @@ export {
   SliceCanvasFit,
   type SliceCanvasFit as SliceCanvasFitType,
 } from './react/SliceCanvas.constants';
-export { AxisViewportGrid } from './react/AxisViewportGrid';
+export {
+  AxisViewportGrid,
+  type AxisViewportLayout,
+  type AxisViewportPaneId,
+} from './react/AxisViewportGrid';
 export {
   VolumeViewport3D,
   type VolumeViewport3DHandle,
@@ -31,6 +35,8 @@ export { ViewportFrame } from './react/ViewportFrame';
 export {
   MeasurementOverlay,
   type CompletedSliceMeasurement,
+  type MeasureMode,
+  type SliceMeasurementShape,
 } from './react/MeasurementOverlay';
 export {
   useSliceInteraction,

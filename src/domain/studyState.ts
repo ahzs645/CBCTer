@@ -35,6 +35,8 @@ export function createEmptyStudyState(study: ScanStudy | null = null): StudyStat
     surfaces: [],
     measurements: [],
     annotations: [],
+    toothFindings: [],
+    caseNotes: "",
     activeTool: "crosshair",
     dicomImportEngine: "custom",
     layoutPreset: "mpr-3d",
@@ -78,6 +80,13 @@ export function normalizeStudyState(input: Partial<StudyState>): StudyState {
     annotations: (input.annotations ?? [])
       .map((annotation) => normalizeAnnotation(annotation))
       .filter((annotation): annotation is StudyAnnotation => annotation != null),
+    toothFindings: (input.toothFindings ?? []).filter(
+      (finding) =>
+        finding != null &&
+        Number.isFinite(finding.fdi) &&
+        Array.isArray(finding.conditions),
+    ),
+    caseNotes: typeof input.caseNotes === "string" ? input.caseNotes : "",
     dicomImportEngine:
       input.dicomImportEngine === "itk-gdcm" ? "itk-gdcm" : "custom",
     layoutPreset: input.layoutPreset ?? "mpr-3d",
@@ -213,7 +222,7 @@ export function createStudySurface(
 export function createStudyMeasurement(
   studyId: string,
   input: Pick<StudyMeasurement, "kind" | "name" | "points" | "value" | "unit"> &
-    Partial<Pick<StudyMeasurement, "visible">>,
+    Partial<Pick<StudyMeasurement, "visible" | "plane">>,
 ): StudyMeasurement {
   const now = Date.now();
   return {

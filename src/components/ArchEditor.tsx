@@ -45,6 +45,8 @@ export function ArchEditor({
 }: ArchEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   const [width, height] = volume.meta.dimensions;
@@ -53,6 +55,23 @@ export function ArchEditor({
   const mip = useMemo(
     () => buildAxialMip(volume.voxels, volume.meta.dimensions, zMin, zMax),
     [volume, zMin, zMax],
+  );
+
+  // Track the available area so the editor can be letterboxed at the
+  // volume's aspect ratio (CSS aspect-ratio alone left it 0×0).
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const update = () =>
+      setFrameSize({ width: frame.clientWidth, height: frame.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+  const fitScale = Math.min(
+    frameSize.width / Math.max(1, width),
+    frameSize.height / Math.max(1, height),
   );
 
   // Paint the MIP into the canvas with the active window/level.
@@ -167,9 +186,13 @@ export function ArchEditor({
   const handleRadius = Math.max(3, width * 0.012);
 
   return (
+    <div ref={frameRef} className="absolute inset-0 flex items-center justify-center">
     <div
-      className="relative mx-auto"
-      style={{ aspectRatio: `${width} / ${height}`, maxHeight: '100%' }}
+      className="relative"
+      style={{
+        width: Math.max(0, Math.floor(width * fitScale)),
+        height: Math.max(0, Math.floor(height * fitScale)),
+      }}
     >
       <canvas
         ref={canvasRef}
@@ -198,19 +221,26 @@ export function ArchEditor({
           />
         ) : null}
         {curve.controlPoints.map((p, i) => (
-          <circle
-            key={i}
-            cx={p.x}
-            cy={p.y}
-            r={handleRadius}
-            fill={dragIndex === i ? '#f59e0b' : '#0ea5e9'}
-            stroke="#0b1220"
-            strokeWidth={Math.max(0.5, width * 0.0015)}
-            className="cursor-grab"
-            onPointerDown={handleHandleDown(i)}
-          />
+          <g key={i} onPointerDown={handleHandleDown(i)} className="cursor-grab">
+            {/* Invisible ~44 px touch target around the visible handle. */}
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={Math.max(handleRadius * 2, 22 / Math.max(0.01, fitScale))}
+              fill="transparent"
+            />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={handleRadius}
+              fill={dragIndex === i ? '#f59e0b' : '#0ea5e9'}
+              stroke="#0b1220"
+              strokeWidth={Math.max(0.5, width * 0.0015)}
+            />
+          </g>
         ))}
       </svg>
+    </div>
     </div>
   );
 }

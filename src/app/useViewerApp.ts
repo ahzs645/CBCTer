@@ -7,7 +7,7 @@ import type { ImportParseOptions } from '../lib/import/types';
 import type { DicomImportEngine } from '../domain/types';
 import { loadSample as loadSampleVolume } from './sources/sampleBridge';
 import { loadNifti } from './sources/niftiLoader';
-import { ImportStage } from '../types';
+import { ImportStage, ScanFolderSourceKind } from '../types';
 import type {
   ImportIssue,
   ImportProgress,
@@ -24,7 +24,7 @@ import type {
 } from '../types';
 import { useVolumeViewerState } from '../viewer';
 import { isAbortError, isBusy, makeImportIssue } from './helpers';
-import { isCompactViewerLayout } from './viewer-layout';
+import { shouldShowSidebarByDefault } from './viewer-layout';
 
 export interface ViewerApp {
   axisViewsVisible: boolean;
@@ -61,6 +61,10 @@ export interface ViewerApp {
   openRemote: (url: string) => Promise<void>;
   openSample: () => Promise<void>;
   openNifti: (file: File) => Promise<void>;
+  /** Open a single ZIP: a vendor export zipped up, or a `.cbct.zip` package. */
+  openArchive: (file: File) => Promise<void>;
+  /** Reopen the current scan package at another resolution level. */
+  openPackageLevel: (level: 'full' | 'half') => Promise<void>;
   resetViewer: () => void;
   setAxisViewsVisible: (visible: boolean) => void;
   setDownsampled3D: (downsampled: boolean) => void;
@@ -72,6 +76,12 @@ export interface ViewerApp {
   updateCursor: (
     axis: VolumeAxis,
   ) => (point: { xRatio: number; yRatio: number }) => void;
+  setCursor: (cursor: VolumeCursor | null) => void;
+  stepSlice: (axis: VolumeAxis, delta: number) => void;
+  setSliceIndex: (axis: VolumeAxis, index: number) => void;
+  applyWindowLevel: (next: SliceWindowLevel) => void;
+  /** Committed window/level the slices are rendered with. */
+  windowLevel: SliceWindowLevel;
 }
 
 export interface ViewerAppDependencies {
@@ -81,7 +91,7 @@ export interface ViewerAppDependencies {
 export function useViewerApp({
   sourcePicker,
 }: ViewerAppDependencies): ViewerApp {
-  const defaultSidebarVisible = () => !isCompactViewerLayout();
+  const defaultSidebarVisible = () => shouldShowSidebarByDefault();
   const [progress, setProgress] = useState<ImportProgress>(IDLE_PROGRESS);
   const [issue, setIssue] = useState<ImportIssue | null>(null);
   const [currentSource, setCurrentSource] = useState<ScanFolderSource | null>(
@@ -216,6 +226,14 @@ export function useViewerApp({
     }
   };
 
+  const openArchive = async (file: File) => {
+    await loadSource({
+      kind: ScanFolderSourceKind.FileList,
+      label: file.name,
+      entries: [{ name: file.name, relativePath: file.name, file }],
+    });
+  };
+
   const openNifti = async (file: File) => {
     resetViewer();
     setSourceLabel(file.name);
@@ -282,6 +300,11 @@ export function useViewerApp({
     }
   };
 
+  const openPackageLevel = async (level: 'full' | 'half') => {
+    if (!currentSource || busy) return;
+    await loadSource(currentSource, { packageLevel: level });
+  };
+
   const selectSeries = async (seriesId: string) => {
     if (!currentSource || busy) return;
 
@@ -330,6 +353,13 @@ export function useViewerApp({
     openRemote,
     openSample,
     openNifti,
+    openArchive,
+    openPackageLevel,
     updateCursor: viewer.updateCursor,
+    setCursor: viewer.setCursor,
+    stepSlice: viewer.stepSlice,
+    setSliceIndex: viewer.setSliceIndex,
+    applyWindowLevel: viewer.applyWindowLevel,
+    windowLevel: viewer.windowLevel,
   };
 }

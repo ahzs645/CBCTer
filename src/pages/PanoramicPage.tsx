@@ -124,7 +124,7 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
   ];
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-slate-950 text-slate-100">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/90 px-4 py-3">
         <div className="flex items-center gap-2.5">
           <ScanLine className="h-5 w-5 text-sky-400" aria-hidden="true" />
@@ -143,9 +143,11 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-hidden bg-slate-800 lg:flex-row">
+      {/* Phones scroll the whole page (arch editor, then controls); large
+          screens keep the side-by-side, non-scrolling layout. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto bg-slate-800 lg:flex-row lg:overflow-hidden">
         {/* Arch editor */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-950">
+        <section className="flex min-h-[62dvh] min-w-0 shrink-0 flex-col bg-slate-950 lg:min-h-0 lg:flex-1 lg:shrink">
           <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span>{t('panoramic.archSection')}</span>
             <span>
@@ -154,7 +156,7 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
               })}
             </span>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+          <div className="relative m-3 min-h-0 flex-1 overflow-hidden">
             <ArchEditor
               volume={volume}
               zMin={zMin}
@@ -171,7 +173,7 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
         </section>
 
         {/* Controls + output */}
-        <aside className="flex min-h-0 w-full flex-col gap-3 overflow-y-auto bg-slate-950 p-3 lg:w-[380px]">
+        <aside className="flex w-full shrink-0 flex-col gap-3 bg-slate-950 p-3 lg:min-h-0 lg:w-[380px] lg:shrink lg:overflow-y-auto">
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" onClick={autoFit}>
               <Wand2 className="h-4 w-4" aria-hidden="true" />

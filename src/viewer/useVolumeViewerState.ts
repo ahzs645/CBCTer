@@ -89,6 +89,12 @@ export interface VolumeViewerState {
   updateCursor: (
     axis: VolumeAxis,
   ) => (point: { xRatio: number; yRatio: number }) => void;
+  /** Move the slice shown on `axis` by `delta` voxels (clamped). */
+  stepSlice: (axis: VolumeAxis, delta: number) => void;
+  /** Jump the slice shown on `axis` to an absolute 0-based index. */
+  setSliceIndex: (axis: VolumeAxis, index: number) => void;
+  /** Apply a window/level immediately (e.g. a contrast preset), clamped. */
+  applyWindowLevel: (next: SliceWindowLevel) => void;
   handleWindowChange: (value: number) => void;
   handleWindowCommit: (value: number) => void;
   handleLevelChange: (value: number) => void;
@@ -112,8 +118,10 @@ export function useVolumeViewerState(
     useState<SliceWindowLevel>(initialWindowLevel);
   const dragWindowLevelRef = useRef<SliceWindowLevel>(initialWindowLevel);
   const [mprZoom, setMprZoom] = useState(DEFAULT_MPR_ZOOM);
+  // Single-pane (phone) layouts open on the axial plane, the usual dental
+  // starting view, regardless of the axis the scan was stored along.
   const [selectedAxis, setSelectedAxis] = useState<VolumeAxis>(
-    volume?.meta.nativeAxis ?? VolumeAxis.Coronal,
+    VolumeAxis.Axial,
   );
 
   const debouncedCommitWindowLevel = useMemo(
@@ -144,7 +152,7 @@ export function useVolumeViewerState(
     setWindowLevelDraft(wl);
     setWindowLevel(wl);
     setMprZoom(DEFAULT_MPR_ZOOM);
-    setSelectedAxis(volume?.meta.nativeAxis ?? VolumeAxis.Coronal);
+    setSelectedAxis(VolumeAxis.Axial);
   }
 
   const slices = useMemo<ViewerSlices>(() => {
@@ -197,6 +205,34 @@ export function useVolumeViewerState(
       });
     };
 
+  const moveSlice = (
+    axis: VolumeAxis,
+    resolve: (current: number) => number,
+  ) => {
+    if (!volume) return;
+    const [width, height, depth] = volume.meta.dimensions;
+    const key = axis === VolumeAxis.Axial ? 'z' : axis === VolumeAxis.Coronal ? 'y' : 'x';
+    const size = key === 'z' ? depth : key === 'y' ? height : width;
+    // Functional update so several wheel ticks inside one frame accumulate.
+    setCursor((current) => {
+      if (!current) return current;
+      const nextValue = clamp(
+        Math.round(resolve(current[key])),
+        0,
+        Math.max(0, size - 1),
+      );
+      return current[key] === nextValue ? current : { ...current, [key]: nextValue };
+    });
+  };
+
+  const setSliceIndex = (axis: VolumeAxis, index: number) =>
+    moveSlice(axis, () => index);
+
+  const stepSlice = (axis: VolumeAxis, delta: number) => {
+    if (delta === 0) return;
+    moveSlice(axis, (current) => current + delta);
+  };
+
   const updateWindowLevelDraft = (next: SliceWindowLevel) => {
     dragWindowLevelRef.current = next;
     setWindowLevelDraft(next);
@@ -209,6 +245,12 @@ export function useVolumeViewerState(
     setWindowLevelDraft(next);
     setWindowLevel(next);
   };
+
+  const applyWindowLevel = (next: SliceWindowLevel) =>
+    flushWindowLevelDraft({
+      window: clamp(Math.round(next.window), windowBounds.min, windowBounds.max),
+      level: clamp(Math.round(next.level), levelBounds.min, levelBounds.max),
+    });
 
   const handleWindowChange = (value: number) =>
     updateWindowLevelDraft({ ...windowLevelDraft, window: value });
@@ -264,6 +306,9 @@ export function useVolumeViewerState(
     setMprZoom,
     setSelectedAxis,
     updateCursor,
+    stepSlice,
+    setSliceIndex,
+    applyWindowLevel,
     handleWindowChange,
     handleWindowCommit,
     handleLevelChange,

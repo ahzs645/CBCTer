@@ -1,13 +1,60 @@
-import { Box, PanelRightClose } from 'lucide-react';
+import {
+  ArrowLeft,
+  Box,
+  Camera,
+  FileArchive,
+  Maximize2,
+  Minimize2,
+  FileText,
+  FolderInput,
+  Layers,
+  Layers3,
+  PanelRightClose,
+  ScanLine,
+  SlidersHorizontal,
+  SunMoon,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import { useCompactViewerLayout } from '../app/viewer-layout';
 import { Button } from '../components/Button';
 import { ViewerSidebar } from '../components/ViewerSidebar';
+import { DentalToolbar } from '../components/dental/DentalToolbar';
+import { MeasurementsPanel } from '../components/dental/MeasurementsPanel';
+import {
+  BottomSheet,
+  MobileActionButton,
+  MobileDock,
+  MobileTopBar,
+  type MobileSheet,
+  type MobileView,
+} from '../components/dental/MobileChrome';
+import { ExportPackageDialog } from '../components/dental/ExportPackageDialog';
+import { PackageLevelSwitch } from '../components/dental/PackageLevelSwitch';
+import { ShortcutsDialog } from '../components/dental/ShortcutsDialog';
+import {
+  type ScanPackageContents,
+  scanPackageFileName,
+} from '../lib/import/scanPackage';
+import { packScanPackage } from '../lib/import/scanPackageZip';
+import {
+  type Dentition,
+  ToothChartPanel,
+} from '../components/dental/ToothChartPanel';
+import {
+  DENTAL_TOOLS,
+  type DentalLayout,
+  MEASURE_TOOLS,
+  measureModeForTool,
+} from '../components/dental/tools';
+import { ViewerStatusBar } from '../components/dental/ViewerStatusBar';
+import { RangeField } from '../components/RangeField';
 import {
   AxisViewportGrid,
+  type AxisViewportPaneId,
   type CompletedSliceMeasurement,
+  type SliceMeasurementShape,
   ViewportFrame,
   VolumeViewport3D,
   type VolumeViewport3DHandle,
@@ -17,7 +64,7 @@ import {
   useAxisViewportLabels,
   useVolumeViewport3DLabels,
 } from '../app/viewer-i18n';
-import { APP_ROUTES } from '../constants';
+import { APP_ROUTES, PLANE_COLORS } from '../constants';
 import {
   createEmptyStudyState,
   createFullCropBounds,
@@ -30,7 +77,39 @@ import {
   createStudySurface,
   normalizeStudyState,
 } from '../domain/studyState';
-import type { ScanStudy, StudyState } from '../domain/types';
+import type {
+  ScanStudy,
+  StudyMeasurement,
+  StudyState,
+  StudyTool,
+  ToothCondition,
+  ToothFinding,
+} from '../domain/types';
+import {
+  buildDentalReportHtml,
+  formatMeasurementValue,
+  measurementSliceNumber,
+  measurementsToCsv,
+  toothFindingsToCsv,
+} from '../lib/dental/report';
+import {
+  composeSnapshots,
+  downloadBlob,
+  downloadCanvas,
+  downloadText,
+  renderSliceSnapshot,
+  type SnapshotShape,
+} from '../lib/dental/snapshot';
+import {
+  toggleToothCondition,
+  toothConditionDefinition,
+  toothName,
+  upsertToothFinding,
+} from '../lib/dental/toothChart';
+import {
+  computeDentalWindowPresets,
+  type DentalWindowPresetId,
+} from '../lib/dental/windowPresets';
 import { createAppId } from '../domain/ids';
 import { useTranslation } from '../i18n';
 import { densityStats } from '../lib/measurements/geometry';
@@ -425,6 +504,18 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const maskEditSessionRef = useRef<MaskEditSession | null>(null);
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
+  // Dentist-facing viewer chrome.
+  const [invertSlices, setInvertSlices] = useState(false);
+  const [maximizedPane, setMaximizedPane] = useState<AxisViewportPaneId | null>(null);
+  const [activeAxis, setActiveAxis] = useState<VolumeAxis>(VolumeAxis.Axial);
+  const [mobile3D, setMobile3D] = useState(false);
+  const [mobileSheet, setMobileSheet] = useState<MobileSheet | null>(null);
+  const [mobileStudyPanel, setMobileStudyPanel] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
+  const [dentition, setDentition] = useState<Dentition>('permanent');
+  const [chosenPreset, setChosenPreset] = useState<DentalWindowPresetId | null>(null);
+  const [packageDialogOpen, setPackageDialogOpen] = useState(false);
 
   const clearManualToothTarget = () => {
     window.localStorage.removeItem('cbcter.manualToothRecovery');
@@ -858,46 +949,149 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const annotationOverlays = useMemo(() => {
     if (!app.cursor || !app.volume) return {};
     const [width, height, depth] = app.volume.meta.dimensions;
-    const visible = studyState.annotations.filter((annotation) => annotation.visible);
-    return {
-      [VolumeAxis.Axial]: visible
-        .filter((annotation) => annotation.point[2] === app.cursor?.z)
-        .map((annotation) => ({
-          id: annotation.id,
-          point: {
-            xRatio: annotation.point[0] / Math.max(1, width - 1),
-            yRatio: annotation.point[1] / Math.max(1, height - 1),
-          },
-          label: annotation.name,
-          color: annotation.color,
-          selected: annotation.id === studyState.activeAnnotationId,
-        })),
-      [VolumeAxis.Coronal]: visible
-        .filter((annotation) => annotation.point[1] === app.cursor?.y)
-        .map((annotation) => ({
-          id: annotation.id,
-          point: {
-            xRatio: annotation.point[0] / Math.max(1, width - 1),
-            yRatio: 1 - annotation.point[2] / Math.max(1, depth - 1),
-          },
-          label: annotation.name,
-          color: annotation.color,
-          selected: annotation.id === studyState.activeAnnotationId,
-        })),
-      [VolumeAxis.Sagittal]: visible
-        .filter((annotation) => annotation.point[0] === app.cursor?.x)
-        .map((annotation) => ({
-          id: annotation.id,
-          point: {
-            xRatio: annotation.point[1] / Math.max(1, height - 1),
-            yRatio: 1 - annotation.point[2] / Math.max(1, depth - 1),
-          },
-          label: annotation.name,
-          color: annotation.color,
-          selected: annotation.id === studyState.activeAnnotationId,
-        })),
+    const drawnMeasurementIds = new Set(
+      studyState.measurements
+        .filter((measurement) => measurement.plane)
+        .map((measurement) => measurement.id),
+    );
+    type Marker = {
+      id: string;
+      point: [number, number, number];
+      label: string;
+      color: string;
+      selected: boolean;
     };
-  }, [app.cursor, app.volume, studyState.activeAnnotationId, studyState.annotations]);
+    const markers: Marker[] = [
+      ...studyState.annotations
+        .filter(
+          (annotation) =>
+            annotation.visible &&
+            !(annotation.measurementId && drawnMeasurementIds.has(annotation.measurementId)),
+        )
+        .map((annotation) => ({
+          id: annotation.id,
+          point: annotation.point,
+          label: annotation.name,
+          color: annotation.color,
+          selected: annotation.id === studyState.activeAnnotationId,
+        })),
+      ...studyState.toothFindings
+        .filter((finding) => finding.point)
+        .map((finding) => ({
+          id: `tooth:${finding.fdi}`,
+          point: finding.point as [number, number, number],
+          label: String(finding.fdi),
+          color: finding.conditions[0]
+            ? toothConditionDefinition(finding.conditions[0]).color
+            : '#7dd3fc',
+          selected: finding.fdi === selectedTooth,
+        })),
+    ];
+    const toOverlay = (marker: Marker, xRatio: number, yRatio: number) => ({
+      id: marker.id,
+      point: { xRatio, yRatio },
+      label: marker.label,
+      color: marker.color,
+      selected: marker.selected,
+    });
+    return {
+      [VolumeAxis.Axial]: markers
+        .filter((marker) => marker.point[2] === app.cursor?.z)
+        .map((marker) =>
+          toOverlay(
+            marker,
+            marker.point[0] / Math.max(1, width - 1),
+            marker.point[1] / Math.max(1, height - 1),
+          ),
+        ),
+      [VolumeAxis.Coronal]: markers
+        .filter((marker) => marker.point[1] === app.cursor?.y)
+        .map((marker) =>
+          toOverlay(
+            marker,
+            marker.point[0] / Math.max(1, width - 1),
+            1 - marker.point[2] / Math.max(1, depth - 1),
+          ),
+        ),
+      [VolumeAxis.Sagittal]: markers
+        .filter((marker) => marker.point[0] === app.cursor?.x)
+        .map((marker) =>
+          toOverlay(
+            marker,
+            marker.point[1] / Math.max(1, height - 1),
+            1 - marker.point[2] / Math.max(1, depth - 1),
+          ),
+        ),
+    };
+  }, [
+    app.cursor,
+    app.volume,
+    selectedTooth,
+    studyState.activeAnnotationId,
+    studyState.annotations,
+    studyState.measurements,
+    studyState.toothFindings,
+  ]);
+
+  // Saved measurements drawn persistently on the slice they were taken on.
+  const measurementShapes = useMemo(() => {
+    const result: Partial<Record<VolumeAxis, SliceMeasurementShape[]>> = {};
+    if (!app.cursor || !app.volume) return result;
+    const [width, height, depth] = app.volume.meta.dimensions;
+    const toRatio = (
+      plane: VolumeAxis,
+      point: [number, number, number],
+    ): { xRatio: number; yRatio: number } =>
+      plane === VolumeAxis.Axial
+        ? {
+            xRatio: point[0] / Math.max(1, width - 1),
+            yRatio: point[1] / Math.max(1, height - 1),
+          }
+        : plane === VolumeAxis.Coronal
+          ? {
+              xRatio: point[0] / Math.max(1, width - 1),
+              yRatio: 1 - point[2] / Math.max(1, depth - 1),
+            }
+          : {
+              xRatio: point[1] / Math.max(1, height - 1),
+              yRatio: 1 - point[2] / Math.max(1, depth - 1),
+            };
+    const densityByPoints = new Map(
+      studyState.measurements
+        .filter((measurement) => measurement.kind === 'density')
+        .map((measurement) => [JSON.stringify(measurement.points), measurement]),
+    );
+    for (const measurement of studyState.measurements) {
+      if (
+        !measurement.visible ||
+        !measurement.plane ||
+        measurement.kind === 'density'
+      ) {
+        continue;
+      }
+      const plane = measurement.plane as VolumeAxis;
+      const sliceIndex = (measurementSliceNumber(measurement) ?? 0) - 1;
+      const current =
+        plane === VolumeAxis.Axial
+          ? app.cursor.z
+          : plane === VolumeAxis.Coronal
+            ? app.cursor.y
+            : app.cursor.x;
+      if (sliceIndex !== current) continue;
+      const density = densityByPoints.get(JSON.stringify(measurement.points));
+      const value = formatMeasurementValue(measurement);
+      (result[plane] ??= []).push({
+        id: measurement.id,
+        kind: measurement.kind,
+        points: measurement.points.map((point) => toRatio(plane, point)),
+        label: density ? `${value} · μ ${Math.round(density.value)}` : value,
+        selected:
+          measurement.id === studyState.activeMeasurementId ||
+          density?.id === studyState.activeMeasurementId,
+      });
+    }
+    return result;
+  }, [app.cursor, app.volume, studyState.activeMeasurementId, studyState.measurements]);
 
   const brushPreviews = useMemo(() => {
     if (!app.volume || !maskSliceEditEnabled) return {};
@@ -1347,6 +1541,10 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   };
 
   const selectAnnotation = (annotationId: string) => {
+    if (annotationId.startsWith('tooth:')) {
+      setSelectedTooth(Number(annotationId.slice('tooth:'.length)));
+      return;
+    }
     setStudyState((current) => ({
       ...current,
       activeAnnotationId: annotationId,
@@ -1364,6 +1562,14 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   ) => {
     if (!app.volume || !app.cursor) return;
     const voxel = axisPointToVoxel(axis, point, app.cursor, app.volume.meta.dimensions);
+    if (annotationId.startsWith('tooth:')) {
+      const fdi = Number(annotationId.slice('tooth:'.length));
+      setStudyState((current) => ({
+        ...current,
+        toothFindings: upsertToothFinding(current.toothFindings, fdi, { point: voxel }),
+      }));
+      return;
+    }
     setStudyState((current) => ({
       ...current,
       annotations: current.annotations.map((annotation) =>
@@ -2180,6 +2386,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       points,
       value: measurement.value,
       unit: measurement.unit,
+      plane: axis,
     });
     const densityMeasurement = (() => {
       if (!measurement.densityRoi) return null;
@@ -2220,6 +2427,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         points,
         value: stats.mean,
         unit: 'HU',
+        plane: axis,
       });
     })();
     const measurementAnnotation = createStudyAnnotation(studyState.study.id, {
@@ -2642,6 +2850,445 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }
   };
 
+  // ---------------------------------------------------------------------
+  // Dental viewer chrome: tools, contrast presets, chart, report, shortcuts
+  // ---------------------------------------------------------------------
+
+  const { min: windowMin, max: windowMax } = app.windowBounds;
+  const { min: levelMin, max: levelMax } = app.levelBounds;
+  // Clamped to the slider bounds so a preset reads back as "active" after
+  // the viewer applies (and clamps) it.
+  const windowPresets = useMemo(
+    () =>
+      app.volume
+        ? computeDentalWindowPresets(app.volume).map((preset) => ({
+            ...preset,
+            windowLevel: {
+              window: Math.min(windowMax, Math.max(windowMin, preset.windowLevel.window)),
+              level: Math.min(levelMax, Math.max(levelMin, preset.windowLevel.level)),
+            },
+          }))
+        : [],
+    [app.volume, windowMin, windowMax, levelMin, levelMax],
+  );
+  const presetMatchesDraft = (id: DentalWindowPresetId | null) => {
+    const preset = windowPresets.find((item) => item.id === id);
+    return (
+      preset != null &&
+      preset.windowLevel.window === app.windowLevelDraft.window &&
+      preset.windowLevel.level === app.windowLevelDraft.level
+    );
+  };
+  // Prefer the preset the user picked (several can coincide on flat data),
+  // otherwise whichever preset the current window/level happens to match.
+  const activePresetId: DentalWindowPresetId | null = presetMatchesDraft(chosenPreset)
+    ? chosenPreset
+    : (windowPresets.find((preset) => presetMatchesDraft(preset.id))?.id ?? null);
+  const measureMode = measureModeForTool(studyState.activeTool);
+  const dentalLayout: DentalLayout =
+    studyState.layoutPreset === 'single'
+      ? '3d'
+      : studyState.layoutPreset === 'mpr-only'
+        ? 'focus'
+        : 'quad';
+  const mobileView: MobileView = mobile3D ? '3d' : app.selectedAxis;
+  const keyboardAxis = compactLayout ? app.selectedAxis : activeAxis;
+  const scanLabel = app.volume?.meta.scanId ?? app.sourceLabel;
+
+  const setTool = (tool: StudyTool) => {
+    setStudyState((current) => ({ ...current, activeTool: tool }));
+  };
+
+  const applyPreset = (id: DentalWindowPresetId) => {
+    const preset = windowPresets.find((item) => item.id === id);
+    if (!preset) return;
+    setChosenPreset(id);
+    app.applyWindowLevel(preset.windowLevel);
+  };
+
+  const setDentalLayout = (layout: DentalLayout) => {
+    setMaximizedPane(null);
+    updateStudyViewState({
+      layoutPreset:
+        layout === '3d' ? 'single' : layout === 'focus' ? 'mpr-only' : 'mpr-3d',
+    });
+  };
+
+  const setZoom = (zoom: number) => app.setMprZoom(Math.min(8, Math.max(1, zoom)));
+
+  const selectAxisFromPane =
+    (axis: VolumeAxis) => (point: { xRatio: number; yRatio: number }) => {
+      setActiveAxis(axis);
+      app.updateCursor(axis)(point);
+    };
+
+  const stepSliceOnAxis = (axis: VolumeAxis, delta: number) => {
+    setActiveAxis(axis);
+    app.stepSlice(axis, delta);
+  };
+
+  const setSliceOnAxis = (axis: VolumeAxis, index: number) => {
+    setActiveAxis(axis);
+    app.setSliceIndex(axis, index);
+  };
+
+  const toggleMaximize = (pane: AxisViewportPaneId) =>
+    setMaximizedPane((current) => (current === pane ? null : pane));
+
+  // Measurements ---------------------------------------------------------
+
+  const goToMeasurement = (measurement: StudyMeasurement) => {
+    const point = measurement.points[0];
+    if (!point) return;
+    app.setCursor({ x: point[0], y: point[1], z: point[2] });
+    if (measurement.plane) {
+      const plane = measurement.plane as VolumeAxis;
+      setActiveAxis(plane);
+      if (compactLayout) {
+        app.setSelectedAxis(plane);
+        setMobile3D(false);
+        setMobileSheet(null);
+      }
+    }
+    setStudyState((current) => ({
+      ...current,
+      activeMeasurementId: measurement.id,
+      measurements: current.measurements.map((item) =>
+        item.id === measurement.id ? { ...item, visible: true } : item,
+      ),
+    }));
+  };
+
+  const toggleMeasurementVisible = (measurementId: string) => {
+    setStudyState((current) => ({
+      ...current,
+      measurements: current.measurements.map((measurement) =>
+        measurement.id === measurementId
+          ? { ...measurement, visible: !measurement.visible }
+          : measurement,
+      ),
+    }));
+  };
+
+  const renameMeasurement = (measurementId: string, name: string) => {
+    setStudyState((current) => ({
+      ...current,
+      measurements: current.measurements.map((measurement) =>
+        measurement.id === measurementId
+          ? { ...measurement, name, updatedAt: Date.now() }
+          : measurement,
+      ),
+      annotations: current.annotations.map((annotation) =>
+        annotation.measurementId === measurementId
+          ? { ...annotation, name }
+          : annotation,
+      ),
+    }));
+  };
+
+  const deleteAllMeasurements = () => {
+    setStudyState((current) => ({
+      ...current,
+      measurements: [],
+      annotations: current.annotations.filter(
+        (annotation) => annotation.kind !== 'measurement',
+      ),
+      activeMeasurementId: undefined,
+    }));
+  };
+
+  const fileStem = (scanLabel || 'cbct').replace(/[^\w.-]+/g, '_');
+
+  const exportMeasurementsCsv = () => {
+    downloadText(
+      measurementsToCsv(studyState.measurements),
+      `${fileStem}-measurements.csv`,
+      'text/csv',
+    );
+  };
+
+  // Tooth chart ----------------------------------------------------------
+
+  const conditionLabels = (finding: ToothFinding) =>
+    finding.conditions
+      .map((condition) => t(`dental.chart.conditions.${condition}`))
+      .join(', ');
+
+  const updateFindings = (
+    update: (findings: ToothFinding[]) => ToothFinding[],
+  ) => {
+    setStudyState((current) => ({
+      ...current,
+      toothFindings: update(current.toothFindings),
+    }));
+  };
+
+  const toggleCondition = (fdi: number, condition: ToothCondition) =>
+    updateFindings((findings) => toggleToothCondition(findings, fdi, condition));
+
+  const setToothNote = (fdi: number, note: string) =>
+    updateFindings((findings) => upsertToothFinding(findings, fdi, { note }));
+
+  const pinToothToCursor = (fdi: number) => {
+    const cursor = app.cursor;
+    if (!cursor) return;
+    updateFindings((findings) =>
+      upsertToothFinding(findings, fdi, { point: [cursor.x, cursor.y, cursor.z] }),
+    );
+  };
+
+  const goToTooth = (fdi: number) => {
+    const point = studyState.toothFindings.find((finding) => finding.fdi === fdi)?.point;
+    if (!point) return;
+    app.setCursor({ x: point[0], y: point[1], z: point[2] });
+    if (compactLayout) {
+      setMobile3D(false);
+      setMobileSheet(null);
+    }
+  };
+
+  const clearTooth = (fdi: number) =>
+    updateFindings((findings) => findings.filter((finding) => finding.fdi !== fdi));
+
+  const exportChartCsv = () => {
+    downloadText(
+      toothFindingsToCsv(studyState.toothFindings, (finding) => ({
+        tooth: toothName(finding.fdi),
+        conditions: conditionLabels(finding),
+      })),
+      `${fileStem}-tooth-chart.csv`,
+      'text/csv',
+    );
+  };
+
+  // Snapshots + report ---------------------------------------------------
+
+  const captureViews = () => {
+    const volume = app.volume;
+    if (!volume) return [];
+    const spacing = volume.meta.spacing;
+    const views: Array<{
+      axis: VolumeAxis;
+      title: string;
+      color: string;
+      mmPerPixel: { x: number; y: number };
+    }> = [
+      {
+        axis: VolumeAxis.Axial,
+        title: t('dental.views.axial'),
+        color: PLANE_COLORS.axial,
+        mmPerPixel: { x: spacing[0], y: spacing[1] },
+      },
+      {
+        axis: VolumeAxis.Coronal,
+        title: t('dental.views.coronal'),
+        color: PLANE_COLORS.coronal,
+        mmPerPixel: { x: spacing[0], y: spacing[2] },
+      },
+      {
+        axis: VolumeAxis.Sagittal,
+        title: t('dental.views.sagittal'),
+        color: PLANE_COLORS.sagittal,
+        mmPerPixel: { x: spacing[1], y: spacing[2] },
+      },
+    ];
+    return views.flatMap((view) => {
+      const image = app.slices[view.axis];
+      if (!image) return [];
+      const shapes: SnapshotShape[] = (measurementShapes[view.axis] ?? []).map(
+        (shape) => ({ kind: shape.kind, points: shape.points, label: shape.label }),
+      );
+      const sliceIndex =
+        view.axis === VolumeAxis.Axial
+          ? (app.cursor?.z ?? 0)
+          : view.axis === VolumeAxis.Coronal
+            ? (app.cursor?.y ?? 0)
+            : (app.cursor?.x ?? 0);
+      const title = `${view.title} · ${sliceIndex + 1}`;
+      return [
+        {
+          title,
+          canvas: renderSliceSnapshot({
+            image,
+            overlay: maskOverlays[view.axis] ?? null,
+            shapes,
+            invert: invertSlices,
+            title,
+            color: view.color,
+            mmPerPixel: view.mmPerPixel,
+          }),
+        },
+      ];
+    });
+  };
+
+  const saveSnapshot = () => {
+    const views = captureViews();
+    if (views.length === 0) return;
+    downloadCanvas(
+      composeSnapshots(views.map((view) => view.canvas)),
+      `${fileStem}-views.png`,
+    );
+  };
+
+  const openReport = () => {
+    const volume = app.volume;
+    if (!volume) return;
+    // Open the tab synchronously (inside the click) so popup blockers allow it.
+    const reportWindow = window.open('', '_blank');
+    const html = buildDentalReportHtml({
+      title: `${t('dental.report.title')} — ${scanLabel}`,
+      generatedAt: new Date(),
+      scan: {
+        id: scanLabel,
+        format: volume.meta.formatLabel,
+        dimensions: `${volume.meta.dimensions.join(' × ')} voxels`,
+        voxelSize: `${volume.meta.spacing.map((value) => value.toFixed(3)).join(' × ')} mm`,
+      },
+      snapshots: captureViews().map((view) => ({
+        label: view.title,
+        dataUrl: view.canvas.toDataURL('image/png'),
+      })),
+      measurements: studyState.measurements.map((measurement) => {
+        const slice = measurementSliceNumber(measurement);
+        return {
+          name: measurement.name,
+          value: formatMeasurementValue(measurement),
+          plane: measurement.plane ? t(`dental.views.${measurement.plane}`) : '—',
+          slice: slice != null ? String(slice) : '—',
+        };
+      }),
+      findings: studyState.toothFindings.map((finding) => ({
+        fdi: finding.fdi,
+        tooth: toothName(finding.fdi),
+        conditions: conditionLabels(finding),
+        note: finding.note,
+        bookmarked: Boolean(finding.point),
+      })),
+      caseNotes: studyState.caseNotes,
+      disclaimer: t('dental.report.disclaimer'),
+      labels: {
+        scan: t('dental.report.scan'),
+        format: t('dental.report.format'),
+        dimensions: t('dental.report.dimensions'),
+        voxelSize: t('dental.report.voxelSize'),
+        generated: t('dental.report.generated'),
+        views: t('dental.report.views'),
+        measurements: t('dental.report.measurements'),
+        measurementName: t('dental.report.name'),
+        measurementValue: t('dental.report.value'),
+        measurementPlane: t('dental.report.plane'),
+        measurementSlice: t('dental.report.slice'),
+        noMeasurements: t('dental.report.noMeasurements'),
+        toothChart: t('dental.report.toothChart'),
+        tooth: t('dental.report.tooth'),
+        findings: t('dental.report.findings'),
+        note: t('dental.report.note'),
+        noFindings: t('dental.report.noFindings'),
+        caseNotes: t('dental.report.caseNotes'),
+        print: t('dental.report.print'),
+      },
+    });
+    const blob = new Blob([html], { type: 'text/html' });
+    if (reportWindow) {
+      reportWindow.location.href = URL.createObjectURL(blob);
+      return;
+    }
+    downloadText(html, `${fileStem}-report.html`, 'text/html');
+    window.alert(t('dental.report.popupBlocked'));
+  };
+
+  // Slim scan package (.cbct.zip) ----------------------------------------
+
+  const exportScanPackage = async (options: {
+    name: string;
+    contents: ScanPackageContents;
+    includePreview: boolean;
+  }) => {
+    const volume = app.volume;
+    if (!volume) throw new Error('No scan is open.');
+    let previewPng: Uint8Array | undefined;
+    const axial = app.slices[VolumeAxis.Axial];
+    if (options.includePreview && axial) {
+      const canvas = renderSliceSnapshot({
+        image: axial,
+        title: '',
+        color: PLANE_COLORS.axial,
+        maxSide: 320,
+      });
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/png'),
+      );
+      if (blob) previewPng = new Uint8Array(await blob.arrayBuffer());
+    }
+    const { blob } = await packScanPackage(volume, {
+      name: options.name,
+      windowLevel: app.windowLevel,
+      contents: options.contents,
+      previewPng,
+    });
+    downloadBlob(blob, scanPackageFileName(options.name));
+    return { bytes: blob.size };
+  };
+
+  // Keyboard shortcuts (desktop and tablets with keyboards) ---------------
+
+  const handleViewerKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        target?.closest('input, textarea, select, [contenteditable="true"], [role="listbox"]')
+      ) {
+        return;
+      }
+      if (event.ctrlKey || event.metaKey) return;
+      const key = event.key;
+      const toolForKey = DENTAL_TOOLS.find(
+        (item) => item.shortcut.toLowerCase() === key.toLowerCase(),
+      );
+      if (key === 'Escape') {
+        setTool('crosshair');
+        setMobileSheet(null);
+      } else if (toolForKey) {
+        setTool(toolForKey.tool);
+      } else if (key === 'i' || key === 'I') {
+        setInvertSlices((current) => !current);
+      } else if (/^[1-6]$/.test(key)) {
+        const preset = windowPresets[Number(key) - 1];
+        if (preset) applyPreset(preset.id);
+      } else if (key === 'ArrowUp' || key === 'PageUp') {
+        app.stepSlice(keyboardAxis, event.shiftKey || key === 'PageUp' ? -10 : -1);
+      } else if (key === 'ArrowDown' || key === 'PageDown') {
+        app.stepSlice(keyboardAxis, event.shiftKey || key === 'PageDown' ? 10 : 1);
+      } else if (key === '+' || key === '=') {
+        setZoom(app.mprZoom * 1.25);
+      } else if (key === '-' || key === '_') {
+        setZoom(app.mprZoom / 1.25);
+      } else if (key === '0') {
+        setZoom(1);
+      } else if ((key === 'f' || key === 'F') && !compactLayout) {
+        toggleMaximize(keyboardAxis);
+      } else if (key === 's' || key === 'S') {
+        saveSnapshot();
+      } else if (key === '?') {
+        setShortcutsOpen(true);
+      } else {
+        return;
+      }
+      event.preventDefault();
+  };
+  // The listener is installed once and always calls the latest handler.
+  const viewerKeyRef = useRef(handleViewerKey);
+  useEffect(() => {
+    viewerKeyRef.current = handleViewerKey;
+  });
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => viewerKeyRef.current(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
+
   if (!app.volume) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
@@ -2652,329 +3299,614 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     );
   }
 
-  const show3DViewport = studyState.layoutPreset !== 'mpr-only';
-  const showMprViewports =
-    app.axisViewsVisible && studyState.layoutPreset !== 'single';
+  const viewLabels = {
+    maximize: t('dental.views.maximize'),
+    restore: t('dental.views.restore'),
+    previous: t('dental.views.previousSlice'),
+    next: t('dental.views.nextSlice'),
+    slice: t('dental.views.slice'),
+  };
 
-  return (
-    <main className="h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <div className="relative h-full overflow-hidden bg-slate-800">
+  const renderChartPanel = (touch: boolean) => (
+    <ToothChartPanel
+      touch={touch}
+      findings={studyState.toothFindings}
+      selectedFdi={selectedTooth}
+      dentition={dentition}
+      caseNotes={studyState.caseNotes}
+      onDentitionChange={setDentition}
+      onSelectTooth={setSelectedTooth}
+      onToggleCondition={toggleCondition}
+      onNoteChange={setToothNote}
+      onPinToCursor={pinToothToCursor}
+      onGoToTooth={goToTooth}
+      onClearTooth={clearTooth}
+      onCaseNotesChange={(caseNotes) =>
+        setStudyState((current) => ({ ...current, caseNotes }))
+      }
+      onExportCsv={exportChartCsv}
+    />
+  );
+
+  const renderMeasuresPanel = (touch: boolean) => (
+    <MeasurementsPanel
+      touch={touch}
+      measurements={studyState.measurements}
+      activeMeasurementId={studyState.activeMeasurementId}
+      onGoTo={goToMeasurement}
+      onToggleVisible={toggleMeasurementVisible}
+      onRename={renameMeasurement}
+      onDelete={deleteMeasurement}
+      onDeleteAll={deleteAllMeasurements}
+      onExportCsv={exportMeasurementsCsv}
+    />
+  );
+
+  const sidebar = (
+    <ViewerSidebar
+      volumeMeta={app.volume?.meta ?? null}
+      studyState={studyState}
+      sourceLabel={app.sourceLabel}
+      dimensions={app.dimensions}
+      spacing={app.spacing}
+      maskStatus={maskStatus}
+      surfaceStatus={surfaceStatus}
+      tissueOverlayMode={tissueOverlayMode}
+      visibleTissuePresets={visibleTissuePresets}
+      windowBounds={app.windowBounds}
+      levelBounds={app.levelBounds}
+      windowLevelDraft={app.windowLevelDraft}
+      progress={app.progress}
+      issue={app.issue}
+      cursor={app.cursor}
+      downsampled3D={app.downsampled3D}
+      selectedSeriesId={app.selectedSeriesId}
+      seriesChoices={app.seriesChoices}
+      onWindowChange={app.handleWindowChange}
+      onWindowCommit={app.handleWindowCommit}
+      onCancelMaskOperation={cancelMaskOperation}
+      onCancelSurfaceGeneration={cancelSurfaceGeneration}
+      onCreateThresholdMask={createThresholdMask}
+      onCreateTissueMask={createTissueMask}
+      onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
+      onDeleteMeasurement={deleteMeasurement}
+      onDownloadSurface={downloadSurface}
+      onDownloadSurfacePly={downloadSurfacePly}
+      onExportActiveAnatomy={() => void exportActiveAnatomy()}
+      onExportProject={() => void exportProject()}
+      onFillMaskHoles={fillActiveMaskHoles}
+      onImportProject={(file) => void importProject(file)}
+      onSaveLocalProject={() => void saveLocalProject()}
+      onRestoreLocalProject={() => void restoreLocalProject()}
+      onKeepLargestMaskComponent={keepLargestActiveMaskComponent}
+      onSelectMask={selectMask}
+      onSplitMaskComponents={splitActiveMaskComponents}
+      onUpdateMaskAppearance={updateMaskAppearance}
+      onUpdateMaskWorkflow={updateMaskWorkflow}
+      onUpdateStudyViewState={updateStudyViewState}
+      onUpdateSegment={updateSegment}
+      onAddSegment={addSegment}
+      onDeleteSegment={deleteSegment}
+      onSelectSegment={selectSegment}
+      onKeepLargestSegmentIsland={keepLargestSegmentIsland}
+      onRemoveSmallSegmentIslands={removeSmallSegmentIslands}
+      onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
+      onApplyWatershedSeeds={applyWatershedSeeds}
+      onClearWatershedSeeds={clearWatershedSeeds}
+      onLevelChange={app.handleLevelChange}
+      onLevelCommit={app.handleLevelCommit}
+      onRedoMaskEdit={redoMaskEdit}
+      onRegionGrowFromCursor={regionGrowFromCursor}
+      onToggleSurfaceVisibility={toggleSurfaceVisibility}
+      onToggleTissuePreset={toggleTissuePreset}
+      onTissueOverlayModeChange={setTissueOverlayMode}
+      onToggleMaskVisibility={toggleMaskVisibility}
+      onUndoMaskEdit={undoMaskEdit}
+      onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
+      onOpenDirectory={() => void app.openDirectory()}
+      onOpenTeeth={openTeeth}
+      onRunAnatomy={runFullAnatomy}
+      onCancelAnatomy={cancelFullAnatomy}
+      anatomyRunning={anatomyRunning}
+      anatomyProgress={anatomyProgress}
+      anatomyHistoryCount={currentAnatomyHistory.length}
+      onRestoreLatestAnatomy={() => {
+        const entry = currentAnatomyHistory[0];
+        if (entry) restoreAnatomyHistoryEntry(entry);
+      }}
+      onRunFaceSurface={runFaceSurface}
+      faceRunning={faceRunning}
+      faceProgress={faceProgress}
+      onOpenPanoramic={openPanoramic}
+      onBackToImport={app.resetViewer}
+      studyExtra={
+        <PackageLevelSwitch
+          meta={app.volume.meta}
+          busy={app.busy}
+          onChange={(level) => void app.openPackageLevel(level)}
+        />
+      }
+      chartPanel={compactLayout ? undefined : renderChartPanel(false)}
+      measuresPanel={compactLayout ? undefined : renderMeasuresPanel(false)}
+    />
+  );
+
+  const frame3D = (
+    <ViewportFrame
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          <Box className="h-4 w-4 text-slate-400" aria-hidden="true" />
+          3D
+        </span>
+      }
+      subtitle={t('viewerPage.mainNavigationVolume')}
+      status={
+        app.prepared3D
+          ? app.prepared3D.downsampled
+            ? t('viewerPage.downsampledStatus')
+            : t('viewerPage.nativeStatus')
+          : t('viewerPage.preparingStatus')
+      }
+      actions={
+        !compactLayout && dentalLayout !== '3d' ? (
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 items-center justify-center rounded border border-white/10 bg-slate-950/70 text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+            aria-label={maximizedPane === 'extra' ? viewLabels.restore : viewLabels.maximize}
+            title={maximizedPane === 'extra' ? viewLabels.restore : viewLabels.maximize}
+            onClick={() => toggleMaximize('extra')}
+          >
+            {maximizedPane === 'extra' ? (
+              <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+          </button>
+        ) : undefined
+      }
+    >
+      <VolumeViewport3D
+        ref={viewport3DRef}
+        volume={app.prepared3D}
+        onDownsampledChange={app.setDownsampled3D}
+        labels={volume3DLabels}
+        surfaces={surfacePreviews}
+        cropBounds={studyState.cropBounds}
+      />
+    </ViewportFrame>
+  );
+
+  const renderAxisGrid = (compact: boolean) => (
+    <AxisViewportGrid
+      className="h-full"
+      compact={compact}
+      showAxisSelector={false}
+      layout={dentalLayout === 'focus' ? 'focus' : 'quad'}
+      extraPane={dentalLayout === 'quad' ? frame3D : undefined}
+      maximizedPane={compact ? null : maximizedPane}
+      onToggleMaximize={toggleMaximize}
+      hasVolume={Boolean(app.volume)}
+      cursor={app.cursor}
+      dimensions={app.dimensions}
+      spacing={app.spacing}
+      slices={app.slices}
+      mprZoom={app.mprZoom}
+      overlays={maskOverlays}
+      cropRects={cropRects}
+      annotations={annotationOverlays}
+      brushPreviews={brushPreviews}
+      selectedAxis={compact ? app.selectedAxis : VolumeAxis.Axial}
+      theme={appViewerTheme}
+      labels={axisLabels}
+      invert={invertSlices}
+      measureMode={measureMode}
+      measurementShapes={measurementShapes}
+      onSliceStep={stepSliceOnAxis}
+      onSliceIndexChange={setSliceOnAxis}
+      maximizeLabels={viewLabels}
+      onEditAxis={maskSliceEditEnabled ? editMaskOnSlice : undefined}
+      onProbeAxis={updateProbeFromAxis}
+      onCropAxis={updateCropFromAxis}
+      onAnnotationSelect={selectAnnotation}
+      onAnnotationMove={moveAnnotation}
+      onMeasurementComplete={addSliceMeasurement}
+      onZoomChange={app.setMprZoom}
+      onSelectedAxisChange={app.setSelectedAxis}
+      onWindowLevelDrag={
+        studyState.activeTool === 'window-level'
+          ? app.handleWindowLevelDrag
+          : undefined
+      }
+      onSelectAxis={selectAxisFromPane}
+    />
+  );
+
+  const manualToothBanner = manualToothTarget ? (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-800 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+      <span className="font-medium">
+        Manual tooth target: FDI {manualToothTarget.fdi}
+      </span>
+      <span className="text-amber-200/80">{manualToothTarget.fdiName}</span>
+      <button
+        type="button"
+        onClick={exportManualToothTarget}
+        className="ml-auto rounded border border-sky-300/50 bg-sky-500/10 px-2 py-1 text-sky-100 hover:bg-sky-500/20"
+      >
+        Export tooth
+      </button>
+      <button
+        type="button"
+        onClick={openTeeth}
+        className="rounded border border-amber-300/40 px-2 py-1 text-amber-100 hover:bg-amber-300/10"
+      >
+        Teeth
+      </button>
+      <button
+        type="button"
+        onClick={clearManualToothTarget}
+        className="rounded border border-slate-600 px-2 py-1 text-slate-200 hover:bg-slate-800"
+      >
+        Clear
+      </button>
+    </div>
+  ) : null;
+
+  const activeToolDefinition = DENTAL_TOOLS.find(
+    (item) => item.tool === studyState.activeTool,
+  );
+  const toolHint =
+    measureMode !== 'off'
+      ? t('dental.toolbar.measureHint')
+      : studyState.activeTool === 'window-level'
+        ? t('dental.toolbar.contrastHint')
+        : t('dental.toolbar.navigateHint');
+
+  if (!compactLayout) {
+    return (
+      <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-slate-950 text-slate-100">
+        <DentalToolbar
+          scanLabel={scanLabel}
+          formatLabel={
+            app.volume.meta.packageLevel === 'half'
+              ? `${app.volume.meta.formatLabel} · ${t('dental.package.levelBadgeHalf')}`
+              : app.volume.meta.formatLabel
+          }
+          activeTool={studyState.activeTool}
+          presets={windowPresets}
+          activePresetId={activePresetId}
+          invert={invertSlices}
+          zoom={app.mprZoom}
+          layout={dentalLayout}
+          sidebarVisible={app.sidebarVisible}
+          onToolChange={setTool}
+          onPresetChange={applyPreset}
+          onInvertChange={setInvertSlices}
+          onZoomChange={setZoom}
+          onLayoutChange={setDentalLayout}
+          onSnapshot={saveSnapshot}
+          onReport={openReport}
+          onExportPackage={() => setPackageDialogOpen(true)}
+          onOpenPanoramic={openPanoramic}
+          onOpenTeeth={openTeeth}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+          onSidebarVisibleChange={app.setSidebarVisible}
+        />
         <div
           className={cn(
-            'grid h-full gap-px',
-            compactLayout
-              ? 'grid-cols-1'
-              : app.sidebarVisible
-                ? 'grid-cols-[minmax(0,1fr)_minmax(288px,22vw)]'
-                : 'grid-cols-1',
+            'grid min-h-0 flex-1 gap-px bg-slate-800',
+            app.sidebarVisible
+              ? 'grid-cols-[minmax(0,1fr)_minmax(300px,22vw)]'
+              : 'grid-cols-1',
           )}
         >
           <section className="flex min-h-0 min-w-0 flex-col">
-            {manualToothTarget ? (
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-800 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                <span className="font-medium">
-                  Manual tooth target: FDI {manualToothTarget.fdi}
-                </span>
-                <span className="text-amber-200/80">
-                  {manualToothTarget.fdiName}
-                </span>
-                <button
-                  type="button"
-                  onClick={exportManualToothTarget}
-                  className="ml-auto rounded border border-sky-300/50 bg-sky-500/10 px-2 py-1 text-sky-100 hover:bg-sky-500/20"
-                >
-                  Export tooth
-                </button>
-                <button
-                  type="button"
-                  onClick={openTeeth}
-                  className="rounded border border-amber-300/40 px-2 py-1 text-amber-100 hover:bg-amber-300/10"
-                >
-                  Teeth
-                </button>
-                <button
-                  type="button"
-                  onClick={clearManualToothTarget}
-                  className="rounded border border-slate-600 px-2 py-1 text-slate-200 hover:bg-slate-800"
-                >
-                  Clear
-                </button>
-              </div>
-            ) : null}
-            <div
-              className={cn(
-                'grid min-h-0 min-w-0 flex-1 gap-px bg-slate-800',
-                show3DViewport && showMprViewports
-                  ? compactLayout
-                    ? 'grid-rows-[minmax(0,1.1fr)_minmax(260px,0.9fr)]'
-                    : 'grid-rows-[1.22fr_0.95fr]'
-                  : 'grid-rows-1',
-              )}
-            >
-              {show3DViewport ? (
-                <div className="grid min-h-0 min-w-0 grid-cols-1 gap-px bg-slate-800">
-                <ViewportFrame
-                  title={
-                    <span className="inline-flex items-center gap-1.5">
-                      <Box
-                        className="h-4 w-4 text-slate-400"
-                        aria-hidden="true"
-                      />
-                      3D
-                    </span>
-                  }
-                  subtitle={t('viewerPage.mainNavigationVolume')}
-                  status={
-                    app.prepared3D
-                      ? app.prepared3D.downsampled
-                        ? t('viewerPage.downsampledStatus')
-                        : t('viewerPage.nativeStatus')
-                      : t('viewerPage.preparingStatus')
-                  }
-                >
-                  <VolumeViewport3D
-                    ref={viewport3DRef}
-                    volume={app.prepared3D}
-                    axisViewsVisible={app.axisViewsVisible}
-                    onAxisViewsVisibleChange={app.setAxisViewsVisible}
-                    sidebarVisible={app.sidebarVisible}
-                    onSidebarVisibleChange={app.setSidebarVisible}
-                    onDownsampledChange={app.setDownsampled3D}
-                    labels={volume3DLabels}
-                  surfaces={surfacePreviews}
-                  cropBounds={studyState.cropBounds}
-                  />
-                </ViewportFrame>
-                </div>
-              ) : null}
-
-              {showMprViewports ? (
-                <AxisViewportGrid
-                  compact={compactLayout}
-                  hasVolume={Boolean(app.volume)}
-                  cursor={app.cursor}
-                  dimensions={app.dimensions}
-                  spacing={app.spacing}
-                  slices={app.slices}
-                  mprZoom={app.mprZoom}
-                  overlays={maskOverlays}
-                  cropRects={cropRects}
-                  annotations={annotationOverlays}
-                  brushPreviews={brushPreviews}
-                  selectedAxis={app.selectedAxis}
-                  theme={appViewerTheme}
-                  labels={axisLabels}
-                  onEditAxis={maskSliceEditEnabled ? editMaskOnSlice : undefined}
-                  onProbeAxis={updateProbeFromAxis}
-                  onCropAxis={updateCropFromAxis}
-                  onAnnotationSelect={selectAnnotation}
-                  onAnnotationMove={moveAnnotation}
-                  onMeasurementComplete={addSliceMeasurement}
-                  onZoomChange={app.setMprZoom}
-                  onSelectedAxisChange={app.setSelectedAxis}
-                  onWindowLevelDrag={
-                    studyState.activeTool === 'window-level'
-                      ? app.handleWindowLevelDrag
-                      : undefined
-                  }
-                  onSelectAxis={app.updateCursor}
-                />
-              ) : null}
+            {manualToothBanner}
+            <div className="relative min-h-0 flex-1">
+              {dentalLayout === '3d' ? frame3D : renderAxisGrid(false)}
             </div>
           </section>
-
-          {!compactLayout && app.sidebarVisible ? (
-            <ViewerSidebar
-              volumeMeta={app.volume?.meta ?? null}
-              studyState={studyState}
-              sourceLabel={app.sourceLabel}
-              dimensions={app.dimensions}
-              spacing={app.spacing}
-              maskStatus={maskStatus}
-              surfaceStatus={surfaceStatus}
-              tissueOverlayMode={tissueOverlayMode}
-              visibleTissuePresets={visibleTissuePresets}
-              windowBounds={app.windowBounds}
-              levelBounds={app.levelBounds}
-              windowLevelDraft={app.windowLevelDraft}
-              progress={app.progress}
-              issue={app.issue}
-              cursor={app.cursor}
-              downsampled3D={app.downsampled3D}
-              selectedSeriesId={app.selectedSeriesId}
-              seriesChoices={app.seriesChoices}
-              onWindowChange={app.handleWindowChange}
-              onWindowCommit={app.handleWindowCommit}
-              onCancelMaskOperation={cancelMaskOperation}
-              onCancelSurfaceGeneration={cancelSurfaceGeneration}
-              onCreateThresholdMask={createThresholdMask}
-              onCreateTissueMask={createTissueMask}
-              onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
-              onDeleteMeasurement={deleteMeasurement}
-              onDownloadSurface={downloadSurface}
-              onDownloadSurfacePly={downloadSurfacePly}
-              onExportActiveAnatomy={() => void exportActiveAnatomy()}
-              onExportProject={() => void exportProject()}
-              onFillMaskHoles={fillActiveMaskHoles}
-              onImportProject={(file) => void importProject(file)}
-              onSaveLocalProject={() => void saveLocalProject()}
-              onRestoreLocalProject={() => void restoreLocalProject()}
-              onKeepLargestMaskComponent={keepLargestActiveMaskComponent}
-              onSelectMask={selectMask}
-              onSplitMaskComponents={splitActiveMaskComponents}
-              onUpdateMaskAppearance={updateMaskAppearance}
-              onUpdateMaskWorkflow={updateMaskWorkflow}
-              onUpdateStudyViewState={updateStudyViewState}
-              onUpdateSegment={updateSegment}
-              onAddSegment={addSegment}
-              onDeleteSegment={deleteSegment}
-              onSelectSegment={selectSegment}
-              onKeepLargestSegmentIsland={keepLargestSegmentIsland}
-              onRemoveSmallSegmentIslands={removeSmallSegmentIslands}
-              onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
-              onApplyWatershedSeeds={applyWatershedSeeds}
-              onClearWatershedSeeds={clearWatershedSeeds}
-              onLevelChange={app.handleLevelChange}
-              onLevelCommit={app.handleLevelCommit}
-              onRedoMaskEdit={redoMaskEdit}
-              onRegionGrowFromCursor={regionGrowFromCursor}
-              onToggleSurfaceVisibility={toggleSurfaceVisibility}
-              onToggleTissuePreset={toggleTissuePreset}
-              onTissueOverlayModeChange={setTissueOverlayMode}
-              onToggleMaskVisibility={toggleMaskVisibility}
-              onUndoMaskEdit={undoMaskEdit}
-              onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
-              onOpenDirectory={() => void app.openDirectory()}
-              onOpenTeeth={openTeeth}
-              onRunAnatomy={runFullAnatomy}
-              onCancelAnatomy={cancelFullAnatomy}
-              anatomyRunning={anatomyRunning}
-              anatomyProgress={anatomyProgress}
-              anatomyHistoryCount={currentAnatomyHistory.length}
-              onRestoreLatestAnatomy={() => {
-                const entry = currentAnatomyHistory[0];
-                if (entry) restoreAnatomyHistoryEntry(entry);
-              }}
-              onRunFaceSurface={runFaceSurface}
-              faceRunning={faceRunning}
-              faceProgress={faceProgress}
-              onOpenPanoramic={openPanoramic}
-              onBackToImport={app.resetViewer}
-            />
-          ) : null}
+          {app.sidebarVisible ? sidebar : null}
         </div>
+        <ViewerStatusBar
+          cursor={app.cursor}
+          dimensions={app.dimensions}
+          spacing={app.spacing}
+          windowLevel={app.windowLevelDraft}
+          zoom={app.mprZoom}
+          probe={sliceProbe}
+          toolHint={toolHint}
+        />
+        {shortcutsOpen ? (
+          <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
+        ) : null}
+        {packageDialogOpen ? (
+          <ExportPackageDialog
+            scanId={scanLabel}
+            dimensions={app.volume.meta.dimensions}
+            onExport={exportScanPackage}
+            onClose={() => setPackageDialogOpen(false)}
+          />
+        ) : null}
+      </main>
+    );
+  }
 
-        {compactLayout && app.sidebarVisible ? (
-          <div className="absolute inset-0 z-40 flex justify-end">
-            <button
-              type="button"
-              aria-label={t('viewerPage.closeStudyPanel')}
-              className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px]"
-              onClick={() => app.setSidebarVisible(false)}
-            />
-            <div className="relative flex h-full w-[min(24rem,92vw)] flex-col border-l border-slate-800 bg-slate-900">
-              <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  {t('viewerPage.studyPanel')}
-                </div>
-                <Button
-                  variant="overlay"
-                  size="sm"
-                  onClick={() => app.setSidebarVisible(false)}
-                >
-                  <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('common.hide')}
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-800 p-px">
-                <ViewerSidebar
-                  volumeMeta={app.volume?.meta ?? null}
-                  studyState={studyState}
-                  sourceLabel={app.sourceLabel}
-                  dimensions={app.dimensions}
-                  spacing={app.spacing}
-                  maskStatus={maskStatus}
-                  surfaceStatus={surfaceStatus}
-                  tissueOverlayMode={tissueOverlayMode}
-                  visibleTissuePresets={visibleTissuePresets}
-                  windowBounds={app.windowBounds}
-                  levelBounds={app.levelBounds}
-                  windowLevelDraft={app.windowLevelDraft}
-                  progress={app.progress}
-                  issue={app.issue}
-                  cursor={app.cursor}
-                  downsampled3D={app.downsampled3D}
-                  selectedSeriesId={app.selectedSeriesId}
-                  seriesChoices={app.seriesChoices}
-                  onWindowChange={app.handleWindowChange}
-                  onWindowCommit={app.handleWindowCommit}
-                  onCancelMaskOperation={cancelMaskOperation}
-                  onCancelSurfaceGeneration={cancelSurfaceGeneration}
-                  onCreateThresholdMask={createThresholdMask}
-                  onCreateTissueMask={createTissueMask}
-                  onCreateSurfaceFromActiveMask={createSurfaceFromActiveMask}
-                  onDeleteMeasurement={deleteMeasurement}
-                  onDownloadSurface={downloadSurface}
-                  onDownloadSurfacePly={downloadSurfacePly}
-                  onExportActiveAnatomy={() => void exportActiveAnatomy()}
-                  onExportProject={() => void exportProject()}
-                  onFillMaskHoles={fillActiveMaskHoles}
-                  onImportProject={(file) => void importProject(file)}
-                  onSaveLocalProject={() => void saveLocalProject()}
-                  onRestoreLocalProject={() => void restoreLocalProject()}
-                  onKeepLargestMaskComponent={keepLargestActiveMaskComponent}
-                  onSelectMask={selectMask}
-                  onSplitMaskComponents={splitActiveMaskComponents}
-                  onUpdateMaskAppearance={updateMaskAppearance}
-                  onUpdateMaskWorkflow={updateMaskWorkflow}
-                  onUpdateStudyViewState={updateStudyViewState}
-                  onUpdateSegment={updateSegment}
-                  onAddSegment={addSegment}
-                  onDeleteSegment={deleteSegment}
-                  onSelectSegment={selectSegment}
-                  onKeepLargestSegmentIsland={keepLargestSegmentIsland}
-                  onRemoveSmallSegmentIslands={removeSmallSegmentIslands}
-                  onAddWatershedSeedAtCursor={addWatershedSeedAtCursor}
-                  onApplyWatershedSeeds={applyWatershedSeeds}
-                  onClearWatershedSeeds={clearWatershedSeeds}
-                  onLevelChange={app.handleLevelChange}
-                  onLevelCommit={app.handleLevelCommit}
-                  onRedoMaskEdit={redoMaskEdit}
-                  onRegionGrowFromCursor={regionGrowFromCursor}
-                  onToggleSurfaceVisibility={toggleSurfaceVisibility}
-                  onToggleTissuePreset={toggleTissuePreset}
-                  onTissueOverlayModeChange={setTissueOverlayMode}
-                  onToggleMaskVisibility={toggleMaskVisibility}
-                  onUndoMaskEdit={undoMaskEdit}
-                  onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
-                  onOpenDirectory={() => void app.openDirectory()}
-                  onOpenTeeth={openTeeth}
-                  onRunAnatomy={runFullAnatomy}
-                  onCancelAnatomy={cancelFullAnatomy}
-                  anatomyRunning={anatomyRunning}
-                  anatomyProgress={anatomyProgress}
-                  anatomyHistoryCount={currentAnatomyHistory.length}
-                  onRestoreLatestAnatomy={() => {
-                    const entry = currentAnatomyHistory[0];
-                    if (entry) restoreAnatomyHistoryEntry(entry);
-                  }}
-                  onRunFaceSurface={runFaceSurface}
-                  faceRunning={faceRunning}
-                  faceProgress={faceProgress}
-                  onOpenPanoramic={openPanoramic}
-                  onBackToImport={app.resetViewer}
-                />
-              </div>
+  const closeSheetAndUse = (tool: StudyTool) => {
+    setTool(tool);
+    setMobileSheet(null);
+    if (mobile3D) setMobile3D(false);
+  };
+
+  return (
+    <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-slate-950 text-slate-100">
+      <MobileTopBar
+        scanLabel={
+          app.volume.meta.packageLevel === 'half'
+            ? `${scanLabel} · ${t('dental.package.levelBadgeHalf')}`
+            : scanLabel
+        }
+        view={mobileView}
+        onViewChange={(view) => {
+          if (view === '3d') {
+            setMobile3D(true);
+            return;
+          }
+          setMobile3D(false);
+          app.setSelectedAxis(view);
+        }}
+      />
+      {manualToothBanner}
+      <div className="relative min-h-0 flex-1 bg-black">
+        {mobile3D ? frame3D : renderAxisGrid(true)}
+
+        {!mobile3D && activeToolDefinition && studyState.activeTool !== 'crosshair' ? (
+          <div className="pointer-events-none absolute inset-x-0 top-12 z-30 flex justify-center px-3">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-sky-500/60 bg-slate-950/90 py-1 pl-3 pr-1 text-xs text-sky-100 shadow-lg">
+              <activeToolDefinition.icon className="h-4 w-4" aria-hidden="true" />
+              <span>
+                {t(`dental.toolbar.${activeToolDefinition.labelKey}`)} · {toolHint}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTool('crosshair')}
+                className="h-8 rounded-full bg-sky-500 px-3 font-semibold text-slate-950"
+              >
+                OK
+              </button>
             </div>
           </div>
         ) : null}
-        {sliceProbe ? (
-          <div className="pointer-events-none absolute left-3 bottom-3 z-30 rounded border border-slate-700 bg-slate-950/85 px-2.5 py-1.5 text-xs text-slate-200 shadow">
-            {sliceProbe.axis} [{sliceProbe.voxel.join(', ')}] {sliceProbe.value} HU
-            {sliceProbe.label ? ` · ${sliceProbe.label}` : ''}
-          </div>
-        ) : null}
+
       </div>
+      <MobileDock
+        activeSheet={mobileSheet}
+        navigateActive={studyState.activeTool === 'crosshair'}
+        measureActive={measureMode !== 'off'}
+        contrastActive={studyState.activeTool === 'window-level'}
+        chartCount={studyState.toothFindings.length}
+        onNavigate={() => {
+          setTool('crosshair');
+          setMobileSheet(null);
+        }}
+        onSheetChange={setMobileSheet}
+      />
+
+      {mobileSheet ? (
+        // Tap-away scrim over the image; the sheet itself covers the dock.
+        <button
+          type="button"
+          aria-label={t('dental.shortcuts.close')}
+          className={cn(
+            'absolute inset-0 z-40',
+            // Keep the image undimmed while judging contrast.
+            mobileSheet === 'contrast' ? 'bg-transparent' : 'bg-slate-950/30',
+          )}
+          onClick={() => setMobileSheet(null)}
+        />
+      ) : null}
+      {mobileSheet === 'measure' ? (
+        <BottomSheet
+          title={t('dental.measures.title')}
+          onClose={() => setMobileSheet(null)}
+          tall
+        >
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            {MEASURE_TOOLS.map((item) => (
+              <MobileActionButton
+                key={item.tool}
+                icon={<item.icon className="h-5 w-5" aria-hidden="true" />}
+                label={t(`dental.toolbar.${item.labelKey}`)}
+                active={studyState.activeTool === item.tool}
+                onClick={() => closeSheetAndUse(item.tool)}
+              />
+            ))}
+          </div>
+          {renderMeasuresPanel(true)}
+        </BottomSheet>
+      ) : null}
+
+      {mobileSheet === 'contrast' ? (
+        <BottomSheet
+          title={t('dental.presets.title')}
+          onClose={() => setMobileSheet(null)}
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {windowPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                aria-pressed={activePresetId === preset.id}
+                onClick={() => applyPreset(preset.id)}
+                className={cn(
+                  'h-12 rounded-lg border px-1 text-xs font-medium transition',
+                  activePresetId === preset.id
+                    ? 'border-sky-500 bg-sky-500/15 text-sky-100'
+                    : 'border-slate-700 bg-slate-950 text-slate-200 active:bg-slate-800',
+                )}
+              >
+                {t(`dental.presets.${preset.id}`)}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <MobileActionButton
+              icon={<SunMoon className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.invert')}
+              active={invertSlices}
+              onClick={() => setInvertSlices((current) => !current)}
+            />
+            <MobileActionButton
+              icon={<SlidersHorizontal className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.contrast')}
+              active={studyState.activeTool === 'window-level'}
+              onClick={() => closeSheetAndUse('window-level')}
+            />
+          </div>
+          <div className="mt-3 space-y-2">
+            <RangeField
+              label={t('viewerSidebar.window')}
+              min={app.windowBounds.min}
+              max={app.windowBounds.max}
+              value={app.windowLevelDraft.window}
+              onChange={app.handleWindowChange}
+              onCommit={app.handleWindowCommit}
+            />
+            <RangeField
+              label={t('viewerSidebar.level')}
+              min={app.levelBounds.min}
+              max={app.levelBounds.max}
+              value={app.windowLevelDraft.level}
+              onChange={app.handleLevelChange}
+              onCommit={app.handleLevelCommit}
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            {t('dental.presets.adaptiveHint')}
+          </p>
+        </BottomSheet>
+      ) : null}
+
+      {mobileSheet === 'chart' ? (
+        <BottomSheet
+          title={t('dental.chart.title')}
+          onClose={() => setMobileSheet(null)}
+          tall
+        >
+          {renderChartPanel(true)}
+        </BottomSheet>
+      ) : null}
+
+      {mobileSheet === 'more' ? (
+        <BottomSheet
+          title={t('dental.toolbar.more')}
+          onClose={() => setMobileSheet(null)}
+          tall
+        >
+          <div className="grid grid-cols-1 gap-2">
+            <MobileActionButton
+              icon={<FileText className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.report')}
+              onClick={openReport}
+            />
+            <MobileActionButton
+              icon={<Camera className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.snapshot')}
+              onClick={saveSnapshot}
+            />
+            {(app.volume.meta.packageLevels?.length ?? 0) > 1 ? (
+              <MobileActionButton
+                icon={<Layers className="h-5 w-5" aria-hidden="true" />}
+                label={
+                  app.volume.meta.packageLevel === 'half'
+                    ? t('dental.package.openFull')
+                    : t('dental.package.openHalf')
+                }
+                onClick={() => {
+                  setMobileSheet(null);
+                  void app.openPackageLevel(
+                    app.volume?.meta.packageLevel === 'half' ? 'full' : 'half',
+                  );
+                }}
+              />
+            ) : null}
+            <MobileActionButton
+              icon={<FileArchive className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.exportPackage')}
+              onClick={() => {
+                setMobileSheet(null);
+                setPackageDialogOpen(true);
+              }}
+            />
+            <MobileActionButton
+              icon={<ScanLine className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.panoramic')}
+              onClick={openPanoramic}
+            />
+            <MobileActionButton
+              icon={<Layers3 className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.teeth')}
+              onClick={openTeeth}
+            />
+            <MobileActionButton
+              icon={<SlidersHorizontal className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.studyPanel')}
+              onClick={() => {
+                setMobileSheet(null);
+                setMobileStudyPanel(true);
+              }}
+            />
+            <MobileActionButton
+              icon={<FolderInput className="h-5 w-5" aria-hidden="true" />}
+              label={t('viewerSidebar.openFolder')}
+              onClick={() => void app.openDirectory()}
+            />
+            <MobileActionButton
+              icon={<ArrowLeft className="h-5 w-5" aria-hidden="true" />}
+              label={t('dental.toolbar.backToImport')}
+              onClick={app.resetViewer}
+            />
+          </div>
+          <p className="mt-3 text-[11px] text-slate-500">{t('common.referenceOnly')}</p>
+        </BottomSheet>
+      ) : null}
+
+      {mobileStudyPanel ? (
+        <div className="absolute inset-0 z-50 flex justify-end">
+          <button
+            type="button"
+            aria-label={t('viewerPage.closeStudyPanel')}
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px]"
+            onClick={() => setMobileStudyPanel(false)}
+          />
+          <div className="relative flex h-full w-[min(24rem,92vw)] flex-col border-l border-slate-800 bg-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                {t('viewerPage.studyPanel')}
+              </div>
+              <Button
+                variant="overlay"
+                size="sm"
+                onClick={() => setMobileStudyPanel(false)}
+              >
+                <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('common.hide')}
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-slate-800 p-px">
+              {sidebar}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {packageDialogOpen ? (
+        <ExportPackageDialog
+          touch
+          scanId={scanLabel}
+          dimensions={app.volume.meta.dimensions}
+          onExport={exportScanPackage}
+          onClose={() => setPackageDialogOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }

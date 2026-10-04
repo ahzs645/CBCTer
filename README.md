@@ -8,6 +8,24 @@ Local-first CBCT viewer and tooth segmentation scaffold.
 - Local Python validation harness for the Slicer CBCT tooth segmentation model.
 - The DICOM sample data remains outside this repository because it contains PHI-bearing metadata.
 
+## Dental viewer
+
+The viewer is laid out for a dental CBCT read on desktop, tablet and phone:
+axial / coronal / sagittal + 3D, contrast presets, measurements, an FDI tooth
+chart and a printable case report.
+
+Vendor exports (a Morita OneVolume folder, a Sirona Sidexis disc, or a ZIP of
+either) can be opened as delivered and re-exported as a slim **`.cbct.zip`
+scan package**. The package holds only the scan, at full resolution plus a
+phone level, and opens on any device. The examples went from 271 MB → 48 MB
+and 867 MB → 167 MB, and phones read only 5–19 MB of it.
+
+- [docs/dental-viewer.md](docs/dental-viewer.md): workflow, feature list,
+  what to upload, test report, known limitations.
+- [docs/scan-package.md](docs/scan-package.md): the `.cbct.zip` format.
+- [docs/viewer-controls.md](docs/viewer-controls.md): controls and keyboard
+  shortcuts.
+
 ## Commands
 
 ```bash

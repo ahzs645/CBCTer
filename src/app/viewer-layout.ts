@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react';
 
 export const COMPACT_VIEWER_MEDIA_QUERY = '(max-width: 767px)';
 
+/**
+ * Below this width (tablets in portrait, small laptops) the side panel would
+ * squeeze the slice views, so it starts hidden; the toolbar toggle opens it.
+ */
+export const SIDEBAR_DEFAULT_MIN_WIDTH = 1100;
+
+export function shouldShowSidebarByDefault() {
+  return window.innerWidth >= SIDEBAR_DEFAULT_MIN_WIDTH;
+}
+
 export function isCompactViewerLayout() {
   return window.matchMedia(COMPACT_VIEWER_MEDIA_QUERY).matches;
 }

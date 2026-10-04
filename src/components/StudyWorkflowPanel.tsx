@@ -10,12 +10,13 @@ import {
   Move,
   PencilRuler,
   Scissors,
+  Smile,
   Split,
   Square,
   Trash2,
   Waves,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import type {
   DicomImportEngine,
   MaskOperation,
@@ -37,7 +38,13 @@ import { cn } from '../utils/cn';
 import { Button } from './Button';
 import { Select } from './Select';
 
-type WorkflowTab = 'study' | 'masks' | 'surfaces' | 'measures' | 'export';
+type WorkflowTab =
+  | 'chart'
+  | 'study'
+  | 'masks'
+  | 'surfaces'
+  | 'measures'
+  | 'export';
 type TissueOverlayMode = 'off' | 'interpretation';
 
 interface ThresholdPreset {
@@ -125,6 +132,10 @@ interface StudyWorkflowPanelProps {
   onToggleTissuePreset: (presetId: TissuePresetId) => void;
   onTissueOverlayModeChange: (mode: TissueOverlayMode) => void;
   onUndoMaskEdit: () => void;
+  /** Dental tooth chart; adds a "Teeth" tab shown first and by default. */
+  chartPanel?: ReactNode;
+  /** Replaces the built-in measurement list. */
+  measuresPanel?: ReactNode;
 }
 
 function formatRange(range: [number, number]): string {
@@ -183,10 +194,12 @@ export function StudyWorkflowPanel({
   onToggleTissuePreset,
   onTissueOverlayModeChange,
   onUndoMaskEdit,
+  chartPanel,
+  measuresPanel,
 }: StudyWorkflowPanelProps) {
   const { t } = useTranslation();
   const projectInputRef = useRef<HTMLInputElement | null>(null);
-  const [tab, setTab] = useState<WorkflowTab>('masks');
+  const [tab, setTab] = useState<WorkflowTab>(chartPanel ? 'chart' : 'masks');
   const [thresholdPresetId, setThresholdPresetId] = useState(
     THRESHOLD_PRESETS[0].id,
   );
@@ -214,6 +227,9 @@ export function StudyWorkflowPanel({
   ];
 
   const tabs: Array<{ id: WorkflowTab; label: string; icon: typeof Box }> = [
+    ...(chartPanel
+      ? [{ id: 'chart' as const, label: t('dental.chart.tab'), icon: Smile }]
+      : []),
     { id: 'study', label: t('workflow.tabs.study'), icon: Box },
     { id: 'masks', label: t('workflow.tabs.masks'), icon: Brush },
     { id: 'surfaces', label: t('workflow.tabs.surfaces'), icon: Layers3 },
@@ -223,7 +239,10 @@ export function StudyWorkflowPanel({
 
   return (
     <section className="min-w-0 rounded border border-slate-800 bg-slate-950/70 p-2.5">
-      <div className="grid grid-cols-5 gap-1">
+      <div
+        className="grid gap-1"
+        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+      >
         {tabs.map((item) => {
           const Icon = item.icon;
           return (
@@ -245,6 +264,10 @@ export function StudyWorkflowPanel({
           );
         })}
       </div>
+
+      {tab === 'chart' && chartPanel ? (
+        <div className="mt-3">{chartPanel}</div>
+      ) : null}
 
       {tab === 'study' ? (
         <div className="mt-3 space-y-3 text-xs text-slate-400">
@@ -922,7 +945,11 @@ export function StudyWorkflowPanel({
         </div>
       ) : null}
 
-      {tab === 'measures' ? (
+      {tab === 'measures' && measuresPanel ? (
+        <div className="mt-3">{measuresPanel}</div>
+      ) : null}
+
+      {tab === 'measures' && !measuresPanel ? (
         <div className="mt-3 space-y-2 text-xs text-slate-400">
           <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <Activity className="h-3.5 w-3.5" aria-hidden="true" />

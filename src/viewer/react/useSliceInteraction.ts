@@ -47,6 +47,10 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
 const DOM_DELTA_LINE = 1;
 const DOM_DELTA_PAGE = 2;
+/** Trackpad scroll distance (px) that pages one slice. */
+const TRACKPAD_PX_PER_SLICE = 24;
+/** Deltas at least this large are discrete mouse-wheel notches. */
+const WHEEL_NOTCH_PX = 50;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -95,6 +99,11 @@ export interface SliceInteractionParams {
     phase: 'start' | 'move' | 'end',
   ) => void;
   onZoomChange?: (nextZoom: number) => void;
+  /**
+   * When provided, the plain mouse wheel pages through slices (the dental
+   * viewer convention) and Ctrl/⌘ + wheel or a trackpad pinch zooms instead.
+   */
+  onSliceStep?: (delta: number) => void;
 }
 
 export interface SliceInteraction {
@@ -127,6 +136,7 @@ export function useSliceInteraction({
   onEdit,
   onWindowLevelDrag,
   onZoomChange,
+  onSliceStep,
 }: SliceInteractionParams): SliceInteraction {
   const [scrubCursor, setScrubCursor] = useState<ScrubCursor>(
     ScrubCursor.Crosshair,
@@ -151,6 +161,7 @@ export function useSliceInteraction({
   const pinchRef = useRef<{ startDistance: number; startZoom: number } | null>(
     null,
   );
+  const wheelSliceRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -580,7 +591,28 @@ export function useSliceInteraction({
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (!onZoomChange || !image) return;
+    if (!image) return;
+
+    if (onSliceStep && !event.ctrlKey && !event.metaKey) {
+      // No preventDefault: React wheel listeners are passive, and the viewer
+      // surface does not scroll anyway.
+      const delta = normalizeWheelDelta(event, surfaceHeight);
+      if (Math.abs(delta) >= WHEEL_NOTCH_PX) {
+        // One mouse-wheel notch pages exactly one slice.
+        wheelSliceRef.current = 0;
+        onSliceStep(Math.sign(delta));
+        return;
+      }
+      wheelSliceRef.current += delta;
+      const steps = Math.trunc(wheelSliceRef.current / TRACKPAD_PX_PER_SLICE);
+      if (steps !== 0) {
+        wheelSliceRef.current -= steps * TRACKPAD_PX_PER_SLICE;
+        onSliceStep(steps);
+      }
+      return;
+    }
+
+    if (!onZoomChange) return;
 
     event.preventDefault();
     const scale = Math.exp(

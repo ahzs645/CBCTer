@@ -34,11 +34,14 @@ export function buildCursorPlanes(
   center: Vector3,
 ): CursorPlaneSet {
   const root: Group = new three.Group();
+  // The fills draw on top of the volume (no depth test), so they are kept
+  // faint: stronger tints read as the anatomy being cut along each plane.
+  // The outlines carry the plane positions.
   const materials: MeshBasicMaterial[] = [
     new three.MeshBasicMaterial({
       color: PLANE_COLORS.axial,
       transparent: true,
-      opacity: 0.11,
+      opacity: 0.045,
       side: three.DoubleSide,
       depthTest: false,
       depthWrite: false,
@@ -46,7 +49,7 @@ export function buildCursorPlanes(
     new three.MeshBasicMaterial({
       color: PLANE_COLORS.coronal,
       transparent: true,
-      opacity: 0.1,
+      opacity: 0.045,
       side: three.DoubleSide,
       depthTest: false,
       depthWrite: false,
@@ -54,7 +57,7 @@ export function buildCursorPlanes(
     new three.MeshBasicMaterial({
       color: PLANE_COLORS.sagittal,
       transparent: true,
-      opacity: 0.1,
+      opacity: 0.045,
       side: three.DoubleSide,
       depthTest: false,
       depthWrite: false,

@@ -1,4 +1,4 @@
-import { Activity, FileUp, Layers3 } from 'lucide-react';
+import { Activity, FileArchive, FileUp, Layers3 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
@@ -20,6 +20,7 @@ export default function ImportPage({ app }: ImportPageProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const niftiInputRef = useRef<HTMLInputElement | null>(null);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
   const [remoteUrl, setRemoteUrl] = useState('');
   const codeClass =
     'rounded bg-slate-900 px-1 py-0.5 font-mono text-[0.9em] text-slate-200';
@@ -109,6 +110,26 @@ export default function ImportPage({ app }: ImportPageProps) {
                   </Button>
                   <Button
                     variant="ghost"
+                    onClick={() => zipInputRef.current?.click()}
+                    disabled={app.busy}
+                  >
+                    <FileArchive className="h-4 w-4" aria-hidden="true" />
+                    {t('importPage.openZip')}
+                  </Button>
+                  <input
+                    ref={zipInputRef}
+                    type="file"
+                    accept=".zip,application/zip,application/x-zip-compressed"
+                    className="hidden"
+                    data-testid="zip-input"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void app.openArchive(file);
+                      event.target.value = '';
+                    }}
+                  />
+                  <Button
+                    variant="ghost"
                     onClick={() => niftiInputRef.current?.click()}
                     disabled={app.busy}
                   >
@@ -172,6 +193,20 @@ export default function ImportPage({ app }: ImportPageProps) {
               {t('importPage.supportedFoldersTitle')}
             </div>
             <div className="mt-3 space-y-3 text-sm text-slate-300">
+              <div>
+                <div className="font-medium text-slate-100">
+                  {t('importPage.supportedFolders.package.title')}
+                </div>
+                <div className="mt-1 text-slate-400">
+                  {t('importPage.supportedFolders.package.description')}
+                </div>
+                <div className="mt-1">
+                  <Trans
+                    i18nKey="importPage.supportedFolders.package.instruction"
+                    components={[<code key="code-1" className={codeClass} />]}
+                  />
+                </div>
+              </div>
               <div>
                 <div className="font-medium text-slate-100">
                   {t('importPage.supportedFolders.galileos.title')}

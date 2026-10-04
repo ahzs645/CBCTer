@@ -244,6 +244,7 @@ function buildPreview(
 
   camera.near = Math.max(0.1, maxWorldEdge / 2048);
 
+  const initialUp = camera.up.clone();
   const initialTarget = center.clone();
   const initialDirection = new three.Vector3(0.16, -0.68, 1).normalize();
   let currentTarget = initialTarget.clone();
@@ -252,6 +253,7 @@ function buildPreview(
     target: import('three').Vector3,
     direction = initialDirection,
     padding = 1.08,
+    up?: import('three').Vector3,
   ) => {
     const corners = [
       new three.Vector3(0, 0, 0),
@@ -267,8 +269,14 @@ function buildPreview(
     for (const corner of corners) {
       radius = Math.max(radius, corner.distanceTo(target));
     }
+    // Fit the bounding sphere in the narrower of the two FOVs: on a portrait
+    // phone the horizontal FOV is the tighter one, and fitting vertically
+    // pushed the sides of the volume out of frame.
     const vFov = (camera.fov * Math.PI) / 180;
-    const distance = (radius / Math.sin(vFov / 2)) * padding;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+    const fitFov = Math.min(vFov, hFov);
+    const distance = (radius / Math.sin(fitFov / 2)) * padding;
+    if (up) camera.up.copy(up);
     camera.position.copy(target.clone().add(direction.clone().multiplyScalar(distance)));
     camera.near = Math.max(0.01, distance / 2000);
     applyDistanceLimits(camera, controls, worldSize, target);
@@ -530,30 +538,32 @@ function buildPreview(
       requestRender();
     },
     setView(preset: VolumeViewPreset) {
-      const distance = Math.max(controls.minDistance, maxWorldEdge * 2.6);
-      const epsilon = maxWorldEdge * 0.0008;
-      const offsets: Record<VolumeViewPreset, [number, number, number]> = {
-        front: [epsilon, -distance, epsilon],
-        back: [epsilon, distance, epsilon],
-        left: [-distance, epsilon, epsilon],
-        right: [distance, epsilon, epsilon],
-        top: [epsilon, epsilon, distance],
-        bottom: [epsilon, epsilon, -distance],
+      // Same framing as the initial view (whole volume in the narrow 12° FOV);
+      // a fixed 2.6× edge distance showed only about half the volume. Side
+      // views keep superior (+z) up; top/bottom keep anterior (−y) up, so the
+      // presets come out square instead of arbitrarily rolled.
+      const views: Record<
+        VolumeViewPreset,
+        { direction: [number, number, number]; up: [number, number, number] }
+      > = {
+        front: { direction: [0, -1, 0], up: [0, 0, 1] },
+        back: { direction: [0, 1, 0], up: [0, 0, 1] },
+        left: { direction: [-1, 0, 0], up: [0, 0, 1] },
+        right: { direction: [1, 0, 0], up: [0, 0, 1] },
+        top: { direction: [0, 0, 1], up: [0, -1, 0] },
+        bottom: { direction: [0, 0, -1], up: [0, -1, 0] },
       };
-      const [dx, dy, dz] = offsets[preset];
-      camera.position.set(
-        currentTarget.x + dx,
-        currentTarget.y + dy,
-        currentTarget.z + dz,
+      const view = views[preset];
+      fitCameraToTarget(
+        currentTarget,
+        new three.Vector3(...view.direction),
+        1.08,
+        new three.Vector3(...view.up),
       );
-      applyDistanceLimits(camera, controls, worldSize, currentTarget);
-      controls.target.copy(currentTarget);
-      camera.lookAt(currentTarget);
-      controls.update();
       requestRender();
     },
     resetView() {
-      fitCameraToTarget(currentTarget);
+      fitCameraToTarget(currentTarget, initialDirection, 1.08, initialUp);
       requestRender();
     },
     snapshot() {

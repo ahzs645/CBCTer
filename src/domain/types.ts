@@ -3,6 +3,7 @@ import type { AppId } from "./ids";
 export type StorageMode = "local" | "convex";
 export type DicomImportEngine = "custom" | "itk-gdcm";
 export type ViewerLayoutPreset = "mpr-3d" | "mpr-only" | "single";
+export type MeasurementPlane = "axial" | "coronal" | "sagittal";
 
 export type ScanImportStatus = "queued" | "indexed" | "failed";
 
@@ -138,6 +139,8 @@ export type StudyMeasurement = {
   points: [number, number, number][];
   value: number;
   unit: "mm" | "degrees" | "mm2" | "HU";
+  /** Slice plane the measurement was drawn on (absent on older projects). */
+  plane?: MeasurementPlane;
   visible: boolean;
   createdAt: number;
   updatedAt: number;
@@ -155,6 +158,29 @@ export type StudyAnnotation = {
   visible: boolean;
   selected: boolean;
   createdAt: number;
+  updatedAt: number;
+};
+
+export type ToothCondition =
+  | "caries"
+  | "periapical"
+  | "rootCanal"
+  | "restoration"
+  | "implant"
+  | "missing"
+  | "impacted"
+  | "boneLoss"
+  | "fracture"
+  | "resorption"
+  | "other";
+
+/** Per-tooth chart entry: findings, free-text note, optional bookmark. */
+export type ToothFinding = {
+  fdi: number;
+  conditions: ToothCondition[];
+  note: string;
+  /** Voxel position bookmarked for this tooth, used to jump the crosshair. */
+  point?: [number, number, number];
   updatedAt: number;
 };
 
@@ -187,6 +213,9 @@ export type StudyState = {
   surfaces: StudySurface[];
   measurements: StudyMeasurement[];
   annotations: StudyAnnotation[];
+  toothFindings: ToothFinding[];
+  /** Free-text clinical notes carried into the printable report. */
+  caseNotes: string;
   activeTool: StudyTool;
   activeImageId?: AppId;
   activeMaskId?: AppId;

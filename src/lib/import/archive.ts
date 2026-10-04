@@ -4,6 +4,22 @@ import {
   ScanFolderSourceKind,
 } from '../../types';
 import { inferMimeType, isZipFile, normalizeArchivePath } from './fileTypes';
+import { readZipIndex } from './zipIndex';
+
+const SCAN_PACKAGE_MANIFEST_NAME = 'cbct-scan.json';
+
+/**
+ * A CBCTer scan package zip (manifest at its root). Only the zip's central
+ * directory is read to decide.
+ */
+async function isScanPackageZip(entry: ScanFolderEntry): Promise<boolean> {
+  try {
+    const index = await readZipIndex(entry.file);
+    return index.some((item) => item.name === SCAN_PACKAGE_MANIFEST_NAME);
+  } catch {
+    return false;
+  }
+}
 
 function basename(path: string): string {
   return normalizeArchivePath(path).split('/').pop() || path || 'file';
@@ -48,6 +64,16 @@ export async function expandArchiveEntries(
 
   for (const entry of source.entries) {
     if (await isZipFile(entry)) {
+      if (await isScanPackageZip(entry)) {
+        // Left zipped: the package importer reads only the level it opens,
+        // so a phone never inflates the full-resolution volume.
+        expanded.push({
+          ...entry,
+          relativePath: normalizeArchivePath(entry.relativePath || entry.name),
+          archiveKind: 'cbct-package',
+        });
+        continue;
+      }
       expanded.push(...(await expandZipEntry(entry)));
       changed = true;
     } else {

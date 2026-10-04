@@ -346,7 +346,7 @@ export const VolumeViewport3D = memo(
             Crop {cropBounds.min.join(',')} to {cropBounds.max.join(',')}
           </div>
         ) : null}
-        <div className="pointer-events-auto absolute left-2 top-2 flex flex-col gap-1.5">
+        <div className="pointer-events-auto absolute left-2 top-14 flex flex-col gap-1.5">
           <div className="flex items-center gap-0.5 rounded-lg bg-slate-950/70 p-1 ring-1 ring-white/10">
             {VIEW_PRESETS.map((view) => (
               <button
@@ -466,7 +466,7 @@ export const VolumeViewport3D = memo(
         </div>
         <div
           className={cn(
-            'absolute right-2 top-2 max-w-[min(24rem,calc(100%-1rem))] rounded bg-slate-950/75 px-2 py-1 text-right font-mono text-[11px] leading-4 text-slate-300 ring-1 ring-white/10',
+            'absolute right-2 top-14 hidden max-w-[min(24rem,calc(100%-1rem))] rounded xl:block bg-slate-950/75 px-2 py-1 text-right font-mono text-[11px] leading-4 text-slate-300 ring-1 ring-white/10',
             contextStatus === 'lost' ? 'text-rose-200 ring-rose-400/30' : null,
             contextStatus === 'restored' ? 'text-sky-200 ring-sky-400/30' : null,
           )}
@@ -478,11 +478,12 @@ export const VolumeViewport3D = memo(
           </div>
         </div>
         <div className="pointer-events-auto absolute inset-x-2 bottom-2 flex flex-wrap items-center justify-center gap-1 sm:inset-x-auto sm:right-2 sm:justify-end">
+          {onAxisViewsVisibleChange ? (
           <Button
             variant="overlay"
             size="sm"
             className="min-w-0 flex-1 sm:flex-none"
-            onClick={() => onAxisViewsVisibleChange?.(!axisViewsVisible)}
+            onClick={() => onAxisViewsVisibleChange(!axisViewsVisible)}
           >
             {axisViewsVisible ? (
               <PanelBottomClose className="h-3.5 w-3.5" aria-hidden="true" />
@@ -500,11 +501,13 @@ export const VolumeViewport3D = memo(
                 : labels.axisViews.showLong}
             </span>
           </Button>
+          ) : null}
+          {onSidebarVisibleChange ? (
           <Button
             variant="overlay"
             size="sm"
             className="min-w-0 flex-1 sm:flex-none"
-            onClick={() => onSidebarVisibleChange?.(!sidebarVisible)}
+            onClick={() => onSidebarVisibleChange(!sidebarVisible)}
           >
             {sidebarVisible ? (
               <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
@@ -522,6 +525,7 @@ export const VolumeViewport3D = memo(
                 : labels.sidebar.showLong}
             </span>
           </Button>
+          ) : null}
           <Button
             variant="overlay"
             size="sm"

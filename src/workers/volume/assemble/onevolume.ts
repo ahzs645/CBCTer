@@ -9,8 +9,33 @@ import {
 import type { VolumeAssemblerContext } from '../types';
 
 const ONEVOLUME_SENTINEL = -32768;
-const ONEVOLUME_WINDOW_SCALE = 100;
 const ONEVOLUME_MARKER_LENGTH = 'JmVolumeVersion=1'.length;
+const INT16_MAX = 32767;
+/** Raw OneVolume samples are stored in thousandths of the vendor "V" unit. */
+const ONEVOLUME_RAW_PER_V = 1000;
+
+/**
+ * Map a raw OneVolume sample onto an HU-like Int16 scale using the header's
+ * value-to-HU calibration (`HU = V * tfSystemV2HuSlope + tfSystemV2HuIntercept`,
+ * with V = raw / 1000). With that reading the scan's own saved display window
+ * (CtStatus `SliceExist_dWindowCenter/Width`, in V units) lands on a typical
+ * dental air-to-enamel range.
+ *
+ * The previous mapping (`raw * 100 / slope + intercept * 100`) left Int16 for
+ * every sample and only rendered because the typed-array store wrapped
+ * around; the brightest enamel/metal wrapped twice and showed up as black
+ * speckle inside teeth, easily mistaken for caries or voids. The result is
+ * clamped so it can never wrap, and -32768 stays reserved for the padding
+ * sentinel.
+ */
+export function scaleOneVolumeSample(
+  raw: number,
+  slope: number,
+  intercept: number,
+): number {
+  const value = Math.round((raw / ONEVOLUME_RAW_PER_V) * slope + intercept);
+  return Math.min(INT16_MAX, Math.max(-INT16_MAX, value));
+}
 
 export async function assembleOneVolumeVolume({
   meta,
@@ -74,9 +99,10 @@ export async function assembleOneVolumeVolume({
           continue;
         }
 
-        voxels[canonicalPlaneOffset + x] = Math.round(
-          (raw * ONEVOLUME_WINDOW_SCALE) / slope +
-            intercept * ONEVOLUME_WINDOW_SCALE,
+        voxels[canonicalPlaneOffset + x] = scaleOneVolumeSample(
+          raw,
+          slope,
+          intercept,
         );
       }
     }

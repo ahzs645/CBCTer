@@ -1,0 +1,1 @@
+export { scanPackageFormatAdapter } from './adapter';

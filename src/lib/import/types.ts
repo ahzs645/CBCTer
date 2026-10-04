@@ -72,6 +72,8 @@ export interface ParsedImportResult {
 export interface ImportParseOptions {
   preferredSeriesId?: string;
   dicomEngine?: DicomImportEngine;
+  /** Scan packages: which resolution level to open. */
+  packageLevel?: 'auto' | 'full' | 'half';
 }
 
 export interface ImportFormatAdapter {

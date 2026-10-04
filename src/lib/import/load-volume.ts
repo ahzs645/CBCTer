@@ -2,6 +2,7 @@ import { i18n } from '../../i18n';
 import type { ImportProgress, ScanFolderSource } from '../../types';
 import { ImportStage } from '../../types';
 import { importFormatAdapters } from './adapters';
+import { exposeExtensionlessDicomEntries } from './adapters/dicom';
 import { importDataSources, scanFolderDataSource } from './dataSource';
 import type {
   ImportFailure,
@@ -15,7 +16,7 @@ export async function loadVolumeFromFolder(
   onProgress?: (progress: ImportProgress) => void,
   options?: ImportParseOptions,
 ): Promise<LoadedImport> {
-  const { source: expandedSource } = await importDataSources(
+  const { source: importedSource } = await importDataSources(
     scanFolderDataSource(source),
   );
   onProgress?.({
@@ -24,9 +25,21 @@ export async function loadVolumeFromFolder(
     completed: 0,
     total: 1,
   });
-  const adapter = importFormatAdapters.find((candidate) =>
+  let expandedSource = importedSource;
+  let adapter = importFormatAdapters.find((candidate) =>
     candidate.matches(expandedSource),
   );
+  if (!adapter) {
+    // Fall back to content sniffing for DICOM slices without a file
+    // extension (DICOMDIR-style disc exports such as Sidexis).
+    const sniffed = await exposeExtensionlessDicomEntries(importedSource);
+    if (sniffed !== importedSource) {
+      expandedSource = sniffed;
+      adapter = importFormatAdapters.find((candidate) =>
+        candidate.matches(expandedSource),
+      );
+    }
+  }
   if (!adapter) {
     throw makeError('E_FORMAT', i18n.t('errors.unsupportedFolderLayout'));
   }

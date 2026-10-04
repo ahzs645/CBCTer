@@ -949,6 +949,37 @@ export async function findDicomEntriesByMagic(
   return candidates.filter((entry): entry is ScanFolderEntry => Boolean(entry));
 }
 
+/**
+ * Disc exports written for DICOMDIR (e.g. Sirona Sidexis: `.../CT3/000`,
+ * `001`, ...) store slices without a file extension, which the
+ * extension-based `findDicomEntries` cannot see. This returns a copy of the
+ * source in which every extensionless file carrying the `DICM` preamble is
+ * exposed with a `.dcm` suffix (same File object), so the regular DICOM
+ * adapter can pick it up. The DICOMDIR index itself is skipped: it has the
+ * preamble but holds no image. Returns the input unchanged when nothing new
+ * is found.
+ */
+export async function exposeExtensionlessDicomEntries(
+  source: ScanFolderSource,
+): Promise<ScanFolderSource> {
+  let found = false;
+  const entries = await Promise.all(
+    source.entries.map(async (entry) => {
+      const hasExtension = /\.[a-z0-9]{1,8}$/i.test(entry.name);
+      if (hasExtension || /^dicomdir$/i.test(entry.name)) return entry;
+      if (!(await hasDicomMagic(entry))) return entry;
+      found = true;
+      const relativePath = entry.relativePath || entry.name;
+      return {
+        ...entry,
+        name: `${entry.name}.dcm`,
+        relativePath: `${relativePath}.dcm`,
+      };
+    }),
+  );
+  return found ? { ...source, entries } : source;
+}
+
 export function isNativeLittleEndianDicom(header: DicomHeader): boolean {
   return (
     (header.transferSyntaxUid === IMPLICIT_LITTLE_ENDIAN ||
