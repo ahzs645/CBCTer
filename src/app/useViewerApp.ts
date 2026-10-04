@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { prepareVolumeFor3D } from '../lib/volume';
+import type { ChunkedSession } from '../lib/import/chunked/session';
+import { useCallback, useRef, useState } from 'react';
 import { IDLE_PROGRESS } from '../constants';
 import { loadVolumeFromFolder } from '../lib/import/load-volume';
 import { loadRemoteImport } from '../lib/import/remote';
@@ -91,6 +93,8 @@ export interface ViewerAppDependencies {
 export function useViewerApp({
   sourcePicker,
 }: ViewerAppDependencies): ViewerApp {
+  const activeSession = useRef<ChunkedSession | null>(null);
+  const generation = useRef(0);
   const defaultSidebarVisible = () => shouldShowSidebarByDefault();
   const [progress, setProgress] = useState<ImportProgress>(IDLE_PROGRESS);
   const [issue, setIssue] = useState<ImportIssue | null>(null);
@@ -117,6 +121,9 @@ export function useViewerApp({
   const busy = isBusy(progress);
 
   const resetViewer = useCallback(() => {
+    generation.current++;
+    activeSession.current?.dispose();
+    activeSession.current = null;
     setIssue(null);
     setCurrentSource(null);
     setSourceLabel('');
@@ -133,6 +140,7 @@ export function useViewerApp({
       resetViewer();
       setCurrentSource(source);
       setSourceLabel(source.label);
+      const importGeneration = generation.current;
 
       try {
         const loaded = await loadVolumeFromFolder(source, setProgress, {
@@ -140,6 +148,11 @@ export function useViewerApp({
           dicomEngine: options?.dicomEngine ?? dicomImportEngine,
         });
 
+        if (importGeneration !== generation.current) {
+          loaded.volume.chunked?.dispose();
+          return;
+        }
+        activeSession.current = loaded.volume.chunked ?? null;
         setIssue(null);
         setVolume(loaded.volume);
         setPrepared3D(loaded.prepared3D);
@@ -153,7 +166,8 @@ export function useViewerApp({
           total: loaded.meta.sliceCount,
         });
       } catch (error) {
-        if (isAbortError(error)) return;
+        if (importGeneration !== generation.current || isAbortError(error))
+          return;
 
         setIssue(makeImportIssue(error));
         setProgress({
@@ -273,6 +287,7 @@ export function useViewerApp({
 
   const openRemote = async (url: string) => {
     resetViewer();
+    const remoteGeneration = generation.current;
     setSourceLabel(url);
     setProgress({
       stage: ImportStage.Scanning,
@@ -283,6 +298,7 @@ export function useViewerApp({
 
     try {
       const remote = await loadRemoteImport(url);
+      if (remoteGeneration !== generation.current) return;
       setSourceLabel(remote.label);
       if (remote.type === 'nifti') {
         await openNifti(remote.file);
@@ -290,6 +306,7 @@ export function useViewerApp({
       }
       await loadSource(remote.source);
     } catch (error) {
+      if (remoteGeneration !== generation.current) return;
       setIssue(makeImportIssue(error));
       setProgress({
         stage: ImportStage.Error,
@@ -301,16 +318,26 @@ export function useViewerApp({
   };
 
   const openPackageLevel = async (level: 'full' | 'half') => {
-    if (!currentSource || busy) return;
-    await loadSource(currentSource, { packageLevel: level });
+    if (busy) return;
+    const session = activeSession.current;
+    if (level === 'full' && session) {
+      const full = await session.fullVolume();
+      if (activeSession.current !== session) return;
+      activeSession.current = null;
+      session.dispose();
+      setVolume(full);
+      setPrepared3D(prepareVolumeFor3D(full));
+      return;
+    }
+    if (currentSource) await loadSource(currentSource, { packageLevel: level });
   };
 
   const selectSeries = async (seriesId: string) => {
     if (!currentSource || busy) return;
 
-      await loadSource(currentSource, {
-        preferredSeriesId: seriesId,
-      });
+    await loadSource(currentSource, {
+      preferredSeriesId: seriesId,
+    });
   };
 
   return {

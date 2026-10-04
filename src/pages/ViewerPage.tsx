@@ -1,3 +1,4 @@
+import ProgressiveViewerPage, {type StreamingViewState} from './ProgressiveViewerPage';
 import {
   ArrowLeft,
   Box,
@@ -447,6 +448,39 @@ function withWatershedSeedMarkers(
 }
 
 export default function ViewerPage({ app }: ViewerPageProps) {
+  const [streamingHandoff, setStreamingHandoff] = useState<{
+    records: StudyMeasurement[];
+    view: StreamingViewState;
+  } | null>(null);
+  return app.volume?.chunked ? (
+    <ProgressiveViewerPage
+      key={app.volume.chunked.id}
+      app={app}
+      session={app.volume.chunked}
+      onLoadFullMeasurements={(records, view) => setStreamingHandoff({ records, view })}
+    />
+  ) : (
+    <DenseViewerPage
+      app={app}
+      initialMeasurements={streamingHandoff?.records}
+      initialView={streamingHandoff?.view}
+    />
+  );
+}
+
+function DenseViewerPage({ app, initialMeasurements = [], initialView }:
+  ViewerPageProps & { initialMeasurements?: StudyMeasurement[]; initialView?: StreamingViewState }) {
+  const measurementHandoff = useRef(initialMeasurements);
+  const viewHandoff = useRef(initialView);
+  useEffect(() => {
+    const view = viewHandoff.current;
+    if (!view) return;
+    viewHandoff.current = undefined;
+    app.setCursor(view.cursor);
+    app.applyWindowLevel(view.windowLevel);
+    app.setMprZoom(view.zoom);
+    app.setSelectedAxis(view.axis);
+  }, [app]);
   const compactLayout = useCompactViewerLayout();
   const { t } = useTranslation();
   const axisLabels = useAxisViewportLabels();
@@ -507,7 +541,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   // Dentist-facing viewer chrome.
   const [invertSlices, setInvertSlices] = useState(false);
   const [maximizedPane, setMaximizedPane] = useState<AxisViewportPaneId | null>(null);
-  const [activeAxis, setActiveAxis] = useState<VolumeAxis>(VolumeAxis.Axial);
+  const [activeAxis, setActiveAxis] = useState<VolumeAxis>(initialView?.axis ?? VolumeAxis.Axial);
   const [mobile3D, setMobile3D] = useState(false);
   const [mobileSheet, setMobileSheet] = useState<MobileSheet | null>(null);
   const [mobileStudyPanel, setMobileStudyPanel] = useState(false);
@@ -1188,9 +1222,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         ...createEmptyStudyState(scanStudy),
         images: [image],
         activeImageId: image.id,
+        measurements: measurementHandoff.current.map(record => ({...record, studyId: scanStudy.id})),
         dicomImportEngine: dicomImportEngineRef.current,
         cropBounds: createFullCropBounds(app.volume.meta.dimensions),
       });
+      measurementHandoff.current = [];
       setMaskBuffers({});
       setLabelmapBuffers({});
       setSurfaceBlobs({});
@@ -3203,6 +3239,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const exportScanPackage = async (options: {
     name: string;
     contents: ScanPackageContents;
+    storage: 'classic' | 'streamable';
     includePreview: boolean;
   }) => {
     const volume = app.volume;
@@ -3225,6 +3262,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       name: options.name,
       windowLevel: app.windowLevel,
       contents: options.contents,
+      storage: options.storage,
       previewPng,
     });
     downloadBlob(blob, scanPackageFileName(options.name));

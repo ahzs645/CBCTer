@@ -75,6 +75,17 @@ export async function assembleOneVolumeVolume({
   }
 
   const view = new DataView(buffer, dataOffset, actualBytes);
+  // The native archive retains all bounds and exact raw words. Display cropping
+  // and calibration below remain separate, reversible neither by assumption.
+  const nativeVoxels = new Int16Array(sourceVoxelCount);
+  for (let z = 0; z < sourceDepth; z++)
+    for (let y = 0; y < sourceHeight; y++)
+      for (let x = 0; x < sourceWidth; x++) {
+        nativeVoxels[(z * sourceHeight + y) * sourceWidth + x] = view.getInt16(
+          (z + sourceDepth * y + sourceDepth * sourceHeight * x) * 2,
+          true,
+        );
+      }
   const [offsetX, offsetY, offsetZ] = meta.sourceOffset ?? [0, 0, 0];
   const [width, height, depth] = meta.dimensions;
   const voxels = new Int16Array(width * height * depth);
@@ -132,6 +143,9 @@ export async function assembleOneVolumeVolume({
       ),
     },
     voxels,
+    ...(meta.nativeGeometry
+      ? { native: { voxels: nativeVoxels, metadata: meta.nativeGeometry } }
+      : {}),
     histogram,
   } satisfies LoadedVolume;
 }

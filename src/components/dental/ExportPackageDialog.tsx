@@ -18,6 +18,7 @@ interface ExportPackageDialogProps {
   onExport: (options: {
     name: string;
     contents: ScanPackageContents;
+    storage: 'classic' | 'streamable';
     includePreview: boolean;
   }) => Promise<{ bytes: number }>;
   onClose: () => void;
@@ -42,9 +43,13 @@ export function ExportPackageDialog({
   const { t } = useTranslation();
   const [name, setName] = useState(() => anonymousScanName(scanId));
   const [contents, setContents] = useState<ScanPackageContents>('full+half');
+  const [storage, setStorage] = useState<'classic' | 'streamable'>('classic');
   const [includePreview, setIncludePreview] = useState(true);
   const [status, setStatus] = useState<
-    { state: 'idle' } | { state: 'packing' } | { state: 'done'; bytes: number } | { state: 'error'; message: string }
+    | { state: 'idle' }
+    | { state: 'packing' }
+    | { state: 'done'; bytes: number }
+    | { state: 'error'; message: string }
   >({ state: 'idle' });
 
   useEffect(() => {
@@ -67,7 +72,8 @@ export function ExportPackageDialog({
     try {
       const result = await onExport({
         name: name.trim() || anonymousScanName(scanId),
-        contents,
+        contents: storage === 'streamable' ? 'full+half' : contents,
+        storage,
         includePreview,
       });
       setStatus({ state: 'done', bytes: result.bytes });
@@ -79,7 +85,11 @@ export function ExportPackageDialog({
     }
   };
 
-  const option = (value: ScanPackageContents, title: string, detail: string) => (
+  const option = (
+    value: ScanPackageContents,
+    title: string,
+    detail: string,
+  ) => (
     <label
       className={cn(
         'flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition',
@@ -130,10 +140,15 @@ export function ExportPackageDialog({
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-              <FileArchive className="h-4 w-4 text-sky-300" aria-hidden="true" />
+              <FileArchive
+                className="h-4 w-4 text-sky-300"
+                aria-hidden="true"
+              />
               {t('dental.package.title')}
             </h2>
-            <p className="mt-1 text-xs text-slate-400">{t('dental.package.description')}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {t('dental.package.description')}
+            </p>
           </div>
           <button
             type="button"
@@ -159,36 +174,57 @@ export function ExportPackageDialog({
             className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-base text-slate-100 focus:border-sky-500 focus:outline-none sm:text-sm"
           />
           <span className="mt-1 block text-[11px] text-slate-500">
-            {t('dental.package.nameHint')} · {scanPackageFileName(name || 'cbct')}
+            {t('dental.package.nameHint')} ·{' '}
+            {scanPackageFileName(name || 'cbct')}
           </span>
         </label>
 
-        <div className="mt-3 space-y-1.5">
-          {option(
-            'full+half',
-            t('dental.package.both'),
-            t('dental.package.bothDetail', {
-              full: formatMb(rawBytes(false)),
-              half: formatMb(rawBytes(true)),
-            }),
-          )}
-          {option(
-            'full',
-            t('dental.package.full'),
-            t('dental.package.sizeDetail', {
-              dims: dimensions.join(' × '),
-              size: formatMb(rawBytes(false)),
-            }),
-          )}
-          {option(
-            'half',
-            t('dental.package.half'),
-            t('dental.package.sizeDetail', {
-              dims: halfDims.join(' × '),
-              size: formatMb(rawBytes(true)),
-            }),
-          )}
-        </div>
+        <label className="mt-3 block text-xs text-slate-300">
+          {t('streaming.exportFormat')}
+          <select
+            aria-label={t('streaming.exportFormat')}
+            className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2"
+            value={storage}
+            onChange={(e) =>
+              setStorage(e.target.value as 'classic' | 'streamable')
+            }
+          >
+            <option value="classic">{t('streaming.classic')}</option>
+            <option value="streamable">{t('streaming.streamable')}</option>
+          </select>
+        </label>
+        {storage === 'streamable' ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {t('streaming.exportHint')}
+          </p>
+        ) : (
+          <div className="mt-3 space-y-1.5">
+            {option(
+              'full+half',
+              t('dental.package.both'),
+              t('dental.package.bothDetail', {
+                full: formatMb(rawBytes(false)),
+                half: formatMb(rawBytes(true)),
+              }),
+            )}
+            {option(
+              'full',
+              t('dental.package.full'),
+              t('dental.package.sizeDetail', {
+                dims: dimensions.join(' × '),
+                size: formatMb(rawBytes(false)),
+              }),
+            )}
+            {option(
+              'half',
+              t('dental.package.half'),
+              t('dental.package.sizeDetail', {
+                dims: halfDims.join(' × '),
+                size: formatMb(rawBytes(true)),
+              }),
+            )}
+          </div>
+        )}
 
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
           <input
@@ -227,7 +263,9 @@ export function ExportPackageDialog({
           ) : (
             <FileArchive className="h-4 w-4" aria-hidden="true" />
           )}
-          {status.state === 'packing' ? t('dental.package.packing') : t('dental.package.export')}
+          {status.state === 'packing'
+            ? t('dental.package.packing')
+            : t('dental.package.export')}
         </Button>
       </section>
     </div>

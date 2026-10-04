@@ -64,3 +64,15 @@ DCBIA-OrthoLab maintainers should be obtained; until then treat shipping as
 
 Any other future bundled model must have its weight license verified and
 recorded here before shipping — see `docs/source-repos/LICENSING.md`.
+
+## Runtime compression dependency
+
+The version 2 scan package uses **numcodecs.js 0.3.2** by Trevor Manz
+([upstream](https://github.com/manzt/numcodecs.js)), licensed under MIT.
+Its Zstandard WebAssembly implementation incorporates Zstandard by Facebook,
+Inc., distributed under the BSD license. The required license texts are
+retained in [`public/licenses/numcodecs-MIT.txt`](public/licenses/numcodecs-MIT.txt)
+and [`public/licenses/zstd-BSD.txt`](public/licenses/zstd-BSD.txt).
+Only the Zstd codec is imported; the other codecs are not included in the
+scan workers. The reversible row predictor and byte shuffle are implemented
+in CBCTer.

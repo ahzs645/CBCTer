@@ -15,10 +15,7 @@ import type {
   ParsedImportResult,
 } from '../../types';
 import { getEntryPath, inferOneVolumeScanId, resolveScanId } from '../utils';
-import {
-  estimateZSpacing,
-  selectPrimaryDicomSeries,
-} from './heuristics';
+import { estimateZSpacing, selectPrimaryDicomSeries } from './heuristics';
 import type { DicomOverview, DicomSliceEntry } from './reader';
 import {
   computeDicomSliceLocation,
@@ -422,6 +419,50 @@ export async function parseDicomFolder(
     const window = Math.max(1, Math.round(header.windowWidth ?? 3200));
     const path = enhancedVolume.id;
     const modality = header.modality ? `${header.modality} ` : '';
+    if (header.bitsAllocated !== 16)
+      throw makeError(
+        'E_DICOM_PIXEL_TYPE',
+        'Native DICOM import requires 16-bit stored words.',
+      );
+    const sourceDirections = [
+      normalizeVector(header.imageOrientationPatient.slice(0, 3) as Vec3),
+      normalizeVector(header.imageOrientationPatient.slice(3, 6) as Vec3),
+      resolveFrameDirection(enhancedVolume.slice),
+    ];
+    const origin = [...header.imagePositionPatient] as Vec3;
+    const direction: [Vec3, Vec3, Vec3] = [
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0],
+    ];
+    for (let a = 0; a < 3; a++) {
+      const sign = enhancedVolume.axisMap.sourceToVolumeSigns[a];
+      direction[enhancedVolume.axisMap.sourceToVolumeAxes[a]] =
+        sourceDirections[a].map((v) => v * sign) as Vec3;
+      if (sign < 0)
+        for (let c = 0; c < 3; c++)
+          origin[c] +=
+            sourceDirections[a][c] *
+            enhancedVolume.sourceSpacing[a] *
+            (enhancedVolume.sourceDimensions[a] - 1);
+    }
+    for (let i = 1; i < (header.framePositions?.length ?? 0); i++) {
+      const delta = header.framePositions![i].map(
+        (v, c) => v - header.framePositions![i - 1][c],
+      );
+      if (
+        delta.some(
+          (v, c) =>
+            Math.abs(
+              v - sourceDirections[2][c] * enhancedVolume.sourceSpacing[2],
+            ) > Math.max(1e-4, enhancedVolume.sourceSpacing[2] * 0.01),
+        )
+      )
+        throw makeError(
+          'E_DICOM_GAP',
+          'Enhanced DICOM frame positions contain irregular spacing.',
+        );
+    }
 
     return {
       meta: {
@@ -433,6 +474,23 @@ export async function parseDicomFolder(
           studyTime: header.studyTime,
           studyId: header.studyId,
         }),
+        nativeGeometry: {
+          dimensions: enhancedVolume.dimensions,
+          spacing: enhancedVolume.spacing,
+          dtype: header.pixelRepresentation === 0 ? 'uint16' : 'int16',
+          bitsStored: header.bitsStored,
+          highBit: header.highBit,
+          paddingValue: header.paddingValue ?? null,
+          origin,
+          direction,
+          coordinateSystem: 'LPS',
+          representation: 'native',
+          calibration: {
+            divisor: 1,
+            slope: header.rescaleSlope,
+            intercept: header.rescaleIntercept,
+          },
+        },
         dimensions: enhancedVolume.dimensions,
         spacing: enhancedVolume.spacing,
         scalarRange: [
@@ -480,7 +538,18 @@ export async function parseDicomFolder(
       slice.header.rows !== first.rows ||
       slice.header.columns !== first.columns ||
       slice.header.bitsAllocated !== first.bitsAllocated ||
-      slice.header.pixelRepresentation !== first.pixelRepresentation
+      slice.header.pixelRepresentation !== first.pixelRepresentation ||
+      slice.header.bitsStored !== first.bitsStored ||
+      slice.header.highBit !== first.highBit ||
+      slice.header.paddingValue !== first.paddingValue ||
+      slice.header.rescaleSlope !== first.rescaleSlope ||
+      slice.header.rescaleIntercept !== first.rescaleIntercept ||
+      slice.header.pixelSpacing.some(
+        (value, i) => Math.abs(value - first.pixelSpacing[i]) > 1e-6,
+      ) ||
+      slice.header.imageOrientationPatient.some(
+        (value, i) => Math.abs(value - first.imageOrientationPatient[i]) > 1e-5,
+      )
     ) {
       throw makeError(
         'E_DICOM_MISMATCH',
@@ -489,7 +558,40 @@ export async function parseDicomFolder(
     }
   }
 
+  if (first.bitsAllocated !== 16)
+    throw makeError(
+      'E_DICOM_PIXEL_TYPE',
+      'Native DICOM import requires 16-bit stored words.',
+    );
   const sliceStep = estimateZSpacing(sorted) || first.pixelSpacing[0];
+  for (let i = 1; i < sorted.length; i++) {
+    const step = sorted[i].sliceLocation - sorted[i - 1].sliceLocation;
+    if (Math.abs(step - sliceStep) > Math.max(1e-4, sliceStep * 0.01)) {
+      throw makeError(
+        'E_DICOM_GAP',
+        'DICOM slice positions contain a gap or irregular spacing. Select the complete series.',
+      );
+    }
+  }
+  const normal = normalizeVector(
+    crossVec(
+      first.imageOrientationPatient.slice(0, 3) as Vec3,
+      first.imageOrientationPatient.slice(3, 6) as Vec3,
+    ),
+  );
+  for (let i = 1; i < sorted.length; i++)
+    if (
+      sorted[i].header.imagePositionPatient.some(
+        (v, c) =>
+          Math.abs(
+            v - first.imagePositionPatient[c] - normal[c] * sliceStep * i,
+          ) > Math.max(1e-4, sliceStep * 0.01),
+      )
+    )
+      throw makeError(
+        'E_DICOM_GRID',
+        'DICOM slice positions do not form a regular orthogonal grid.',
+      );
   const width = first.columns;
   const height = first.rows;
   const depth = sorted.length;
@@ -507,6 +609,30 @@ export async function parseDicomFolder(
       studyId: first.studyId,
     }),
     dimensions: [width, height, depth],
+    nativeGeometry: {
+      dimensions: [width, height, depth],
+      spacing: [first.pixelSpacing[1], first.pixelSpacing[0], sliceStep],
+      dtype: first.pixelRepresentation === 0 ? 'uint16' : 'int16',
+      bitsStored: first.bitsStored,
+      highBit: first.highBit,
+      paddingValue: first.paddingValue ?? null,
+      origin: first.imagePositionPatient,
+      direction: [
+        first.imageOrientationPatient.slice(0, 3) as Vec3,
+        first.imageOrientationPatient.slice(3, 6) as Vec3,
+        crossVec(
+          first.imageOrientationPatient.slice(0, 3) as Vec3,
+          first.imageOrientationPatient.slice(3, 6) as Vec3,
+        ),
+      ],
+      coordinateSystem: 'LPS',
+      representation: 'native',
+      calibration: {
+        divisor: 1,
+        slope: first.rescaleSlope,
+        intercept: first.rescaleIntercept,
+      },
+    },
     spacing: [first.pixelSpacing[1], first.pixelSpacing[0], sliceStep || 0.16],
     patientAxes: patientAxesFromIop(first.imageOrientationPatient),
     scalarRange: [

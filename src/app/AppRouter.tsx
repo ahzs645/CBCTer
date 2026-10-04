@@ -55,17 +55,33 @@ export function AppRouter() {
         />
         <Route
           path={APP_ROUTES.teeth}
-          element={<ToothExtractionPage app={app} />}
+          element={
+            app.volume?.chunked ? (
+              <Navigate to={APP_ROUTES.viewer} replace />
+            ) : (
+              <ToothExtractionPage app={app} />
+            )
+          }
         />
         <Route
           path={APP_ROUTES.anatomy}
-          element={<AnatomySegmentationPage app={app} />}
+          element={
+            app.volume?.chunked ? (
+              <Navigate to={APP_ROUTES.viewer} replace />
+            ) : (
+              <AnatomySegmentationPage app={app} />
+            )
+          }
         />
         <Route
           path={APP_ROUTES.panoramic}
           element={
             hasVolume ? (
-              <PanoramicPage app={app} />
+              app.volume?.chunked ? (
+                <Navigate to={APP_ROUTES.viewer} replace />
+              ) : (
+                <PanoramicPage app={app} />
+              )
             ) : (
               <Navigate to={APP_ROUTES.import} replace />
             )

@@ -63,6 +63,7 @@ export async function expandArchiveEntries(
   let changed = false;
 
   for (const entry of source.entries) {
+    if (entry.remoteUrl && entry.archiveKind === 'cbct-package') {expanded.push(entry);continue;}
     if (await isZipFile(entry)) {
       if (await isScanPackageZip(entry)) {
         // Left zipped: the package importer reads only the level it opens,

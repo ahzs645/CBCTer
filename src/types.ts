@@ -1,3 +1,5 @@
+import type { NativeVoxelMetadata, NativeVoxelVolume } from './lib/volume/native';
+import type { ChunkedSession } from './lib/import/chunked/session';
 export type FileMap = Map<string, File>;
 export type Vec3 = [number, number, number];
 export type ReadonlyVec3 = readonly [number, number, number];
@@ -43,6 +45,8 @@ export interface ScanFolderEntry {
    * the importer can read just the level it needs from it.
    */
   archiveKind?: 'cbct-package';
+  /** Remote package stays on the server; only byte ranges are fetched. */
+  remoteUrl?: string;
 }
 
 export interface ScanFolderSource {
@@ -73,6 +77,7 @@ export interface ParsedVolumeMeta {
   formatLabel: string;
   scanId: string;
   dimensions: Vec3;
+  nativeGeometry?: NativeVoxelMetadata;
   sourceDimensions?: Vec3;
   sourceOffset?: Vec3;
   spacing: Vec3;
@@ -102,6 +107,9 @@ export interface LoadedVolume {
   meta: ParsedVolumeMeta;
   voxels: Int16Array;
   histogram: Uint32Array;
+  native?: NativeVoxelVolume;
+  /** Dense preview only; full-resolution reads belong to this session. */
+  chunked?: ChunkedSession;
 }
 
 export interface VolumeSeriesChoice {

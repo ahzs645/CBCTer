@@ -46,6 +46,7 @@
     "i18next": "^26.0.3",
     "lodash": "^4.17.23",
     "lucide-react": "^1.16.0",
+    "numcodecs": "0.3.2",
     "onnxruntime-web": "^1.26.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

@@ -131,6 +131,7 @@ export interface ScanPackageOptions {
   contents?: ScanPackageContents;
   createdAt?: Date;
   previewPng?: Uint8Array;
+  storage?: 'classic' | 'streamable';
 }
 
 /**
