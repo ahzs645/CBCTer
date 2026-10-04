@@ -26,6 +26,15 @@ and 867 MB → 167 MB, and phones read only 5–19 MB of it.
 - [docs/viewer-controls.md](docs/viewer-controls.md): controls and keyboard
   shortcuts.
 
+## Segmentation results and cloud GPU runner
+
+[Model evaluation on both native vendor scans](docs/model-scan-evaluation.md)
+records actual results, verified weight sizes, failures and interface guidance.
+An [experimental Colab runner](https://colab.research.google.com/github/ahzs645/CBCTer/blob/main/notebooks/CBCTer_GPU_models.ipynb)
+lets users with a cloud GPU prepare OralSeg/TIPs results for **Review teeth →
+Import model result**. Its GPU inference remains unverified; the native archive
+bridge and desktop/mobile result import were tested. All proposals need review.
+
 ## Commands
 
 ```bash

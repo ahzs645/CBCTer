@@ -1,4 +1,6 @@
 import { ToothReviewPanel } from '../components/dental/ToothReviewPanel';
+import { mergeModelResult } from '../lib/case/importModelResult';
+import { isLightDevice } from '../lib/import/scanPackage';
 import {
   summarizeTeeth,
   splitTooth,
@@ -515,6 +517,8 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
   const [studyState, setStudyState] = useState<StudyState>(() =>
     createEmptyStudyState(),
   );
+  const studyStateRef = useRef(studyState);
+  useEffect(() => { studyStateRef.current = studyState; }, [studyState]);
   const [predictions, setPredictions] = useState<
     NonNullable<CaseWorkspace['predictions']>
   >([]);
@@ -3220,6 +3224,33 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
     }
   };
 
+  const importModelResult = async (file: File) => {
+    const volume = app.volume;
+    if (!volume || separationBusy || anatomyRunning) return;
+    setReviewError('');
+    setSeparationBusy(true);
+    try {
+      const heldBytes = volume.voxels.length * 5.25 +
+        Object.values(maskBuffers).reduce((n, v) => n + v.byteLength, 0) +
+        Object.values(labelmapBuffers).reduce((n, v) => n + v.byteLength, 0) +
+        predictions.reduce((n, v) => n + v.data.byteLength, 0) +
+        Object.values(surfaceBlobs).reduce((n, v) => n + v.size, 0);
+      const budget = (isLightDevice() ? 512 : 2048) * 1024 * 1024;
+      const available = (budget - heldBytes - file.size * 2) / 2;
+      if (available <= 0) throw new Error('This result exceeds the editing memory budget. Open the complete result as a streamed case or use a desktop.');
+      const archive = await readProjectArchive(file, available);
+      await assertProjectBinding(archive.manifest.binding, volume);
+      if (appRef.current.volume !== volume) throw new Error('The scan changed during import. Import the result into its matching scan.');
+      const next = mergeModelResult(studyStateRef.current, archive, volume.voxels.length);
+      setStudyState(next);
+      setLabelmapBuffers(current => ({...current, ...Object.fromEntries(archive.labelmaps.map(l => [l.id, l.data]))}));
+      setPredictions(current => [...current, ...(archive.predictions ?? [])]);
+      setUndoStack([]); setRedoStack([]);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'Model import failed.');
+    } finally { setSeparationBusy(false); }
+  };
+
   const persistLocalProject = async () => {
     const surfaces = await Promise.all(
       Object.entries(surfaceBlobs).map(async ([id, blob]) => ({
@@ -4086,6 +4117,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       onChange={changeTooth}
       onCorrect={editInstance}
       onNewTooth={newManualTooth}
+      onImportModel={(file) => void importModelResult(file)}
       onAnatomy={(variant) => void runFullAnatomy(variant)}
       anatomyBusy={anatomyRunning}
       onCancelAnatomy={cancelFullAnatomy}

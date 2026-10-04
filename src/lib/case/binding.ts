@@ -104,6 +104,21 @@ export function nativeBlock(
   if (words.length !== sourceDims.reduce((a, b) => a * b, 1))
     throw new Error('Analysis voxel count does not match its source grid.');
   const out = new Uint16Array(shape.reduce((a, b) => a * b, 1));
+  // Full-grid model results need no resampling. Copy rows directly to avoid
+  // allocating a coordinate array for every voxel in every exported layer.
+  if ([0, 5, 10].every(i => toNative[i] === 1) &&
+      [3, 7, 11].every(i => toNative[i] === 0) &&
+      start.every((n, a) => n >= 0 && n + shape[a] <= sourceDims[a])) {
+    let dest = 0;
+    for (let z = 0; z < shape[2]; z++) {
+      for (let y = 0; y < shape[1]; y++) {
+        const source = ((z + start[2]) * sourceDims[1] + y + start[1]) * sourceDims[0] + start[0];
+        out.set(words.subarray(source, source + shape[0]), dest);
+        dest += shape[0];
+      }
+    }
+    return out;
+  }
   let index = 0;
   for (let z = 0; z < shape[2]; z++)
     for (let y = 0; y < shape[1]; y++)

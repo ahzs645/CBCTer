@@ -1,0 +1,741 @@
+{
+  "date": "2026-10-04",
+  "hardware": {
+    "cuda": false,
+    "cpuQuotaCores": 4,
+    "memoryGiB": 16,
+    "threadsPerModel": 2,
+    "concurrentJobs": true
+  },
+  "accuracyGroundTruth": false,
+  "cases": [
+    {
+      "scan": "onevolume",
+      "model": "yolo",
+      "status": "completed",
+      "foregroundLabels": 7,
+      "teethProposals": 7,
+      "seconds": 36.797,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 516091904,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": {
+        "1500ModelVoxels": 7,
+        "8000ModelVoxels": 0
+      },
+      "preprocessing": {
+        "spacingXYZ": [
+          0.3,
+          0.3,
+          0.3
+        ],
+        "ctWindow": [
+          -113.8,
+          4021
+        ],
+        "confidenceThreshold": 0.25,
+        "nmsIoU": 0.45,
+        "maskThreshold": 0.5,
+        "watershed": {
+          "core": 2,
+          "minVoxels": 1500,
+          "seeds": "tracked YOLO detections"
+        }
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "onevolume",
+      "model": "roi-onnx",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 24.741,
+      "engineInferenceSeconds": 7.963239730001078,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 1256542208,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "normalization": "ROI z-score",
+        "reflectPad": 144,
+        "patch": 96,
+        "overlap": 0.25,
+        "threshold": 0.5
+      },
+      "frameworkAgreement": [
+        {
+          "maxProbabilityDifference": 1.1026859283447266e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.1920928955078125e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.8477439880371094e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        }
+      ]
+    },
+    {
+      "scan": "onevolume",
+      "model": "roi-python",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 26.755,
+      "engineInferenceSeconds": 7.16432044901012,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 1642119168,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "normalization": "ROI z-score",
+        "reflectPad": 144,
+        "patch": 96,
+        "overlap": 0.25,
+        "threshold": 0.5
+      },
+      "frameworkAgreement": [
+        {
+          "maxProbabilityDifference": 1.1026859283447266e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.1920928955078125e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.8477439880371094e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        }
+      ]
+    },
+    {
+      "scan": "onevolume",
+      "model": "dental",
+      "status": "completed",
+      "foregroundLabels": 3,
+      "teethProposals": null,
+      "seconds": 18.363,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2524016640,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.43164101243019104,
+          0.31200000643730164,
+          0.43164101243019104
+        ],
+        "transposeForward": [
+          1,
+          0,
+          2
+        ],
+        "normalization": {
+          "max": 31767.0,
+          "mean": 1178.261474609375,
+          "median": 1190.0,
+          "min": -1024.0,
+          "percentile_00_5": -208.0,
+          "percentile_99_5": 3070.0,
+          "std": 611.7098999023438
+        },
+        "patchZYX": [
+          128,
+          160,
+          112
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "onevolume",
+      "model": "pediatric",
+      "status": "completed",
+      "foregroundLabels": 3,
+      "teethProposals": null,
+      "seconds": 19.828,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2357657600,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 21444.0,
+          "mean": 801.7435302734375,
+          "median": 710.0,
+          "min": -1000.0,
+          "percentile_00_5": -50.0,
+          "percentile_99_5": 2562.0,
+          "std": 493.4994812011719
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "onevolume",
+      "model": "universal",
+      "status": "completed",
+      "foregroundLabels": 12,
+      "teethProposals": 11,
+      "seconds": 32.946,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2627371008,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 20986.0,
+          "mean": 780.146728515625,
+          "median": 686.0,
+          "min": -1024.0,
+          "percentile_00_5": -47.0,
+          "percentile_99_5": 2530.0,
+          "std": 487.85162353515625
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "onevolume",
+      "model": "skin",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 18.597,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2389139456,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 1992.0,
+          "mean": 12.86917495727539,
+          "median": -38.0,
+          "min": -1500.0,
+          "percentile_00_5": -931.0,
+          "percentile_99_5": 1543.0,
+          "std": 370.55731201171875
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "onevolume",
+      "model": "airway",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 16.567,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2351407104,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 1461.0,
+          "mean": -830.5769653320312,
+          "median": -897.0,
+          "min": -1500.0,
+          "percentile_00_5": -1103.0,
+          "percentile_99_5": -314.0,
+          "std": 171.67529296875
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "onevolume",
+      "model": "toothseg",
+      "status": "completed",
+      "foregroundLabels": 4,
+      "teethProposals": 4,
+      "seconds": 5.434,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": 519.0999999999999,
+      "peakRssBytes": 712417280,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "fusion": "upstream border-core conversion + majority including background",
+        "minCenterMm3": 16,
+        "minInstanceMm3": 16,
+        "isolatedBorderMm3": 0,
+        "semanticRecovery": "disabled",
+        "stableInstanceValues": true
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "yolo",
+      "status": "completed",
+      "foregroundLabels": 32,
+      "teethProposals": 32,
+      "seconds": 47.352,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 1751556096,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": {
+        "1500ModelVoxels": 32,
+        "8000ModelVoxels": 25
+      },
+      "preprocessing": {
+        "spacingXYZ": [
+          0.3,
+          0.3,
+          0.3
+        ],
+        "ctWindow": [
+          -113.8,
+          4021
+        ],
+        "confidenceThreshold": 0.25,
+        "nmsIoU": 0.45,
+        "maskThreshold": 0.5,
+        "watershed": {
+          "core": 2,
+          "minVoxels": 1500,
+          "seeds": "tracked YOLO detections"
+        }
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "roi-onnx",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 42.942,
+      "engineInferenceSeconds": 10.316042029997334,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2332323840,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "normalization": "ROI z-score",
+        "reflectPad": 144,
+        "patch": 96,
+        "overlap": 0.25,
+        "threshold": 0.5
+      },
+      "frameworkAgreement": [
+        {
+          "maxProbabilityDifference": 2.0265579223632812e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.8030405044555664e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.519918441772461e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        }
+      ]
+    },
+    {
+      "scan": "sidexis",
+      "model": "roi-python",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 49.046,
+      "engineInferenceSeconds": 10.441969073996006,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 3403120640,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "normalization": "ROI z-score",
+        "reflectPad": 144,
+        "patch": 96,
+        "overlap": 0.25,
+        "threshold": 0.5
+      },
+      "frameworkAgreement": [
+        {
+          "maxProbabilityDifference": 2.0265579223632812e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.8030405044555664e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        },
+        {
+          "maxProbabilityDifference": 1.519918441772461e-06,
+          "maskAgreement": 1.0,
+          "foregroundDice": 1.0
+        }
+      ]
+    },
+    {
+      "scan": "sidexis",
+      "model": "dental",
+      "status": "completed",
+      "foregroundLabels": 5,
+      "teethProposals": null,
+      "seconds": 221.227,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2979319808,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.43164101243019104,
+          0.31200000643730164,
+          0.43164101243019104
+        ],
+        "transposeForward": [
+          1,
+          0,
+          2
+        ],
+        "normalization": {
+          "max": 31767.0,
+          "mean": 1178.261474609375,
+          "median": 1190.0,
+          "min": -1024.0,
+          "percentile_00_5": -208.0,
+          "percentile_99_5": 3070.0,
+          "std": 611.7098999023438
+        },
+        "patchZYX": [
+          128,
+          160,
+          112
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "pediatric",
+      "status": "completed",
+      "foregroundLabels": 5,
+      "teethProposals": null,
+      "seconds": 252.501,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2692853760,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 21444.0,
+          "mean": 801.7435302734375,
+          "median": 710.0,
+          "min": -1000.0,
+          "percentile_00_5": -50.0,
+          "percentile_99_5": 2562.0,
+          "std": 493.4994812011719
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "universal",
+      "status": "completed",
+      "foregroundLabels": 32,
+      "teethProposals": 29,
+      "seconds": 806.687,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 3005599744,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 20986.0,
+          "mean": 780.146728515625,
+          "median": 686.0,
+          "min": -1024.0,
+          "percentile_00_5": -47.0,
+          "percentile_99_5": 2530.0,
+          "std": 487.85162353515625
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "skin",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 256.069,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2740502528,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 1992.0,
+          "mean": 12.86917495727539,
+          "median": -38.0,
+          "min": -1500.0,
+          "percentile_00_5": -931.0,
+          "percentile_99_5": 1543.0,
+          "std": 370.55731201171875
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "airway",
+      "status": "completed",
+      "foregroundLabels": 1,
+      "teethProposals": null,
+      "seconds": 419.393,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": null,
+      "peakRssBytes": 2725527552,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "spacingZYX": [
+          0.4000000059604645,
+          0.4000000059604645,
+          0.4000000059604645
+        ],
+        "transposeForward": [
+          0,
+          1,
+          2
+        ],
+        "normalization": {
+          "max": 1461.0,
+          "mean": -830.5769653320312,
+          "median": -897.0,
+          "min": -1500.0,
+          "percentile_00_5": -1103.0,
+          "percentile_99_5": -314.0,
+          "std": 171.67529296875
+        },
+        "patchZYX": [
+          128,
+          128,
+          128
+        ],
+        "overlap": 0.5,
+        "fusion": "maximum foreground/background softmax confidence, matching browser pipeline",
+        "resampling": "voxel-centre trilinear; nearest native labels",
+        "cleanup": "none; retain original predictions"
+      },
+      "frameworkAgreement": null
+    },
+    {
+      "scan": "sidexis",
+      "model": "toothseg",
+      "status": "completed",
+      "foregroundLabels": 21,
+      "teethProposals": 21,
+      "seconds": 21.161,
+      "engineInferenceSeconds": null,
+      "sourceInferenceSeconds": 2499.737,
+      "peakRssBytes": 1942228992,
+      "review": "unreviewed",
+      "clinicalAccuracy": null,
+      "thresholdComparison": null,
+      "preprocessing": {
+        "fusion": "upstream border-core conversion + majority including background",
+        "minCenterMm3": 16,
+        "minInstanceMm3": 16,
+        "isolatedBorderMm3": 0,
+        "semanticRecovery": "disabled",
+        "stableInstanceValues": true
+      },
+      "frameworkAgreement": null
+    }
+  ],
+  "blockedCandidates": {
+    "OralSeg": "CUDA/Mamba unavailable; weights acquired and inspected, no scan inference",
+    "TIPs": "CUDA/Mamba unavailable; package acquired and inspected, no scan inference",
+    "GEPAR3D": "Public folder contains coarse one-class UNet, no full 33-class checkpoint",
+    "TAPSeg": "Public repository is a release announcement; no runnable code or weights"
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "date": "2026-10-04",
+  "units": "bytes; decimal MB in the report",
+  "redistributedWeights": false,
+  "models": [
+    {
+      "model": "dental",
+      "source": "https://zenodo.org/records/10829675",
+      "kind": "pytorch-checkpoint",
+      "bytes": 247050939,
+      "sha256": "a3a91ae0f8d7ab403d8662e47d2f0bdf7fc51e7783b46632841274dff8266c32",
+      "networkParameterBytes": 123156856,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "pediatric",
+      "source": "https://github.com/DCBIA-OrthoLab/SlicerAutomatedDentalTools/releases/tag/PEDIATRICDENTALSEG_MODEL",
+      "kind": "pytorch-checkpoint",
+      "bytes": 250280254,
+      "sha256": "554c53eadae22473ab616e003e75765105a909d6b740a60af5be00127984bff7",
+      "networkParameterBytes": 124795256,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "universal",
+      "source": "https://github.com/DCBIA-OrthoLab/SlicerAutomatedDentalTools/releases/tag/UNIVERSALLAB_MODEL",
+      "kind": "pytorch-checkpoint",
+      "bytes": 819880677,
+      "sha256": "c967bb566c60470c6a85c8dc4c674aeec895f2c20dbe451ec08f8b60ddfda81d",
+      "networkParameterBytes": 409572960,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "skin",
+      "source": "https://github.com/DCBIA-OrthoLab/SlicerAutomatedDentalTools/releases",
+      "kind": "pytorch-checkpoint",
+      "bytes": 249703167,
+      "sha256": "70ae22e132bd318dd863b68b382d8ed1fbbf93263b3476a693b91d6cdec4f6a9",
+      "networkParameterBytes": 124782376,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "airway",
+      "source": "https://github.com/DCBIA-OrthoLab/SlicerAutomatedDentalTools/releases",
+      "kind": "pytorch-checkpoint",
+      "bytes": 249785919,
+      "sha256": "ae9fd21d0b6250a454305b03d988239c20f1f910343a68a538e363dc9b647f64",
+      "networkParameterBytes": 124782376,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "toothseg-semantic",
+      "source": "https://zenodo.org/records/14893540",
+      "kind": "pytorch-checkpoint",
+      "bytes": 248962594,
+      "sha256": "e61872464950fc5bb1e8bc1afbd91f6d5a3a4a8e23258f1fb8b00946b8d1efe4",
+      "networkParameterBytes": 123243796,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "toothseg-border",
+      "source": "https://zenodo.org/records/14893540",
+      "kind": "pytorch-checkpoint",
+      "bytes": 246906402,
+      "sha256": "a0b7f8ab0897371872d0079cb733bc7c7bf2e1505755977cb8926642776cfd0f",
+      "networkParameterBytes": 123147196,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "yolo",
+      "source": "https://github.com/ahzs645/CBCTer/tree/main/public/models",
+      "kind": "onnx",
+      "bytes": 13227123,
+      "sha256": "1b0dbcf186f27cf397ac4afa458fc5cd3ca7358d4cbbcdd4aacc4649f2e46f10",
+      "networkParameterBytes": null,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "roi-onnx",
+      "source": "https://github.com/ahzs645/CBCTer/tree/main/public/models",
+      "kind": "onnx",
+      "bytes": 4763683,
+      "sha256": "4d498f98e08da5331188c08979f6144e2d8aa05bac1efc0691213b72a439bfa0",
+      "networkParameterBytes": null,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "roi-python",
+      "source": "https://github.com/ahzs645/CBCTer/tree/main/models",
+      "kind": "pytorch-checkpoint",
+      "bytes": 4799074,
+      "sha256": "629c78e61896b9cfaa3763ae96e7bfa5dceb7c91b871186227fbee38c3543852",
+      "networkParameterBytes": null,
+      "status": "acquired and scan inference completed"
+    },
+    {
+      "model": "OralSeg",
+      "source": "https://huggingface.co/aiadir/OralSeg/tree/f5c60bf1aa05dfc791fdb07439f9141d7af10265",
+      "kind": "pytorch-checkpoint",
+      "bytes": 428278566,
+      "sha256": "1b4b5806a0d2019d1b58b274cbb64c9b9f7f6510ddeff0413974acca58863ed2",
+      "storedTensorBytes": 428138344,
+      "license": "CC-BY-NC-4.0",
+      "status": "acquired and checkpoint inspected; CUDA/Mamba blocks inference"
+    },
+    {
+      "model": "TIPs",
+      "source": "https://drive.google.com/file/d/1UuFgZ-kwRryPC-vK7w64xX0VO4iOAeGt/view",
+      "kind": "zip",
+      "bytes": 1258074583,
+      "checkpoints": [
+        {
+          "file": "nnResults/Dataset803_teeth_binary/nnUNetTrainerUMambaBot__nnUNetPlans__3d_fullres/fold_all/checkpoint_best.pth",
+          "bytes": 337235449,
+          "sha256": "f9990f4cfd3ea95b5f0bc105e60d01a883e5048409d132d3338c29001799bb51"
+        },
+        {
+          "file": "nnResults/Dataset810_root_binarySDM/nnUNetTrainerUMambaBot__nnUNetPlans__3d_fullres/checkpoint_best.pth",
+          "bytes": 337599865,
+          "sha256": "0d7f709213d2543ea15250b107cf4188ca42b31e36e82b6e77ef5350422cf943"
+        },
+        {
+          "file": "nnResults/Dataset810_root_binarySDM/nnUNetTrainerUMambaBot__nnUNetPlans__3d_fullres/fold_all/checkpoint_best.pth",
+          "bytes": 337672633,
+          "sha256": "2b455614b86a5687d40648ef469b4299ef4ac094c0c3fbcea95b0c8b04fa6bbe"
+        },
+        {
+          "file": "nnResults/Dataset812_teeth_offset/nnUNetTrainerUMambaBot__nnUNetPlans__3d_fullres/fold_all/checkpoint_best.pth",
+          "bytes": 340640889,
+          "sha256": "a320e3128dc1480ed939723ac495ee36b4952bc3edfed6e6180bf137368bad8c"
+        }
+      ],
+      "status": "acquired and ZIP/checkpoint hashes verified; CUDA/Mamba blocks inference"
+    }
+  ]
+}

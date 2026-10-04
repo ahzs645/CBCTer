@@ -1,0 +1,12 @@
+# Install torch==2.6.0 from https://download.pytorch.org/whl/cpu separately.
+numpy==2.5.3
+scipy==1.18.1
+onnxruntime==1.30.0
+monai==1.5.2
+SimpleITK==2.5.6
+zstandard==0.25.0
+pillow==12.3.0
+scikit-image==0.26.0
+nnunetv2==2.6.2
+# GPU/Mamba models use the isolated environment in notebooks/CBCTer_GPU_models.ipynb.
+jcs==0.2.1

@@ -21,6 +21,7 @@ interface Props {
   onChange: (id: string, changes: Partial<ToothInstance>) => void;
   onCorrect: (erase: boolean) => void;
   onNewTooth:()=>void;
+  onImportModel: (file: File) => void;
   onAnatomy: (variant: DentalSegVariantId) => void;
   anatomyBusy: boolean;
   onCancelAnatomy: () => void;
@@ -74,6 +75,17 @@ export function ToothReviewPanel(p: Props) {
         mask IDs. Click a tooth in a slice or chart to select it.
       </p>
       <button className={button} onClick={p.onNewTooth}>Draw a new tooth outline</button>
+      <label className={`${button} mt-2 block cursor-pointer`}>
+        Import model result
+        <input aria-label="Import model result" type="file" accept=".zip" className="sr-only"
+          disabled={p.busy || p.anatomyBusy}
+          onChange={e => {const file = e.target.files?.[0]; if (file) p.onImportModel(file); e.target.value = '';}} />
+      </label>
+      <p className="my-2 text-xs text-slate-400">Choose a .cbcter.zip result for this scan. Imported proposals need review; your notes and corrections are kept.</p>
+      {(p.state.analysisModels ?? []).length > 0 && <details>
+        <summary className="min-h-11 cursor-pointer py-2 text-sm">Loaded model results ({p.state.analysisModels!.length})</summary>
+        <ul className="text-xs text-slate-300">{p.state.analysisModels!.map(m => <li key={m.id}>{m.name} — {p.state.analysisLayers?.some(l => l.modelId === m.id && l.role === 'teeth') ? `${(p.state.toothInstances ?? []).filter(t => t.review === 'unreviewed' && p.state.analysisLayers?.some(l => l.id === t.groupId && l.modelId === m.id)).length} teeth awaiting review` : 'Structure proposals'}</li>)}</ul>
+      </details>}
       <details>
         <summary className="min-h-11 cursor-pointer py-2 text-sm">
           Propose outlines with a model
@@ -111,6 +123,11 @@ export function ToothReviewPanel(p: Props) {
           pediatric models label anatomy; the universal model also proposes
           tooth identities. All proposals need review.
         </p>
+        <a className={`${button} mt-2 block text-center`} target="_blank" rel="noreferrer"
+          href="https://colab.research.google.com/github/ahzs645/CBCTer/blob/main/notebooks/CBCTer_GPU_models.ipynb">
+          Open cloud model runner
+        </a>
+        <p className="mt-2 text-xs text-slate-400">Experimental OralSeg and TIPs runner. You choose a scan to upload to your Colab runtime, then import its result here. A GPU runtime is required.</p>
       </details>
       <details open={!teeth.length}>
         <summary className="min-h-11 cursor-pointer py-2 text-sm">

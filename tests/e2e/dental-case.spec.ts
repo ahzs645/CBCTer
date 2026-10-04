@@ -11,7 +11,8 @@ import {
 } from '../../src/lib/case/archive';
 import { sha256 } from '../../src/lib/import/chunked/codec';
 import { readFile } from 'node:fs/promises';
-let root: string, fixturePath: string, rawHash: string, predictionHash: string;
+import { buildProjectArchive } from '../../src/lib/project/exportProject';
+let root: string, fixturePath: string, modelPath: string, rawHash: string, predictionHash: string;
 test.beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'cbcter-case-'));
   fixturePath = join(root, 'synthetic.cbct.zip');
@@ -24,6 +25,19 @@ test.beforeAll(async () => {
     analysis: workspace,
   });
   await writeFile(fixturePath, new Uint8Array(await packed.blob.arrayBuffer()));
+  const model = structuredClone(workspace);
+  model.masks = []; model.surfaces = []; model.state.masks = []; model.state.surfaces = [];
+  const rename = (id: string) => `imported-${id}`;
+  model.labelmaps = model.labelmaps!.map(l => ({...l, id:rename(l.id)}));
+  model.predictions = model.predictions!.map(l => ({...l, id:rename(l.id)}));
+  model.state.segmentGroups = model.state.segmentGroups.map(g => ({...g,id:rename(g.id)}));
+  model.state.analysisModels = model.state.analysisModels!.map(m => ({...m,id:rename(m.id),name:'Imported test model'}));
+  model.state.analysisLayers = model.state.analysisLayers!.map(l => ({...l,id:rename(l.id),modelId:l.modelId ? rename(l.modelId) : undefined,predictionId:l.predictionId ? rename(l.predictionId) : undefined}));
+  model.state.toothInstances = model.state.toothInstances!.map(t => ({...t,id:rename(t.id),groupId:rename(t.groupId),review:'accepted'}));
+  model.state.activeSegmentGroupId = rename(model.state.activeSegmentGroupId!);
+  model.state.analysisRevisions = [];
+  modelPath = join(root,'new-model.cbcter.zip');
+  await writeFile(modelPath,new Uint8Array(await (await buildProjectArchive(model)).arrayBuffer()));
 });
 test.afterAll(async () => {
   await rm(root, { recursive: true, force: true });
@@ -117,6 +131,25 @@ for (const mobile of [false, true]) {
       viewport: mobile
         ? { width: 390, height: 844 }
         : { width: 1280, height: 900 },
+    });
+    test('imports another model without replacing accepted outlines and rejects repeat imports', async ({page}) => {
+      test.setTimeout(60000);
+      await openCase(page);
+      await page.getByRole('button',{name:'Review and export case'}).click();
+      await page.getByRole('button',{name:'Review teeth',exact:true}).click();
+      const panel=page.getByRole('region',{name:'Tooth review'});
+      await panel.getByText('Propose outlines with a model',{exact:true}).click();
+      await expect(panel.getByRole('link',{name:'Open cloud model runner'})).toHaveAttribute('href',/colab\.research\.google\.com\/github\/ahzs645\/CBCTer/);
+      await panel.getByText('Propose outlines with a model',{exact:true}).click();
+      await panel.getByLabel('Selected tooth instance').selectOption('stable-tooth-11');
+      await panel.getByRole('button',{name:'Accept outline'}).click();
+      await panel.getByLabel('Import model result',{exact:true}).setInputFiles(modelPath);
+      await expect(panel.getByLabel('Selected tooth instance')).toContainText('FDI 11 · unreviewed');
+      await expect(panel.getByLabel('Selected tooth instance').locator('option[value="stable-tooth-11"]')).toContainText('accepted');
+      await expect(panel.getByLabel('Selected tooth instance').locator('option')).toHaveCount(5);
+      await panel.getByLabel('Import model result',{exact:true}).setInputFiles(modelPath);
+      await expect(panel.getByRole('alert')).toContainText('already loaded');
+      await expect(panel.getByLabel('Selected tooth instance').locator('option')).toHaveCount(5);
     });
     test(`${mobile ? 'mobile' : 'desktop'}: select, review, correct, split, merge, save arch and reopen a complete case`, async ({
       page,

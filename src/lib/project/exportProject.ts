@@ -285,9 +285,18 @@ export function projectArchiveName(state: StudyState): string {
   return `${sanitizePathSegment(name)}.cbcter.zip`;
 }
 
-export async function readProjectArchive(file: File): Promise<ProjectArchive> {
+export async function readProjectArchive(file: File, maxInflatedBytes = Number.POSITIVE_INFINITY): Promise<ProjectArchive> {
   const { unzipSync } = await import('fflate');
-  const files = unzipSync(new Uint8Array(await file.arrayBuffer()));
+  // Inspect central-directory sizes before inflating any entry. This protects
+  // mobile imports from allocating a desktop-sized set of label volumes.
+  const compressed = new Uint8Array(await file.arrayBuffer());
+  let declaredBytes = 0;
+  unzipSync(compressed, { filter: entry => {
+    declaredBytes += entry.originalSize;
+    if (declaredBytes > maxInflatedBytes) throw new Error('This result is too large for the available device memory. Open it as a streamed case or use a desktop.');
+    return false;
+  }});
+  const files = unzipSync(compressed);
   const manifestBytes = files[PROJECT_ARCHIVE_MANIFEST];
   if (!manifestBytes) {
     throw new Error(`Project package is missing ${PROJECT_ARCHIVE_MANIFEST}.`);

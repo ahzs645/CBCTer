@@ -1,5 +1,7 @@
 # CBCT Model Inventory And Research
 
+For the **new tests on both native vendor scans**, verified sizes and current blockers, see [the 4 October 2026 evaluation](model-scan-evaluation.md). Earlier clinic-scan observations below are historical and do not establish quality on the two vendor examples.
+
 Last updated: 2026-06-02
 
 This note records the models currently present in CBCTer, the observed behavior

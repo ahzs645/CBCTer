@@ -71,17 +71,16 @@ AMASSS_SKIN = ModelConfig(
     norm=(-931.0, 1543.0, 12.869, 370.557),
 )
 
-# The repo has the UAW model staged but no app-side constants wired yet. The
-# exported graph has the same binary 128^3 AMASSS shape, so use the AMASSS
-# normalization/spacing for a best-effort visual check and mark that in output.
+# UAW has its own foreground intensity statistics; SKIN normalization is wrong
+# for this model. Values come from the released UAW plans.json.
 AMASSS_UAW = ModelConfig(
-    name="amasss-uaw-best-effort",
+    name="amasss-uaw",
     file="amasss-uaw.onnx",
     labels={0: "background", 1: "Upper airway"},
     colors={1: (132, 205, 255)},
     spacing_zyx=(0.4, 0.4, 0.4),
     patch_zyx=(128, 128, 128),
-    norm=(-931.0, 1543.0, 12.869, 370.557),
+    norm=(-1103.0, -314.0, -830.5769653320312, 171.67529296875),
 )
 
 
