@@ -112,3 +112,7 @@ creates the curated web result, and validates the curated manifest.
 separation result. It is useful for comparison and review, but the ROI-model
 pipeline remains the primary output because watershed tends to split
 restorations and jaw-adjacent structures into extra fragments on this sample.
+
+### Complete dental cases
+
+Use **Review teeth** for instance selection, FDI assignment, outline correction, split/merge and isolation. **Scan + analysis** exports the native scan together with masks, original predictions, notes, measurements and saved dental arches. See [dental case workflows and validation](docs/dental-case.md) for storage, alignment, desktop/mobile behavior and model requirements.

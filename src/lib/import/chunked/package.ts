@@ -1,3 +1,4 @@
+import { buildCaseFiles } from '../../case/archive';
 import { zipSync, type Zippable } from 'fflate';
 import { VolumeAxis, type LoadedVolume, type Vec3 } from '../../../types';
 import { displaySample, type NativeVoxelVolume } from '../../volume/native';
@@ -131,6 +132,13 @@ export async function buildChunkedPackage(
   files['preview.i16'] = [new Uint8Array(preview.buffer), { level: 6 }];
   if (options.previewPng)
     files['preview.png'] = [options.previewPng, { level: 0 }];
+  if (options.analysis) {
+    const analysis = await buildCaseFiles(volume, manifest, options.analysis);
+    Object.assign(files, analysis.files);
+    manifest.extensions = {
+      analysis: { version: 1, manifest: 'analysis/manifest.json' },
+    };
+  }
   files['cbct-scan.json'] = [
     new TextEncoder().encode(JSON.stringify(manifest)),
     { level: 6 },

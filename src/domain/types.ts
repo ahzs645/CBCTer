@@ -1,16 +1,24 @@
-import type { AppId } from "./ids";
+import type {
+  CaseView,
+  AnalysisLayerMeta,
+  AnalysisModel,
+  AnalysisRevision,
+  DentalArchState,
+  ToothInstance,
+} from '../lib/case/types';
+import type { AppId } from './ids';
 
-export type StorageMode = "local" | "convex";
-export type DicomImportEngine = "custom" | "itk-gdcm";
-export type ViewerLayoutPreset = "mpr-3d" | "mpr-only" | "single";
-export type MeasurementPlane = "axial" | "coronal" | "sagittal";
+export type StorageMode = 'local' | 'convex';
+export type DicomImportEngine = 'custom' | 'itk-gdcm';
+export type ViewerLayoutPreset = 'mpr-3d' | 'mpr-only' | 'single';
+export type MeasurementPlane = 'axial' | 'coronal' | 'sagittal';
 
-export type ScanImportStatus = "queued" | "indexed" | "failed";
+export type ScanImportStatus = 'queued' | 'indexed' | 'failed';
 
 export type ScanStudy = {
   id: AppId;
   name: string;
-  source: "local-folder" | "local-files" | "sample" | "cloud";
+  source: 'local-folder' | 'local-files' | 'sample' | 'cloud';
   fileCount: number;
   totalBytes: number;
   modality?: string;
@@ -36,30 +44,30 @@ export type ViewerPreset = {
 };
 
 export type StudyTool =
-  | "pan"
-  | "zoom"
-  | "window-level"
-  | "crosshair"
-  | "measure-distance"
-  | "measure-angle"
-  | "measure-ellipse"
-  | "measure-polygon"
-  | "mask-brush"
-  | "mask-erase"
-  | "mask-threshold"
-  | "mask-region-grow"
-  | "mask-watershed-seed"
-  | "surface-select";
+  | 'pan'
+  | 'zoom'
+  | 'window-level'
+  | 'crosshair'
+  | 'measure-distance'
+  | 'measure-angle'
+  | 'measure-ellipse'
+  | 'measure-polygon'
+  | 'mask-brush'
+  | 'mask-erase'
+  | 'mask-threshold'
+  | 'mask-region-grow'
+  | 'mask-watershed-seed'
+  | 'surface-select';
 
-export type MaskOperation = "draw" | "erase" | "threshold";
-export type MaskBrushShape = "circle" | "square";
-export type WatershedSeedKind = "foreground" | "background" | "erase";
+export type MaskOperation = 'draw' | 'erase' | 'threshold';
+export type MaskBrushShape = 'circle' | 'square';
+export type WatershedSeedKind = 'foreground' | 'background' | 'erase';
 
 export type StudyImageLayer = {
   id: AppId;
   studyId: AppId;
   name: string;
-  source: ScanStudy["source"];
+  source: ScanStudy['source'];
   dimensions: [number, number, number];
   spacing: [number, number, number];
   visible: boolean;
@@ -109,6 +117,7 @@ export type StudySegmentGroup = {
 };
 
 export type StudySurface = {
+  toothInstanceId?: string;
   id: AppId;
   studyId: AppId;
   maskId?: AppId;
@@ -125,11 +134,11 @@ export type StudySurface = {
 };
 
 export type StudyMeasurementKind =
-  | "distance"
-  | "angle"
-  | "ellipse"
-  | "polygon"
-  | "density";
+  | 'distance'
+  | 'angle'
+  | 'ellipse'
+  | 'polygon'
+  | 'density';
 
 export type StudyMeasurement = {
   id: AppId;
@@ -138,7 +147,7 @@ export type StudyMeasurement = {
   name: string;
   points: [number, number, number][];
   value: number;
-  unit: "mm" | "degrees" | "mm2" | "HU";
+  unit: 'mm' | 'degrees' | 'mm2' | 'HU';
   /** Slice plane the measurement was drawn on (absent on older projects). */
   plane?: MeasurementPlane;
   visible: boolean;
@@ -149,7 +158,7 @@ export type StudyMeasurement = {
 export type StudyAnnotation = {
   id: AppId;
   studyId: AppId;
-  kind: "point" | "measurement";
+  kind: 'point' | 'measurement';
   name: string;
   point: [number, number, number];
   text: string;
@@ -162,20 +171,21 @@ export type StudyAnnotation = {
 };
 
 export type ToothCondition =
-  | "caries"
-  | "periapical"
-  | "rootCanal"
-  | "restoration"
-  | "implant"
-  | "missing"
-  | "impacted"
-  | "boneLoss"
-  | "fracture"
-  | "resorption"
-  | "other";
+  | 'caries'
+  | 'periapical'
+  | 'rootCanal'
+  | 'restoration'
+  | 'implant'
+  | 'missing'
+  | 'impacted'
+  | 'boneLoss'
+  | 'fracture'
+  | 'resorption'
+  | 'other';
 
 /** Per-tooth chart entry: findings, free-text note, optional bookmark. */
 export type ToothFinding = {
+  instanceId?: string;
   fdi: number;
   conditions: ToothCondition[];
   note: string;
@@ -216,6 +226,15 @@ export type StudyState = {
   toothFindings: ToothFinding[];
   /** Free-text clinical notes carried into the printable report. */
   caseNotes: string;
+  toothInstances?: ToothInstance[];
+  analysisLayers?: AnalysisLayerMeta[];
+  analysisModels?: AnalysisModel[];
+  analysisRevisions?: AnalysisRevision[];
+  selectedInstanceId?: string;
+  toothVisibility?: 'all' | 'selected' | 'hide-teeth';
+  showSurroundingBone?: boolean;
+  dentalArch?: DentalArchState;
+  caseView?:CaseView;
   activeTool: StudyTool;
   activeImageId?: AppId;
   activeMaskId?: AppId;
@@ -232,7 +251,7 @@ export type StudyState = {
 
 export type CreateStudyInput = {
   name: string;
-  source: ScanStudy["source"];
+  source: ScanStudy['source'];
   fileCount: number;
   totalBytes: number;
   modality?: string;
@@ -244,14 +263,14 @@ export type CreateStudyInput = {
 export type UpdateStudyInput = Partial<
   Pick<
     ScanStudy,
-    | "name"
-    | "fileCount"
-    | "totalBytes"
-    | "modality"
-    | "manufacturer"
-    | "seriesInstanceUid"
-    | "studyInstanceUid"
-    | "status"
+    | 'name'
+    | 'fileCount'
+    | 'totalBytes'
+    | 'modality'
+    | 'manufacturer'
+    | 'seriesInstanceUid'
+    | 'studyInstanceUid'
+    | 'status'
   >
 >;
 

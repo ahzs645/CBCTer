@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -27,7 +28,9 @@ async function loadSampleAndOpenAnatomy(page: Page) {
     window.history.pushState({}, '', '/anatomy');
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
-  await expect(page.getByRole('button', { name: /run segmentation/i })).toBeVisible({
+  await expect(
+    page.getByRole('button', { name: /run segmentation/i }),
+  ).toBeVisible({
     timeout: 30_000,
   });
 }
@@ -68,13 +71,20 @@ async function runVariant(page: Page, variant: string) {
         const errText = page.getByText(
           /bad_alloc|OrtRun|failed to call|out of memory|memory access|segmentation failed|worker failed/i,
         );
-        if (await errText.first().isVisible().catch(() => false)) {
+        if (
+          await errText
+            .first()
+            .isVisible()
+            .catch(() => false)
+        ) {
           status = 'error';
           return 'done';
         }
         if (
           errors.some((e) =>
-            /bad_alloc|ortrun|out of bounds|aborted|enlarge memory|rangeerror|out of memory/i.test(e),
+            /bad_alloc|ortrun|out of bounds|aborted|enlarge memory|rangeerror|out of memory/i.test(
+              e,
+            ),
           )
         ) {
           status = 'error';
@@ -93,12 +103,21 @@ async function runVariant(page: Page, variant: string) {
     .innerText()
     .catch(() => '');
   console.log(`\n[${variant}] status=${status} elapsed=${elapsed}s`);
-  if (errors.length) console.log(`[${variant}] console errors:\n${errors.join('\n')}`);
-  if (logs) console.log(`[${variant}] run log tail:\n${logs.split('\n').slice(-8).join('\n')}`);
+  if (errors.length)
+    console.log(`[${variant}] console errors:\n${errors.join('\n')}`);
+  if (logs)
+    console.log(
+      `[${variant}] run log tail:\n${logs.split('\n').slice(-8).join('\n')}`,
+    );
 
   // Capture the segment list on success for a sanity check.
   if (status === 'success') {
-    const segText = await page.locator('ul').filter({ hasText: /cm³|mm³|—/ }).first().innerText().catch(() => '');
+    const segText = await page
+      .locator('ul')
+      .filter({ hasText: /cm³|mm³|—/ })
+      .first()
+      .innerText()
+      .catch(() => '');
     console.log(`[${variant}] segments:\n${segText}`);
   }
   return status;
@@ -106,12 +125,22 @@ async function runVariant(page: Page, variant: string) {
 
 test.describe('DentalSegmentator variants in-browser', () => {
   test('pediatric runs end-to-end on the real CBCT', async ({ page }) => {
+    test.skip(
+      !existsSync('public/anatomy-test-cbct/manifest.json') ||
+        !existsSync('public/models/dentalsegmentator-pediatric.onnx'),
+      'Stage the authorized anatomy test scan and pediatric model weights to run real inference.',
+    );
     test.setTimeout(20 * 60_000);
     const status = await runVariant(page, 'pediatric');
     expect(status).toBe('success');
   });
 
   test('universal runs end-to-end on the real CBCT', async ({ page }) => {
+    test.skip(
+      !existsSync('public/anatomy-test-cbct/manifest.json') ||
+        !existsSync('public/models/dentalsegmentator-universal.onnx'),
+      'Stage the authorized anatomy test scan and universal model weights to run real inference.',
+    );
     test.setTimeout(20 * 60_000);
     const status = await runVariant(page, 'universal');
     // Universal may OOM in wasm; record the outcome rather than hard-failing.

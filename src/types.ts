@@ -1,4 +1,8 @@
-import type { NativeVoxelMetadata, NativeVoxelVolume } from './lib/volume/native';
+import type { CaseMetadata, CaseWorkspace } from './lib/case/types';
+import type {
+  NativeVoxelMetadata,
+  NativeVoxelVolume,
+} from './lib/volume/native';
 import type { ChunkedSession } from './lib/import/chunked/session';
 export type FileMap = Map<string, File>;
 export type Vec3 = [number, number, number];
@@ -100,7 +104,11 @@ export interface ParsedVolumeMeta {
   /** Scan packages: the resolution level that is open. */
   packageLevel?: 'full' | 'half';
   /** Scan packages: every level the package carries. */
-  packageLevels?: Array<{ id: 'full' | 'half'; dimensions: Vec3; spacing: Vec3 }>;
+  packageLevels?: Array<{
+    id: 'full' | 'half';
+    dimensions: Vec3;
+    spacing: Vec3;
+  }>;
 }
 
 export interface LoadedVolume {
@@ -108,6 +116,8 @@ export interface LoadedVolume {
   voxels: Int16Array;
   histogram: Uint32Array;
   native?: NativeVoxelVolume;
+  caseMetadata?: CaseMetadata;
+  caseWorkspace?: CaseWorkspace;
   /** Dense preview only; full-resolution reads belong to this session. */
   chunked?: ChunkedSession;
 }

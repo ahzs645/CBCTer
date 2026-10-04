@@ -1,9 +1,7 @@
+import type { ScanBinding } from '../case/types';
 import type { StudyState } from '../../domain/types';
 import { normalizeStudyState } from '../../domain/studyState';
-import {
-  normalizeArchivePath,
-  sanitizePathSegment,
-} from '../import/fileTypes';
+import { normalizeArchivePath, sanitizePathSegment } from '../import/fileTypes';
 
 export interface ProjectMaskExport {
   id: string;
@@ -22,6 +20,8 @@ export interface ProjectSurfaceExport {
 
 export interface ProjectExportInput {
   state: StudyState;
+  binding?: ScanBinding;
+  predictions?: ProjectLabelmapExport[];
   masks: ProjectMaskExport[];
   labelmaps?: ProjectLabelmapExport[];
   surfaces: ProjectSurfaceExport[];
@@ -36,12 +36,14 @@ export interface ProjectArchiveManifestEntry {
 export interface ProjectArchiveManifest {
   version: typeof PROJECT_ARCHIVE_VERSION;
   app: 'CBCTer';
+  binding?: ScanBinding;
   exportedAt: string;
   dataSources: ProjectArchiveDataSource[];
   state: StudyState;
   masks: ProjectArchiveManifestEntry[];
   labelmaps: ProjectArchiveManifestEntry[];
   surfaces: ProjectArchiveManifestEntry[];
+  predictions?: ProjectArchiveManifestEntry[];
 }
 
 interface ProjectArchiveManifestV1 {
@@ -55,7 +57,7 @@ interface ProjectArchiveManifestV1 {
 export interface ProjectArchiveDataSource {
   id: string;
   kind: 'embedded';
-  role: 'mask' | 'labelmap' | 'surface';
+  role: 'mask' | 'labelmap' | 'surface' | 'prediction';
   path: string;
   bytes: number;
 }
@@ -65,6 +67,7 @@ export interface ProjectArchive {
   masks: ProjectMaskExport[];
   labelmaps: ProjectLabelmapExport[];
   surfaces: ProjectSurfaceExport[];
+  predictions?: ProjectLabelmapExport[];
 }
 
 export const PROJECT_ARCHIVE_MANIFEST = 'study.json';
@@ -171,6 +174,13 @@ export function parseProjectManifest(input: string): ProjectArchiveManifest {
     throw new Error('Project package has invalid data sources.');
   }
 
+  if (
+    parsed.predictions &&
+    (!Array.isArray(parsed.predictions) ||
+      !parsed.predictions.every(isManifestEntry))
+  )
+    throw new Error('Invalid prediction entries.');
+  parsed.predictions?.forEach((entry) => assertSafeArchivePath(entry.path));
   parsed.masks.forEach((entry) => assertSafeArchivePath(entry.path));
   parsed.labelmaps.forEach((entry) => assertSafeArchivePath(entry.path));
   parsed.surfaces.forEach((entry) => assertSafeArchivePath(entry.path));
@@ -184,6 +194,8 @@ export async function buildProjectArchive({
   masks,
   labelmaps = [],
   surfaces,
+  binding,
+  predictions = [],
 }: ProjectExportInput): Promise<Blob> {
   const { zipSync } = await import('fflate');
   const usedPaths = new Set<string>([PROJECT_ARCHIVE_MANIFEST]);
@@ -199,10 +211,21 @@ export async function buildProjectArchive({
   }));
   const labelmapEntries = labelmaps.map((labelmap) => ({
     id: labelmap.id,
-    path: allocateArchivePath('labelmaps', labelmap.id, 'uint16.raw', usedPaths),
+    path: allocateArchivePath(
+      'labelmaps',
+      labelmap.id,
+      'uint16.raw',
+      usedPaths,
+    ),
     bytes: labelmap.data.byteLength,
   }));
+  const predictionEntries = predictions.map((p) => ({
+    id: p.id,
+    path: allocateArchivePath('predictions', p.id, 'uint16.raw', usedPaths),
+    bytes: p.data.byteLength,
+  }));
   const manifest = {
+    predictions: predictionEntries,
     version: PROJECT_ARCHIVE_VERSION,
     app: 'CBCTer',
     exportedAt: new Date().toISOString(),
@@ -217,6 +240,11 @@ export async function buildProjectArchive({
         kind: 'embedded' as const,
         role: 'labelmap' as const,
       })),
+      ...predictionEntries.map((entry) => ({
+        ...entry,
+        kind: 'embedded' as const,
+        role: 'prediction' as const,
+      })),
       ...surfaceEntries.map((entry) => ({
         ...entry,
         kind: 'embedded' as const,
@@ -224,6 +252,7 @@ export async function buildProjectArchive({
       })),
     ],
     state,
+    binding,
     masks: maskEntries,
     labelmaps: labelmapEntries,
     surfaces: surfaceEntries,
@@ -245,6 +274,9 @@ export async function buildProjectArchive({
     files[surfaceEntries[index].path] = surfaces[index].data;
   }
 
+  predictions.forEach((p, i) => {
+    files[predictionEntries[i].path] = p.data;
+  });
   return new Blob([zipSync(files)], { type: 'application/zip' });
 }
 
@@ -261,10 +293,18 @@ export async function readProjectArchive(file: File): Promise<ProjectArchive> {
     throw new Error(`Project package is missing ${PROJECT_ARCHIVE_MANIFEST}.`);
   }
 
-  const manifest = parseProjectManifest(new TextDecoder().decode(manifestBytes));
+  const manifest = parseProjectManifest(
+    new TextDecoder().decode(manifestBytes),
+  );
 
   return {
     manifest,
+    predictions: (manifest.predictions ?? []).map((entry) => {
+      const data = files[entry.path];
+      if (!data || data.length !== entry.bytes)
+        throw new Error('Invalid prediction data.');
+      return { id: entry.id, data };
+    }),
     masks: manifest.masks.map((entry) => {
       const data = files[entry.path];
       if (!data) throw new Error(`Project package is missing ${entry.path}.`);

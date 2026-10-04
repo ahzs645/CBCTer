@@ -1,3 +1,6 @@
+import { computeDentalWindowPresets } from '../lib/dental/windowPresets';
+import { extractLabelmapOverlayImage } from '../lib/segmentation/maskOperations';
+import type { SliceImage } from '../types';
 import { createStudyMeasurement } from '../domain/studyState';
 import type { StudyMeasurement } from '../domain/types';
 import { axisPointToVoxel } from '../lib/segmentation/paintBrush';
@@ -50,14 +53,36 @@ export default function ProgressiveViewerPage({
   const m = session.manifest,
     dimensions = m.volume.dimensions,
     spacing = m.volume.spacing;
+  const caseState = session.caseMetadata?.state;
   const [cursor, setCursor] = useState<VolumeCursor>({
-    x: Math.floor(dimensions[0] / 2),
-    y: Math.floor(dimensions[1] / 2),
-    z: Math.floor(dimensions[2] / 2),
+    x: caseState?.caseView?.cursor[0]??Math.floor(dimensions[0] / 2),
+    y: caseState?.caseView?.cursor[1]??Math.floor(dimensions[1] / 2),
+    z: caseState?.caseView?.cursor[2]??Math.floor(dimensions[2] / 2),
   });
-  const [wl, setWl] = useState<SliceWindowLevel>(m.display);
-  const [zoom, setZoom] = useState(1);
-  const [axis, setAxis] = useState(VolumeAxis.Axial);
+  const [selectedId, setSelectedId] = useState(
+    caseState?.selectedInstanceId ?? '',
+  );
+  const [structureMode, setStructureMode] = useState<
+    'all' | 'selected' | 'hide-teeth'
+  >('all');
+  const [bone, setBone] = useState(false);
+  const presets = useMemo(
+    () => computeDentalWindowPresets(app.volume!),
+    [app.volume],
+  );
+  const [analysisResult, setAnalysisResult] = useState<{
+    key: string;
+    overlays: Partial<Record<VolumeAxis, SliceImage | null>>;
+  } | null>(null);
+  const analysisPlanes = useRef(
+    new Map<
+      VolumeAxis,
+      { index: number; layers: Array<{ id: string; words: Uint16Array }> }
+    >(),
+  );
+  const [wl, setWl] = useState<SliceWindowLevel>(caseState?.caseView?.windowLevel??m.display);
+  const [zoom, setZoom] = useState(caseState?.caseView?.zoom??1);
+  const [axis, setAxis] = useState(caseState?.caseView?.axis??VolumeAxis.Axial);
   const [result, setResult] = useState<{
     key: string;
     slices: ViewerSlices;
@@ -76,6 +101,7 @@ export default function ProgressiveViewerPage({
   const planes = useRef(
     new Map<VolumeAxis, { index: number; words: Int16Array | Uint16Array }>(),
   );
+  const analysisKey = `${cursor.x}|${cursor.y}|${cursor.z}|${axis}|${selectedId}|${structureMode}|${bone}`;
   const currentKey = `${cursor.x}|${cursor.y}|${cursor.z}|${wl.window}|${wl.level}|${compact ? axis : 'all'}`;
   const pending = result?.key !== currentKey;
   const preview = useMemo<ViewerSlices>(
@@ -152,6 +178,116 @@ export default function ProgressiveViewerPage({
     axis,
     preview,
   ]);
+  useEffect(() => {
+    const abort = new AbortController();
+    const groups = (caseState?.segmentGroups ?? []).filter(
+      (g) =>
+        g.visible &&
+        session.caseMetadata?.manifest.layers.some(
+          (l) => l.id === g.id && l.role !== 'prediction',
+        ),
+    );
+    if (!groups.length) return;
+    void Promise.all(
+      (compact ? [axis] : Object.values(VolumeAxis)).map(async (a) => {
+        const { start, shape } = planeRegion(a, cursor, dimensions),
+          index =
+            a === VolumeAxis.Axial
+              ? cursor.z
+              : a === VolumeAxis.Coronal
+                ? cursor.y
+                : cursor.x;
+        const cached = analysisPlanes.current.get(a);
+        const layers =
+          cached?.index === index
+            ? cached.layers
+            : await Promise.all(
+                groups.map(async (g) => ({
+                  id: g.id,
+                  words: await session.analysisRegion(
+                    g.id,
+                    start,
+                    shape,
+                    abort.signal,
+                  ),
+                })),
+              );
+        if (abort.signal.aborted)
+          throw new DOMException('Cancelled', 'AbortError');
+        analysisPlanes.current.set(a, { index, layers });
+        const selected = caseState?.toothInstances?.find(
+          (t) => t.id === selectedId,
+        );
+        const image = extractLabelmapOverlayImage(
+          layers.map((l) => {
+            const group = groups.find((g) => g.id === l.id)!,
+              role = session.caseMetadata?.manifest.layers.find(
+                (v) => v.id === l.id,
+              )?.role;
+            return {
+              labelmap: l.words,
+              visible: true,
+              opacity: group.opacity,
+              segments: group.segments.map((segment) => {
+                const tooth =
+                  role === 'teeth' ||
+                  (role === 'anatomy' && /teeth|tooth/i.test(segment.name));
+                const permitted =
+                  structureMode === 'selected'
+                    ? role === 'teeth'
+                      ? selected?.groupId === l.id &&
+                        selected.value === segment.value
+                      : bone && !tooth
+                    : structureMode === 'hide-teeth'
+                      ? !tooth
+                      : true;
+                return {
+                  value: segment.value,
+                  color:
+                    selected?.groupId === l.id &&
+                    selected.value === segment.value
+                      ? '#facc15'
+                      : segment.color,
+                  opacity: segment.opacity,
+                  visible: segment.visible && Boolean(permitted),
+                };
+              }),
+            };
+          }),
+          a,
+          { x: 0, y: 0, z: 0 },
+          shape,
+          spacing,
+        );
+        return [a, image] as const;
+      }),
+    ).then(
+      (items) => {
+        if (!abort.signal.aborted)
+          setAnalysisResult({
+            key: analysisKey,
+            overlays: Object.fromEntries(items),
+          });
+      },
+      (e) => {
+        if (!abort.signal.aborted)
+          setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => abort.abort();
+  }, [
+    session,
+    caseState,
+    cursor,
+    dimensions,
+    spacing,
+    compact,
+    axis,
+    selectedId,
+    structureMode,
+    bone,
+    analysisKey,
+  ]);
   const labels = useAxisViewportLabels();
   const sliceIndex = (a: VolumeAxis) =>
     a === VolumeAxis.Axial
@@ -174,7 +310,15 @@ export default function ProgressiveViewerPage({
         [key]: Math.max(0, Math.min(limit - 1, Math.round(index))),
       };
     });
-  const select = (a: VolumeAxis) => (p: { xRatio: number; yRatio: number }) =>
+  const select = (a: VolumeAxis) => (p: { xRatio: number; yRatio: number }) => {
+    const shape = planeRegion(a, cursor, dimensions).shape;
+    const point = axisPointToVoxel(a, p, { x: 0, y: 0, z: 0 }, shape);
+    const index = (point[2] * shape[1] + point[1]) * shape[0] + point[0];
+    const layers = analysisPlanes.current.get(a)?.layers;
+    const tooth = caseState?.toothInstances?.find((t) =>
+      layers?.some((l) => l.id === t.groupId && l.words[index] === t.value),
+    );
+    if (tooth) setSelectedId(tooth.id);
     setCursor((c) =>
       a === VolumeAxis.Axial
         ? {
@@ -194,6 +338,7 @@ export default function ProgressiveViewerPage({
               z: Math.round((1 - p.yRatio) * (dimensions[2] - 1)),
             },
     );
+  };
   const loadFull = async () => {
     setFullLoading(true);
     setError('');
@@ -202,6 +347,7 @@ export default function ProgressiveViewerPage({
         measurements.map((item) => item.record),
         { cursor, windowLevel: wl, zoom, axis },
       );
+      session.setPreferredInstance(selectedId);
       await app.openPackageLevel('full');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -270,6 +416,27 @@ export default function ProgressiveViewerPage({
             )}
           </select>
         </label>
+        <label className="text-xs">
+          Contrast preset
+          <select
+            aria-label="Contrast preset"
+            className="min-h-11 rounded bg-slate-800 px-2"
+            defaultValue=""
+            onChange={(e) => {
+              const preset = presets.find((p) => p.id === e.target.value);
+              if (preset) setWl(preset.windowLevel);
+            }}
+          >
+            <option value="">Custom</option>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.id === 'soft'
+                  ? 'Soft tissue'
+                  : p.id.charAt(0).toUpperCase() + p.id.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
         <RangeField
           className="w-36"
           aria-label={t('streaming.window')}
@@ -289,6 +456,65 @@ export default function ProgressiveViewerPage({
           onChange={(level) => setWl((v) => ({ ...v, level }))}
         />
       </div>
+      {caseState && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-800 p-2 text-xs">
+          <label>
+            Selected tooth
+            <select
+              aria-label="Selected tooth instance"
+              value={selectedId}
+              className="min-h-11 max-w-44 rounded bg-slate-800 p-2"
+              onChange={(e) => {
+                setSelectedId(e.target.value);
+                const tooth = caseState.toothInstances?.find(
+                  (t) => t.id === e.target.value,
+                );
+                if (tooth)
+                  setCursor({
+                    x: Math.round(tooth.centroid[0]),
+                    y: Math.round(tooth.centroid[1]),
+                    z: Math.round(tooth.centroid[2]),
+                  });
+              }}
+            >
+              <option value="">Select a tooth</option>
+              {caseState.toothInstances?.map((v, i) => (
+                <option key={v.id} value={v.id}>
+                  {v.fdi ? `FDI ${v.fdi}` : `Unassigned ${i + 1}`} · {v.review}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Structures
+            <select
+              aria-label="Structure visibility"
+              className="min-h-11 rounded bg-slate-800 p-2"
+              value={structureMode}
+              onChange={(e) =>
+                setStructureMode(e.target.value as typeof structureMode)
+              }
+            >
+              <option value="all">Show all</option>
+              <option value="selected" disabled={!selectedId}>
+                Selected tooth
+              </option>
+              <option value="hide-teeth">Hide teeth</option>
+            </select>
+          </label>
+          <label className="flex min-h-11 items-center gap-1">
+            <input
+              type="checkbox"
+              checked={bone}
+              onChange={(e) => setBone(e.target.checked)}
+            />
+            Surrounding bone
+          </label>
+          <Button onClick={() => void loadFull()} disabled={fullLoading}>
+            Review and export case
+          </Button>
+        </div>
+      )}
       {error ? (
         <p role="alert" className="px-3 py-2 text-sm text-rose-300">
           {error}
@@ -303,9 +529,15 @@ export default function ProgressiveViewerPage({
         onZoomChange={setZoom}
         selectedAxis={axis}
         onSelectedAxisChange={setAxis}
+        overlays={
+          pending || analysisResult?.key !== analysisKey
+            ? {}
+            : analysisResult.overlays
+        }
         slices={pending ? preview : result!.slices}
         hasVolume
         compact={compact}
+        invert={caseState?.caseView?.invert??false}
         theme={appViewerTheme}
         labels={labels}
         onSelectAxis={select}

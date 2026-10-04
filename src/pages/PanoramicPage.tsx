@@ -1,5 +1,13 @@
-import { ArrowLeft, Download, LoaderCircle, ScanLine, Wand2, Eraser } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { toothCrossSection } from '../lib/panoramic/crossSection';
+import {
+  ArrowLeft,
+  Download,
+  LoaderCircle,
+  ScanLine,
+  Wand2,
+  Eraser,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import { ArchEditor } from '../components/ArchEditor';
@@ -33,33 +41,128 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
   const volume = app.volume;
   const outputRef = useRef<HTMLCanvasElement>(null);
 
+  const setCaseWorkspace = app.setCaseWorkspace;
+  const saved = app.caseWorkspace?.state.dentalArch;
   const depth = volume?.meta.dimensions[2] ?? 1;
   const initialWL = volume?.meta.initialWindowLevel;
   const initialZMin = Math.floor(depth * 0.25);
   const initialZMax = Math.floor(depth * 0.75);
 
-  const [zMin, setZMin] = useState(initialZMin);
-  const [zMax, setZMax] = useState(initialZMax);
-  const [window, setWindow] = useState(initialWL?.window ?? 3200);
-  const [level, setLevel] = useState(initialWL?.level ?? 1600);
-  const [depthMm, setDepthMm] = useState(DEFAULT_PANORAMIC_OPTIONS.depthMm);
-  const [projection, setProjection] = useState<PanoramicProjection>(
-    DEFAULT_PANORAMIC_OPTIONS.projection,
+  const [zMin, setZMin] = useState(saved?.options.zMin ?? initialZMin);
+  const [zMax, setZMax] = useState(saved?.options.zMax ?? initialZMax);
+  const [window, setWindow] = useState(
+    saved?.options.window ?? initialWL?.window ?? 3200,
   );
-  const [curve, setCurve] = useState<ArchCurve>(() =>
-    volume
-      ? autoFitArch(
-          volume.voxels,
-          volume.meta.dimensions,
-          initialZMin,
-          initialZMax,
-        )
-      : { controlPoints: [] },
+  const [level, setLevel] = useState(
+    saved?.options.level ?? initialWL?.level ?? 1600,
+  );
+  const [depthMm, setDepthMm] = useState(
+    saved?.options.depthMm ?? DEFAULT_PANORAMIC_OPTIONS.depthMm,
+  );
+  const [projection, setProjection] = useState<PanoramicProjection>(
+    saved?.options.projection ?? DEFAULT_PANORAMIC_OPTIONS.projection,
+  );
+  const [curve, setCurve] = useState<ArchCurve>(
+    () =>
+      saved?.curve ??
+      (volume
+        ? autoFitArch(
+            volume.voxels,
+            volume.meta.dimensions,
+            initialZMin,
+            initialZMax,
+          )
+        : { controlPoints: [] }),
   );
   const [result, setResult] = useState<PanoramicResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  const [widthMm, setWidthMm] = useState(saved?.crossSection.widthMm ?? 20),
+    [angleDeg, setAngleDeg] = useState(saved?.crossSection.angleDeg ?? 0);
+  const [toothId, setToothId] = useState(
+    app.caseWorkspace?.state.selectedInstanceId ?? '',
+  );
+  const crossRef = useRef<HTMLCanvasElement>(null);
+  const selectedTooth = app.caseWorkspace?.state.toothInstances?.find(
+    (t) => t.id === toothId,
+  );
+  const cross = useMemo(
+    () =>
+      volume
+        ? toothCrossSection(
+            volume,
+            curve,
+            selectedTooth?.centroid ?? [
+              app.cursor?.x ?? 0,
+              app.cursor?.y ?? 0,
+              app.cursor?.z ?? 0,
+            ],
+            { widthMm, angleDeg, window, level },
+          )
+        : null,
+    [
+      volume,
+      curve,
+      selectedTooth,
+      app.cursor,
+      widthMm,
+      angleDeg,
+      window,
+      level,
+    ],
+  );
+  useEffect(() => {
+    if (!cross || !crossRef.current) return;
+    const canvas = crossRef.current;
+    canvas.width = cross.width;
+    canvas.height = cross.height;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const image = ctx.createImageData(cross.width, cross.height);
+      image.data.set(cross.data);
+      ctx.putImageData(image, 0, 0);
+    }
+  }, [cross]);
+  useEffect(() => {
+    setCaseWorkspace((c) =>
+      c
+        ? {
+            ...c,
+            state: {
+              ...c.state,
+              selectedInstanceId: toothId || c.state.selectedInstanceId,
+              dentalArch: {
+                curve,
+                options: {
+                  ...DEFAULT_PANORAMIC_OPTIONS,
+                  zMin,
+                  zMax,
+                  window,
+                  level,
+                  depthMm,
+                  projection,
+                },
+                crossSection: { widthMm, angleDeg },
+              },
+            },
+          }
+        : c,
+    );
+  }, [
+    curve,
+    zMin,
+    zMax,
+    window,
+    level,
+    depthMm,
+    projection,
+    widthMm,
+    angleDeg,
+    toothId,
+    setCaseWorkspace,
+  ]);
 
   if (!volume) return null;
 
@@ -156,7 +259,7 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
               })}
             </span>
           </div>
-          <div className="relative m-3 min-h-0 flex-1 overflow-hidden">
+          <div className="relative m-3 h-[42dvh] min-h-[280px] shrink-0 overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1 lg:shrink">
             <ArchEditor
               volume={volume}
               zMin={zMin}
@@ -167,6 +270,80 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
               onChange={setCurve}
             />
           </div>
+          <details
+            className="max-h-[50dvh] shrink-0 overflow-y-auto border-t border-slate-800 p-3"
+            open
+          >
+            <summary className="min-h-11 cursor-pointer py-2 text-sm text-slate-200">
+              Tooth-centred cross-section
+            </summary>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="text-xs">
+                Centre
+                <select
+                  aria-label="Cross-section tooth"
+                  className="min-h-11 w-full rounded bg-slate-900 p-2"
+                  value={toothId}
+                  onChange={(e) => setToothId(e.target.value)}
+                >
+                  <option value="">Current crosshair</option>
+                  {app.caseWorkspace?.state.toothInstances?.map((t, i) => (
+                    <option key={t.id} value={t.id}>
+                      {t.fdi ? `FDI ${t.fdi}` : `Unassigned tooth ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <RangeField
+                label="Section width (mm)"
+                aria-label="Section width (mm)"
+                value={widthMm}
+                min={5}
+                max={50}
+                onChange={setWidthMm}
+              />
+              <RangeField
+                label="Section angle (degrees)"
+                aria-label="Section angle (degrees)"
+                value={angleDeg}
+                min={-90}
+                max={90}
+                onChange={setAngleDeg}
+              />
+            </div>
+            <p className="my-2 text-xs text-slate-400">
+              Buccal–lingual plane through the selected tooth, perpendicular to
+              the nearest arch tangent. Vertical direction follows scan Z.
+            </p>
+            <canvas
+              ref={crossRef}
+              data-testid="tooth-cross-section"
+              className="mx-auto max-h-48 max-w-full bg-black"
+              style={
+                cross
+                  ? {
+                      width:
+                        (192 * cross.width * cross.mmPerPixelX) /
+                        (cross.height * cross.mmPerPixelY),
+                      height: 'auto',
+                      aspectRatio: `${cross.width * cross.mmPerPixelX} / ${cross.height * cross.mmPerPixelY}`,
+                    }
+                  : {}
+              }
+            />
+            <button
+              className="min-h-11 rounded border border-slate-700 px-3 text-sm"
+              onClick={() => {
+                if (!crossRef.current) return;
+                const a = document.createElement('a');
+                a.href = crossRef.current.toDataURL('image/png');
+                a.download = 'tooth-cross-section.png';
+                a.click();
+              }}
+            >
+              Save cross-section PNG
+            </button>
+          </details>
           <p className="border-t border-slate-800 px-3 py-2 text-[11px] text-slate-500">
             {t('panoramic.editHint')}
           </p>
@@ -238,7 +415,10 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
             disabled={busy || curve.controlPoints.length < 2}
           >
             {busy ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              <LoaderCircle
+                className="h-4 w-4 animate-spin"
+                aria-hidden="true"
+              />
             ) : (
               <ScanLine className="h-4 w-4" aria-hidden="true" />
             )}
@@ -273,7 +453,12 @@ export default function PanoramicPage({ app }: PanoramicPageProps) {
               <canvas
                 ref={outputRef}
                 className="block h-auto w-full"
-                style={{ imageRendering: 'auto' }}
+                style={{
+                  imageRendering: 'auto',
+                  aspectRatio: result
+                    ? `${result.width * result.mmPerPixelX} / ${result.height * result.mmPerPixelY}`
+                    : undefined,
+                }}
               />
             </div>
             {result ? (

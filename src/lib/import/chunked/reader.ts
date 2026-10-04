@@ -19,24 +19,39 @@ export interface ChunkReadStats {
   cacheHits: number;
 }
 export class ChunkedReader {
-  private cache = new Map<string, Int16Array | Uint16Array>();
-  private pending = new Map<string, Promise<Int16Array | Uint16Array>>();
-  private decodedChunks = 0;
-  private cacheHits = 0;
-  private cacheBytes = 0;
+  private shared = {
+    cache: new Map<string, Int16Array | Uint16Array>(),
+    pending: new Map<string, Promise<Int16Array | Uint16Array>>(),
+    decodedChunks: 0,
+    cacheHits: 0,
+    cacheBytes: 0,
+  };
   constructor(
     readonly manifest: ChunkedManifest,
     private readEntry: (name: string, expected?: number) => Promise<Uint8Array>,
     private source: Pick<ByteSource, 'bytesRead'>,
     readonly cacheLimitBytes = 64 * 1024 * 1024,
   ) {}
+  fileBytes(name: string, expected?: number) {
+    return this.readEntry(name, expected);
+  }
+  fork(manifest: ChunkedManifest) {
+    const fork = new ChunkedReader(
+      manifest,
+      this.readEntry,
+      this.source,
+      this.cacheLimitBytes,
+    );
+    fork.shared = this.shared;
+    return fork;
+  }
   stats(): ChunkReadStats {
     return {
       bytesRead: this.source.bytesRead,
-      decodedChunks: this.decodedChunks,
-      cacheBytes: this.cacheBytes,
+      decodedChunks: this.shared.decodedChunks,
+      cacheBytes: this.shared.cacheBytes,
       cacheLimitBytes: this.cacheLimitBytes,
-      cacheHits: this.cacheHits,
+      cacheHits: this.shared.cacheHits,
     };
   }
   async preview(): Promise<Int16Array> {
@@ -55,14 +70,14 @@ export class ChunkedReader {
     );
   }
   private async chunk(c: ChunkInfo): Promise<Int16Array | Uint16Array> {
-    const cached = this.cache.get(c.file);
+    const cached = this.shared.cache.get(c.file);
     if (cached) {
-      this.cacheHits++;
-      this.cache.delete(c.file);
-      this.cache.set(c.file, cached);
+      this.shared.cacheHits++;
+      this.shared.cache.delete(c.file);
+      this.shared.cache.set(c.file, cached);
       return cached;
     }
-    const pending = this.pending.get(c.file);
+    const pending = this.shared.pending.get(c.file);
     if (pending) return pending;
     const promise = (async () => {
       const data = await this.readEntry(c.file, c.bytes);
@@ -73,26 +88,26 @@ export class ChunkedReader {
       );
       if ((await sha256(words)) !== c.sha256)
         throw new Error('Native chunk checksum mismatch.');
-      this.decodedChunks++;
+      this.shared.decodedChunks++;
       while (
-        this.cacheBytes + words.byteLength > this.cacheLimitBytes &&
-        this.cache.size
+        this.shared.cacheBytes + words.byteLength > this.cacheLimitBytes &&
+        this.shared.cache.size
       ) {
-        const [key, value] = this.cache.entries().next().value!;
-        this.cache.delete(key);
-        this.cacheBytes -= value.byteLength;
+        const [key, value] = this.shared.cache.entries().next().value!;
+        this.shared.cache.delete(key);
+        this.shared.cacheBytes -= value.byteLength;
       }
       if (words.byteLength <= this.cacheLimitBytes) {
-        this.cache.set(c.file, words);
-        this.cacheBytes += words.byteLength;
+        this.shared.cache.set(c.file, words);
+        this.shared.cacheBytes += words.byteLength;
       }
       return words;
     })();
-    this.pending.set(c.file, promise);
+    this.shared.pending.set(c.file, promise);
     try {
       return await promise;
     } finally {
-      this.pending.delete(c.file);
+      this.shared.pending.delete(c.file);
     }
   }
   private checkRegion(start: Vec3, shape: Vec3) {
@@ -163,6 +178,7 @@ export class ChunkedReader {
   }
   async materialize(
     cancelled = () => false,
+    verifyWholeHash = true,
   ): Promise<Int16Array | Uint16Array> {
     const dims = this.manifest.volume.dimensions;
     const out =
@@ -182,7 +198,7 @@ export class ChunkedReader {
           from += c.shape[0];
         }
     }
-    if ((await sha256(out)) !== this.manifest.volume.sha256)
+    if (verifyWholeHash && (await sha256(out)) !== this.manifest.volume.sha256)
       throw new Error('Complete native volume checksum mismatch.');
     return out;
   }
@@ -225,7 +241,7 @@ export async function openChunkedReader(
       )
         throw new Error(`Missing or invalid package entry ${name}.`);
       if (
-        name.startsWith('chunks/') &&
+        name.endsWith('.zst') &&
         (entry.method !== 0 || entry.size !== entry.compressedSize)
       )
         throw new Error(

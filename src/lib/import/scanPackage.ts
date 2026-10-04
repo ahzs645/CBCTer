@@ -1,3 +1,4 @@
+import type { CaseWorkspace } from '../case/types';
 import type {
   LoadedVolume,
   ParsedVolumeMeta,
@@ -58,7 +59,11 @@ export type ScanPackageLevelPreference = 'auto' | ScanPackageResolution;
 export type ScanPackageEncoding = 'byte-shuffle' | 'raw';
 
 export function shuffleInt16Bytes(voxels: Int16Array): Uint8Array {
-  const bytes = new Uint8Array(voxels.buffer, voxels.byteOffset, voxels.byteLength);
+  const bytes = new Uint8Array(
+    voxels.buffer,
+    voxels.byteOffset,
+    voxels.byteLength,
+  );
   const count = voxels.length;
   const out = new Uint8Array(count * 2);
   for (let index = 0; index < count; index += 1) {
@@ -132,6 +137,7 @@ export interface ScanPackageOptions {
   createdAt?: Date;
   previewPng?: Uint8Array;
   storage?: 'classic' | 'streamable';
+  analysis?: CaseWorkspace;
 }
 
 /**
@@ -219,7 +225,11 @@ export function buildScanPackageFiles(
   const half =
     contents === 'full'
       ? null
-      : downsampleVolumeHalf(volume.voxels, volume.meta.dimensions, paddingValue);
+      : downsampleVolumeHalf(
+          volume.voxels,
+          volume.meta.dimensions,
+          paddingValue,
+        );
   const describe = (
     id: ScanPackageResolution,
     file: string,
@@ -229,7 +239,9 @@ export function buildScanPackageFiles(
     file,
     encoding: 'byte-shuffle',
     dimensions: level.dimensions,
-    spacing: volume.meta.spacing.map((value) => value * (id === 'half' ? 2 : 1)) as Vec3,
+    spacing: volume.meta.spacing.map(
+      (value) => value * (id === 'half' ? 2 : 1),
+    ) as Vec3,
     scalarRange: resolveScalarRange(
       level.voxels,
       volume.meta.scalarRange,
@@ -239,7 +251,11 @@ export function buildScanPackageFiles(
 
   const primaryIsHalf = contents === 'half';
   const primarySource = primaryIsHalf && half ? half : full;
-  const primary = describe(primaryIsHalf ? 'half' : 'full', SCAN_PACKAGE_VOLUME, primarySource);
+  const primary = describe(
+    primaryIsHalf ? 'half' : 'full',
+    SCAN_PACKAGE_VOLUME,
+    primarySource,
+  );
   const extra =
     contents === 'full+half' && half
       ? [describe('half', SCAN_PACKAGE_HALF_VOLUME, half)]
@@ -272,7 +288,9 @@ export function buildScanPackageFiles(
     },
     orientation: {
       nativeAxis: volume.meta.nativeAxis ?? VolumeAxis.Axial,
-      ...(volume.meta.patientAxes ? { patientAxes: volume.meta.patientAxes } : {}),
+      ...(volume.meta.patientAxes
+        ? { patientAxes: volume.meta.patientAxes }
+        : {}),
     },
     resolution: primary.id,
     ...(extra.length ? { levels: extra } : {}),
@@ -285,7 +303,8 @@ export function buildScanPackageFiles(
     ),
     [SCAN_PACKAGE_VOLUME]: shuffleInt16Bytes(primarySource.voxels),
   };
-  if (extra.length && half) files[SCAN_PACKAGE_HALF_VOLUME] = shuffleInt16Bytes(half.voxels);
+  if (extra.length && half)
+    files[SCAN_PACKAGE_HALF_VOLUME] = shuffleInt16Bytes(half.voxels);
   if (options.previewPng) files[SCAN_PACKAGE_PREVIEW] = options.previewPng;
   return { manifest, files };
 }
@@ -309,7 +328,10 @@ export function parseScanPackageManifest(text: string): ScanPackageManifest {
   if (manifest?.format !== SCAN_PACKAGE_FORMAT) {
     throw new Error('Not a CBCTer scan package (unexpected manifest format).');
   }
-  if (typeof manifest.version !== 'number' || manifest.version > SCAN_PACKAGE_VERSION) {
+  if (
+    typeof manifest.version !== 'number' ||
+    manifest.version > SCAN_PACKAGE_VERSION
+  ) {
     throw new Error(
       `Scan package version ${String(manifest.version)} is newer than this app supports.`,
     );
@@ -323,7 +345,9 @@ export function parseScanPackageManifest(text: string): ScanPackageManifest {
     !isVec3(volume.spacing) ||
     volume.dimensions.some((size) => size < 1 || !Number.isInteger(size)) ||
     volume.spacing.some((size) => size <= 0) ||
-    (volume.encoding != null && volume.encoding !== 'byte-shuffle' && volume.encoding !== 'raw')
+    (volume.encoding != null &&
+      volume.encoding !== 'byte-shuffle' &&
+      volume.encoding !== 'raw')
   ) {
     throw new Error('The scan package manifest has invalid volume geometry.');
   }
@@ -336,7 +360,9 @@ export function parseScanPackageManifest(text: string): ScanPackageManifest {
       level.dimensions.some((size) => size < 1 || !Number.isInteger(size)) ||
       level.spacing.some((size) => size <= 0)
     ) {
-      throw new Error('The scan package manifest has an invalid resolution level.');
+      throw new Error(
+        'The scan package manifest has an invalid resolution level.',
+      );
     }
   }
   return manifest as ScanPackageManifest;
@@ -388,7 +414,8 @@ export function chooseScanPackageLevel(
 export function isLightDevice(): boolean {
   if (typeof window === 'undefined') return false;
   const narrow = window.matchMedia?.('(max-width: 767px)').matches ?? false;
-  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const memory = (navigator as Navigator & { deviceMemory?: number })
+    .deviceMemory;
   return narrow || (typeof memory === 'number' && memory <= 4);
 }
 

@@ -19,6 +19,7 @@ interface ExportPackageDialogProps {
     name: string;
     contents: ScanPackageContents;
     storage: 'classic' | 'streamable';
+    caseContents: 'scan' | 'case';
     includePreview: boolean;
   }) => Promise<{ bytes: number }>;
   onClose: () => void;
@@ -44,6 +45,7 @@ export function ExportPackageDialog({
   const [name, setName] = useState(() => anonymousScanName(scanId));
   const [contents, setContents] = useState<ScanPackageContents>('full+half');
   const [storage, setStorage] = useState<'classic' | 'streamable'>('classic');
+  const [caseContents, setCaseContents] = useState<'scan' | 'case'>('scan');
   const [includePreview, setIncludePreview] = useState(true);
   const [status, setStatus] = useState<
     | { state: 'idle' }
@@ -73,7 +75,8 @@ export function ExportPackageDialog({
       const result = await onExport({
         name: name.trim() || anonymousScanName(scanId),
         contents: storage === 'streamable' ? 'full+half' : contents,
-        storage,
+        storage: caseContents === 'case' ? 'streamable' : storage,
+        caseContents,
         includePreview,
       });
       setStatus({ state: 'done', bytes: result.bytes });
@@ -134,7 +137,7 @@ export function ExportPackageDialog({
           'relative w-full border-slate-700 bg-slate-900 shadow-2xl',
           touch
             ? 'max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]'
-            : 'max-w-md rounded-lg border p-4',
+            : 'max-h-[90dvh] max-w-md overflow-y-auto rounded-lg border p-4',
         )}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
@@ -179,11 +182,41 @@ export function ExportPackageDialog({
           </span>
         </label>
 
+        <fieldset
+          className="mt-3 grid gap-2"
+          disabled={status.state === 'packing'}
+        >
+          <legend className="text-sm">Export contents</legend>
+          {(['scan', 'case'] as const).map((value) => (
+            <label
+              key={value}
+              className="flex min-h-11 items-center gap-2 rounded border border-slate-700 p-2 text-sm"
+            >
+              <input
+                type="radio"
+                name="case-contents"
+                checked={caseContents === value}
+                onChange={() => {
+                  setCaseContents(value);
+                  if (value === 'case') setStorage('streamable');
+                }}
+              />
+              {value === 'scan' ? 'Scan only' : 'Scan + analysis'}
+            </label>
+          ))}
+          {caseContents === 'case' && (
+            <p className="text-xs text-slate-400">
+              Includes masks, tooth IDs, review history, notes, measurements,
+              surfaces and saved arch. Findings may contain patient information.
+            </p>
+          )}
+        </fieldset>
         <label className="mt-3 block text-xs text-slate-300">
           {t('streaming.exportFormat')}
           <select
             aria-label={t('streaming.exportFormat')}
             className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2"
+            disabled={caseContents === 'case' || status.state === 'packing'}
             value={storage}
             onChange={(e) =>
               setStorage(e.target.value as 'classic' | 'streamable')
@@ -237,7 +270,9 @@ export function ExportPackageDialog({
         </label>
 
         <p className="mt-3 rounded border border-slate-800 bg-slate-950/70 px-2.5 py-2 text-[11px] leading-4 text-slate-400">
-          {t('dental.package.excluded')}
+          {caseContents === 'scan'
+            ? t('dental.package.excluded')
+            : 'The full native scan and optional analysis are saved together. Model weights and vendor software are excluded.'}
         </p>
 
         {status.state === 'done' ? (

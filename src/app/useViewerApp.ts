@@ -1,3 +1,5 @@
+import type { CaseWorkspace } from '../lib/case/types';
+import type { Dispatch, SetStateAction } from 'react';
 import { prepareVolumeFor3D } from '../lib/volume';
 import type { ChunkedSession } from '../lib/import/chunked/session';
 import { useCallback, useRef, useState } from 'react';
@@ -29,6 +31,8 @@ import { isAbortError, isBusy, makeImportIssue } from './helpers';
 import { shouldShowSidebarByDefault } from './viewer-layout';
 
 export interface ViewerApp {
+  caseWorkspace: CaseWorkspace | null;
+  setCaseWorkspace: Dispatch<SetStateAction<CaseWorkspace | null>>;
   axisViewsVisible: boolean;
   busy: boolean;
   cursor: VolumeCursor | null;
@@ -93,6 +97,9 @@ export interface ViewerAppDependencies {
 export function useViewerApp({
   sourcePicker,
 }: ViewerAppDependencies): ViewerApp {
+  const [caseWorkspace, setCaseWorkspace] = useState<CaseWorkspace | null>(
+    null,
+  );
   const activeSession = useRef<ChunkedSession | null>(null);
   const generation = useRef(0);
   const defaultSidebarVisible = () => shouldShowSidebarByDefault();
@@ -128,6 +135,7 @@ export function useViewerApp({
     setCurrentSource(null);
     setSourceLabel('');
     setVolume(null);
+    setCaseWorkspace(null);
     setPrepared3D(null);
     setDownsampled3D(false);
     setAxisViewsVisible(true);
@@ -326,6 +334,7 @@ export function useViewerApp({
       activeSession.current = null;
       session.dispose();
       setVolume(full);
+      setCaseWorkspace(full.caseWorkspace ?? null);
       setPrepared3D(prepareVolumeFor3D(full));
       return;
     }
@@ -341,6 +350,8 @@ export function useViewerApp({
   };
 
   return {
+    caseWorkspace,
+    setCaseWorkspace,
     axisViewsVisible,
     busy,
     cursor: viewer.cursor,

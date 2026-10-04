@@ -19,6 +19,10 @@ export function packScanPackage(
   blob: Blob;
   manifest: ScanPackageManifest | import('./chunked/manifest').ChunkedManifest;
 }> {
+  if (options.analysis && options.storage !== 'streamable')
+    return Promise.reject(
+      new Error('Scan + analysis uses the streamable package format.'),
+    );
   if (options.storage === 'streamable') {
     const worker = new Worker(
       new URL('../../workers/packageExport.worker.ts', import.meta.url),

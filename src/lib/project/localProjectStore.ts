@@ -1,14 +1,15 @@
+import type { ScanBinding } from '../case/types';
 import { db, type LocalProjectRecord } from '../../local-dexie/db';
-import {
-  PROJECT_ARCHIVE_VERSION,
-  type ProjectArchive,
-} from './exportProject';
+import { PROJECT_ARCHIVE_VERSION, type ProjectArchive } from './exportProject';
 import type { StudyState } from '../../domain/types';
 import { normalizeStudyState } from '../../domain/studyState';
 import { sanitizePathSegment } from '../import/fileTypes';
 
 export interface LocalProjectInput {
   state: StudyState;
+  binding?: ScanBinding;
+  labelmaps?: Array<{ id: string; data: Uint8Array }>;
+  predictions?: Array<{ id: string; data: Uint8Array }>;
   masks: Array<{ id: string; data: Uint8Array }>;
   surfaces: Array<{ id: string; data: Uint8Array }>;
 }
@@ -19,6 +20,9 @@ export async function saveLatestProject({
   state,
   masks,
   surfaces,
+  labelmaps = [],
+  predictions = [],
+  binding,
 }: LocalProjectInput): Promise<void> {
   const now = Date.now();
   const existing = await db.projects.get(LOCAL_PROJECT_ID);
@@ -28,6 +32,9 @@ export async function saveLatestProject({
     state,
     masks,
     surfaces,
+    labelmaps,
+    predictions,
+    binding,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -41,8 +48,28 @@ export async function loadLatestProject(): Promise<ProjectArchive | null> {
     manifest: {
       version: PROJECT_ARCHIVE_VERSION,
       app: 'CBCTer',
+      binding: record.binding,
       exportedAt: new Date(record.updatedAt).toISOString(),
+      predictions: (record.predictions ?? []).map((p) => ({
+        id: p.id,
+        path: `predictions/${sanitizePathSegment(p.id)}.uint16.raw`,
+        bytes: p.data.length,
+      })),
       dataSources: [
+        ...(record.labelmaps ?? []).map((p) => ({
+          id: p.id,
+          kind: 'embedded' as const,
+          role: 'labelmap' as const,
+          path: `labelmaps/${sanitizePathSegment(p.id)}.uint16.raw`,
+          bytes: p.data.length,
+        })),
+        ...(record.predictions ?? []).map((p) => ({
+          id: p.id,
+          kind: 'embedded' as const,
+          role: 'prediction' as const,
+          path: `predictions/${sanitizePathSegment(p.id)}.uint16.raw`,
+          bytes: p.data.length,
+        })),
         ...record.masks.map((mask) => ({
           id: mask.id,
           kind: 'embedded' as const,
@@ -64,15 +91,20 @@ export async function loadLatestProject(): Promise<ProjectArchive | null> {
         path: `masks/${sanitizePathSegment(mask.id)}.bin`,
         bytes: mask.data.byteLength,
       })),
-      labelmaps: [],
+      labelmaps: (record.labelmaps ?? []).map((labelmap) => ({
+        id: labelmap.id,
+        path: `labelmaps/${sanitizePathSegment(labelmap.id)}.uint16.raw`,
+        bytes: labelmap.data.byteLength,
+      })),
       surfaces: record.surfaces.map((surface) => ({
         id: surface.id,
         path: `surfaces/${sanitizePathSegment(surface.id)}.stl`,
         bytes: surface.data.byteLength,
       })),
     },
+    predictions: record.predictions ?? [],
     masks: record.masks,
-    labelmaps: [],
+    labelmaps: record.labelmaps ?? [],
     surfaces: record.surfaces,
   };
 }

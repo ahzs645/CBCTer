@@ -19,6 +19,9 @@ export interface ChunkedManifest {
   createdAt: string;
   generator: string;
   source: { format: string; formatLabel: string };
+  extensions?: {
+    analysis?: { version: 1; manifest: 'analysis/manifest.json' };
+  };
   volume: NativeVoxelMetadata & {
     byteOrder: 'little-endian';
     layout: 'x-fastest';
@@ -72,6 +75,12 @@ export function parseChunkedManifest(text: string): ChunkedManifest {
   const m = JSON.parse(text) as ChunkedManifest;
   const v = m?.volume;
   const p = m?.preview;
+  if (
+    m.extensions?.analysis &&
+    (m.extensions.analysis.version !== 1 ||
+      m.extensions.analysis.manifest !== 'analysis/manifest.json')
+  )
+    throw new Error('Unsupported analysis extension.');
   if (m?.format !== 'cbcter-scan' || m.version !== 2)
     throw new Error('Unsupported chunked scan package.');
   if (

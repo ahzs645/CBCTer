@@ -14,6 +14,7 @@ import {
 } from './dentalSegVariants';
 
 export interface DentalAnatomyResult {
+  weightsSha256?: string;
   /** Multi-class labelmap on the source grid, `[D, H, W]` order. */
   labelmap: Uint16Array;
   dims: [number, number, number];
@@ -75,6 +76,7 @@ export function segmentDentalAnatomy(
           dims: data.dims,
           spacing: data.spacing,
           variant,
+          weightsSha256: data.weightsSha256,
         });
         return;
       }
@@ -84,9 +86,7 @@ export function segmentDentalAnatomy(
 
     worker.onerror = (event) => {
       cleanup();
-      reject(
-        new Error(event.message || 'Dental segmentation worker failed.'),
-      );
+      reject(new Error(event.message || 'Dental segmentation worker failed.'));
     };
 
     const request: DentalSegRequest = {

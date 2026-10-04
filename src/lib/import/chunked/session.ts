@@ -1,3 +1,4 @@
+import type { CaseMetadata, CaseWorkspace } from '../../case/types';
 import type { LoadedVolume, ParsedVolumeMeta, Vec3 } from '../../../types';
 import { buildScalarHistogram } from '../../../workers/volume/scalars';
 import { displayVoxels } from '../../volume/native';
@@ -9,6 +10,8 @@ interface Reply {
   voxels: Int16Array | Uint16Array;
   manifest?: ChunkedManifest;
   stats: ChunkReadStats;
+  caseMetadata?: CaseMetadata;
+  caseWorkspace?: CaseWorkspace;
 }
 let sessionCount = 0;
 export class ChunkedSession {
@@ -29,6 +32,8 @@ export class ChunkedSession {
   private disposed = false;
   manifest!: ChunkedManifest;
   stats!: ChunkReadStats;
+  caseMetadata?: CaseMetadata;
+  preferredInstanceId?: string;
   constructor(readonly source: PackageSourceDescriptor) {
     this.worker.onmessage = (event: MessageEvent<Reply>) => {
       const r = event.data;
@@ -78,6 +83,7 @@ export class ChunkedSession {
         cacheBytes,
       });
       this.manifest = reply.manifest!;
+      this.caseMetadata = reply.caseMetadata;
       return this.loaded(reply.voxels as Int16Array, true);
     } catch (error) {
       this.dispose();
@@ -89,12 +95,28 @@ export class ChunkedSession {
       (r) => r.voxels,
     );
   }
+  setPreferredInstance(id: string) {
+    this.preferredInstanceId = id;
+  }
+  analysisRegion(
+    layerId: string,
+    start: Vec3,
+    shape: Vec3,
+    signal?: AbortSignal,
+  ) {
+    return this.request('region', { layerId, start, shape }, signal).then(
+      (r) => r.voxels as Uint16Array,
+    );
+  }
   async fullVolume(): Promise<LoadedVolume> {
     const reply = await this.request('materialize');
+    if (reply.caseWorkspace && this.preferredInstanceId)
+      reply.caseWorkspace.state.selectedInstanceId = this.preferredInstanceId;
     const native = { voxels: reply.voxels, metadata: this.manifest.volume };
     return {
       ...this.loaded(displayVoxels(reply.voxels, this.manifest.volume), false),
       native,
+      caseWorkspace: reply.caseWorkspace,
     };
   }
   private loaded(voxels: Int16Array, preview: boolean): LoadedVolume {
@@ -116,7 +138,7 @@ export class ChunkedSession {
       nativeAxis: m.orientation.nativeAxis,
       patientAxes: m.orientation.patientAxes,
       packageLevel: preview ? 'half' : 'full',
-      packageLevels: [
+      packageLevels: (preview ? [
         {
           id: 'full',
           dimensions: m.volume.dimensions,
@@ -127,12 +149,13 @@ export class ChunkedSession {
           dimensions: m.preview.dimensions,
           spacing: m.preview.spacing,
         },
-      ],
+      ] : [{id:'full' as const,dimensions:m.volume.dimensions,spacing:m.volume.spacing}]),
     };
     return {
       meta,
       voxels,
       histogram: buildScalarHistogram(voxels, m.scalarRange),
+      caseMetadata: this.caseMetadata,
       ...(preview ? { chunked: this } : {}),
     };
   }
