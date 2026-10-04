@@ -1,3 +1,17 @@
+import { ToothReviewPanel } from '../components/dental/ToothReviewPanel';
+import {
+  summarizeTeeth,
+  splitTooth,
+  mergeTeeth,
+  isolatePreview,
+  FDI_NUMBERS,
+} from '../lib/case/teeth';
+import type { ToothInstance } from '../lib/case/types';
+import { bindVolume, assertProjectBinding } from '../lib/case/binding';
+import type { CaseWorkspace } from '../lib/case/types';
+import ProgressiveViewerPage, {
+  type StreamingViewState,
+} from './ProgressiveViewerPage';
 import {
   ArrowLeft,
   Box,
@@ -160,7 +174,11 @@ import {
   summarizeDentalLabels,
   summarizeDentalVariant,
 } from '../lib/segmentation/dentalSegmentGroup';
-import { getDentalSegVariant } from '../lib/segmentation/dentalSegVariants';
+import {
+  getDentalSegVariant,
+  UNIVERSAL_FDI_BY_VALUE,
+  type DentalSegVariantId,
+} from '../lib/segmentation/dentalSegVariants';
 import {
   FACE_SURFACE_COLOR,
   softTissueMask,
@@ -171,7 +189,7 @@ import {
 } from '../lib/surface';
 import type { SurfaceMeshPreview } from '../lib/volume/three-preview';
 import { resampleLabelmap } from '../lib/volume';
-import { VolumeAxis, type SliceImage } from '../types';
+import { VolumeAxis, type SliceImage, type Vec3 } from '../types';
 import { cn } from '../utils/cn';
 
 interface ViewerPageProps {
@@ -204,6 +222,12 @@ type ManualToothRecoveryTarget = {
 };
 
 interface MaskSnapshot {
+  toothInstances?: StudyState['toothInstances'];
+  analysisLayers?: StudyState['analysisLayers'];
+  analysisModels?: StudyState['analysisModels'];
+  selectedInstanceId?: string;
+  analysisRevisions?: StudyState['analysisRevisions'];
+  toothFindings: StudyState['toothFindings'];
   masks: StudyState['masks'];
   segmentGroups: StudyState['segmentGroups'];
   activeMaskId?: string;
@@ -447,6 +471,39 @@ function withWatershedSeedMarkers(
 }
 
 export default function ViewerPage({ app }: ViewerPageProps) {
+  const [streamingHandoff, setStreamingHandoff] = useState<{
+    records: StudyMeasurement[];
+    view: StreamingViewState;
+  } | null>(null);
+  return app.volume?.chunked ? (
+    <ProgressiveViewerPage
+      key={app.volume.chunked.id}
+      app={app}
+      session={app.volume.chunked}
+      onLoadFullMeasurements={(records, view) => setStreamingHandoff({ records, view })}
+    />
+  ) : (
+    <DenseViewerPage
+      app={app}
+      initialMeasurements={streamingHandoff?.records}
+      initialView={streamingHandoff?.view}
+    />
+  );
+}
+
+function DenseViewerPage({ app, initialMeasurements = [], initialView }:
+  ViewerPageProps & { initialMeasurements?: StudyMeasurement[]; initialView?: StreamingViewState }) {
+  const measurementHandoff = useRef(initialMeasurements);
+  const viewHandoff = useRef(initialView);
+  useEffect(() => {
+    const view = viewHandoff.current;
+    if (!view) return;
+    viewHandoff.current = undefined;
+    app.setCursor(view.cursor);
+    app.applyWindowLevel(view.windowLevel);
+    app.setMprZoom(view.zoom);
+    app.setSelectedAxis(view.axis);
+  }, [app]);
   const compactLayout = useCompactViewerLayout();
   const { t } = useTranslation();
   const axisLabels = useAxisViewportLabels();
@@ -458,6 +515,20 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [studyState, setStudyState] = useState<StudyState>(() =>
     createEmptyStudyState(),
   );
+  const [predictions, setPredictions] = useState<
+    NonNullable<CaseWorkspace['predictions']>
+  >([]);
+  const [readyVolume, setReadyVolume] = useState<typeof app.volume>(null);
+  const appRef = useRef(app);
+  const streamingStartRef = useRef(Boolean(initialView));
+  useEffect(() => {
+    appRef.current = app;
+  }, [app]);
+  const workspaceRef = useRef(app.caseWorkspace);
+  useEffect(() => {
+    workspaceRef.current = app.caseWorkspace;
+  }, [app.caseWorkspace]);
+  const setCaseWorkspace = app.setCaseWorkspace;
   const [maskBuffers, setMaskBuffers] = useState<MaskBufferMap>({});
   const [labelmapBuffers, setLabelmapBuffers] = useState<LabelmapBufferMap>({});
   const [anatomyRunning, setAnatomyRunning] = useState(false);
@@ -505,16 +576,24 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
   // Dentist-facing viewer chrome.
-  const [invertSlices, setInvertSlices] = useState(false);
+  const [invertSlices, setInvertSlices] = useState(app.caseWorkspace?.state.caseView?.invert??false);
   const [maximizedPane, setMaximizedPane] = useState<AxisViewportPaneId | null>(null);
-  const [activeAxis, setActiveAxis] = useState<VolumeAxis>(VolumeAxis.Axial);
+  const [activeAxis, setActiveAxis] = useState<VolumeAxis>(initialView?.axis ?? VolumeAxis.Axial);
   const [mobile3D, setMobile3D] = useState(false);
   const [mobileSheet, setMobileSheet] = useState<MobileSheet | null>(null);
   const [mobileStudyPanel, setMobileStudyPanel] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
   const [dentition, setDentition] = useState<Dentition>('permanent');
-  const [chosenPreset, setChosenPreset] = useState<DentalWindowPresetId | null>(null);
+  const [chosenPreset, setChosenPreset] = useState<DentalWindowPresetId | null>(
+    null,
+  );
+  const [caseStatus, setCaseStatus] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [separationBusy, setSeparationBusy] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const separationWorker = useRef<Worker | null>(null);
+  useEffect(() => () => separationWorker.current?.terminate(), []);
   const [packageDialogOpen, setPackageDialogOpen] = useState(false);
 
   const clearManualToothTarget = () => {
@@ -736,54 +815,90 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   // drag falls back to scrub navigation immediately, so the user is never
   // stranded in an edit tool with no way to move the view.
   const maskSliceEditEnabled =
-    Boolean(studyState.activeMaskId) &&
+    Boolean(studyState.activeMaskId || studyState.activeSegmentGroupId) &&
     (studyState.activeTool === 'mask-brush' ||
       studyState.activeTool === 'mask-erase' ||
       studyState.activeTool === 'mask-threshold' ||
       studyState.activeTool === 'mask-watershed-seed');
 
-  const maskOverlays = useMemo<Partial<Record<VolumeAxis, SliceImage | null>>>(
-    () => {
-      if (!app.cursor || !app.volume) return {};
-      const tissueLayers = TISSUE_PRESETS.map((preset) => ({
-        preset,
-        visible:
-          tissueOverlayMode === 'interpretation' &&
-          (visibleTissuePresets[preset.id] ?? true),
-      }));
-      const labelmapLayers = studyState.segmentGroups
-        .map((group) => {
-          const buffer = labelmapBuffers[group.id];
-          if (!buffer) return null;
-          return {
-            labelmap: new Uint16Array(
-              buffer.buffer,
-              buffer.byteOffset,
-              buffer.byteLength / 2,
-            ),
-            opacity: group.opacity,
-            visible: group.visible,
-            segments: group.segments.map((segment) => ({
+  const maskOverlays = useMemo<
+    Partial<Record<VolumeAxis, SliceImage | null>>
+  >(() => {
+    if (!app.cursor || !app.volume) return {};
+    const tissueLayers = TISSUE_PRESETS.map((preset) => ({
+      preset,
+      visible:
+        tissueOverlayMode === 'interpretation' &&
+        (visibleTissuePresets[preset.id] ?? true),
+    }));
+    const labelmapLayers = studyState.segmentGroups
+      .map((group) => {
+        const buffer = labelmapBuffers[group.id];
+        if (!buffer) return null;
+        return {
+          labelmap: new Uint16Array(
+            buffer.buffer,
+            buffer.byteOffset,
+            buffer.byteLength / 2,
+          ),
+          opacity: group.opacity,
+          visible: group.visible,
+          segments: group.segments.map((segment) => {
+            const selected = studyState.toothInstances?.find(
+                (t) => t.id === studyState.selectedInstanceId,
+              ),
+              role = studyState.analysisLayers?.find(
+                (l) => l.id === group.id,
+              )?.role;
+            const isTooth = role === 'teeth',
+              anatomyTooth =
+                role === 'anatomy' && /tooth|teeth/i.test(segment.name);
+            const permitted =
+              studyState.toothVisibility === 'selected'
+                ? isTooth
+                  ? selected?.groupId === group.id &&
+                    selected.value === segment.value
+                  : studyState.showSurroundingBone && !anatomyTooth
+                : studyState.toothVisibility === 'hide-teeth'
+                  ? !isTooth && !anatomyTooth
+                  : true;
+            return {
               value: segment.value,
-              color: segment.color,
+              color:
+                selected?.groupId === group.id &&
+                selected.value === segment.value
+                  ? '#facc15'
+                  : segment.color,
               opacity: segment.opacity,
-              visible: segment.visible,
-            })),
-          };
-        })
-        .filter((layer): layer is NonNullable<typeof layer> => layer != null);
-      const layers = studyState.masks
-        .map((mask) => {
-          const buffer = maskBuffers[mask.id];
-          if (!buffer) return null;
-          return {
-            mask: buffer,
-            color: mask.color,
-            opacity: mask.opacity,
-            visible: mask.visible,
-          };
-        })
-        .filter((layer): layer is NonNullable<typeof layer> => layer != null);
+              visible:
+                segment.visible &&
+                Boolean(permitted) &&
+                !(
+                  isTooth &&
+                  studyState.toothInstances?.some(
+                    (t) =>
+                      t.groupId === group.id &&
+                      t.value === segment.value &&
+                      t.review === 'rejected',
+                  )
+                ),
+            };
+          }),
+        };
+      })
+      .filter((layer): layer is NonNullable<typeof layer> => layer != null);
+    const layers = studyState.masks
+      .map((mask) => {
+        const buffer = maskBuffers[mask.id];
+        if (!buffer) return null;
+        return {
+          mask: buffer,
+          color: mask.color,
+          opacity: mask.opacity,
+          visible: mask.visible && studyState.toothVisibility !== 'selected',
+        };
+      })
+      .filter((layer): layer is NonNullable<typeof layer> => layer != null);
 
       const tissueCoronal =
         tissueOverlayMode === 'interpretation'
@@ -865,45 +980,48 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           app.volume.meta.spacing,
         ));
 
-      return {
-        [VolumeAxis.Coronal]: withWatershedSeedMarkers(
-          coronal,
-          VolumeAxis.Coronal,
-          app.cursor,
-          app.volume.meta.dimensions,
-          app.volume.meta.spacing,
-          studyState.maskWorkflow.watershedSeeds,
-        ),
-        [VolumeAxis.Sagittal]: withWatershedSeedMarkers(
-          sagittal,
-          VolumeAxis.Sagittal,
-          app.cursor,
-          app.volume.meta.dimensions,
-          app.volume.meta.spacing,
-          studyState.maskWorkflow.watershedSeeds,
-        ),
-        [VolumeAxis.Axial]: withWatershedSeedMarkers(
-          axial,
-          VolumeAxis.Axial,
-          app.cursor,
-          app.volume.meta.dimensions,
-          app.volume.meta.spacing,
-          studyState.maskWorkflow.watershedSeeds,
-        ),
-      };
-    },
-    [
-      app.cursor,
-      app.volume,
-      maskBuffers,
-      labelmapBuffers,
-      tissueOverlayMode,
-      visibleTissuePresets,
-      studyState.maskWorkflow.watershedSeeds,
-      studyState.masks,
-      studyState.segmentGroups,
-    ],
-  );
+    return {
+      [VolumeAxis.Coronal]: withWatershedSeedMarkers(
+        coronal,
+        VolumeAxis.Coronal,
+        app.cursor,
+        app.volume.meta.dimensions,
+        app.volume.meta.spacing,
+        studyState.maskWorkflow.watershedSeeds,
+      ),
+      [VolumeAxis.Sagittal]: withWatershedSeedMarkers(
+        sagittal,
+        VolumeAxis.Sagittal,
+        app.cursor,
+        app.volume.meta.dimensions,
+        app.volume.meta.spacing,
+        studyState.maskWorkflow.watershedSeeds,
+      ),
+      [VolumeAxis.Axial]: withWatershedSeedMarkers(
+        axial,
+        VolumeAxis.Axial,
+        app.cursor,
+        app.volume.meta.dimensions,
+        app.volume.meta.spacing,
+        studyState.maskWorkflow.watershedSeeds,
+      ),
+    };
+  }, [
+    app.cursor,
+    app.volume,
+    maskBuffers,
+    labelmapBuffers,
+    tissueOverlayMode,
+    visibleTissuePresets,
+    studyState.maskWorkflow.watershedSeeds,
+    studyState.toothInstances,
+    studyState.selectedInstanceId,
+    studyState.toothVisibility,
+    studyState.showSurroundingBone,
+    studyState.analysisLayers,
+    studyState.masks,
+    studyState.segmentGroups,
+  ]);
 
   const cropRects = useMemo(() => {
     const crop = studyState.cropBounds;
@@ -1177,6 +1295,57 @@ export default function ViewerPage({ app }: ViewerPageProps) {
 
     queueMicrotask(() => {
       if (controller.signal.aborted || !app.volume) return;
+      const restored = workspaceRef.current ?? app.volume.caseWorkspace;
+      if (restored) {
+        setStudyState({
+          ...normalizeStudyState(restored.state),
+          measurements: [
+            ...restored.state.measurements,
+            ...measurementHandoff.current,
+          ],
+        });
+        measurementHandoff.current = [];
+        setMaskBuffers(
+          Object.fromEntries(restored.masks.map((m) => [m.id, m.data])),
+        );
+        setLabelmapBuffers(
+          Object.fromEntries(
+            (restored.labelmaps ?? []).map((m) => [m.id, m.data]),
+          ),
+        );
+        if (restored.state.caseView && !streamingStartRef.current) {
+          const view = restored.state.caseView;
+          appRef.current.setCursor({ x: view.cursor[0], y: view.cursor[1], z: view.cursor[2] });
+          appRef.current.applyWindowLevel(view.windowLevel);
+          appRef.current.setMprZoom(view.zoom);
+          appRef.current.setSelectedAxis(view.axis);
+          setActiveAxis(view.axis);
+          setInvertSlices(view.invert);
+        }
+        setPredictions(restored.predictions ?? []);
+        setSelectedTooth(
+          restored.state.toothInstances?.find(
+            (t) => t.id === restored.state.selectedInstanceId,
+          )?.fdi ?? null,
+        );
+        const blobs = Object.fromEntries(
+          restored.surfaces.map((m) => [
+            m.id,
+            new Blob([byteRangeToArrayBuffer(m.data)], { type: 'model/stl' }),
+          ]),
+        );
+        setSurfaceBlobs(blobs);
+        setSurfaceUrls(
+          Object.fromEntries(
+            Object.entries(blobs).map(([id, blob]) => [
+              id,
+              URL.createObjectURL(blob),
+            ]),
+          ),
+        );
+        setReadyVolume(app.volume);
+        return;
+      }
       const image = createStudyImageLayer(scanStudy.id, {
         name: app.volume.meta.scanId,
         source: scanStudy.source,
@@ -1188,9 +1357,16 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         ...createEmptyStudyState(scanStudy),
         images: [image],
         activeImageId: image.id,
+        measurements: measurementHandoff.current.map((record) => ({
+          ...record,
+          studyId: scanStudy.id,
+        })),
         dicomImportEngine: dicomImportEngineRef.current,
         cropBounds: createFullCropBounds(app.volume.meta.dimensions),
       });
+      measurementHandoff.current = [];
+      setPredictions([]);
+      setReadyVolume(app.volume);
       setMaskBuffers({});
       setLabelmapBuffers({});
       setSurfaceBlobs({});
@@ -1204,6 +1380,44 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     });
     return () => controller.abort();
   }, [app.volume?.meta.scanId, app.volume, scanStudy]);
+
+  const caseX = app.cursor?.x, caseY = app.cursor?.y, caseZ = app.cursor?.z;
+  const caseWindow = app.windowLevel.window, caseLevel = app.windowLevel.level;
+  const caseAxis = compactLayout ? app.selectedAxis : activeAxis;
+  const caseZoom = app.mprZoom;
+  const stateWithView = useMemo(() => ({
+    ...studyState,
+    caseView: caseX !== undefined && caseY !== undefined && caseZ !== undefined
+      ? {
+          cursor: [caseX, caseY, caseZ] as Vec3,
+          axis: caseAxis,
+          zoom: caseZoom,
+          windowLevel: { window: caseWindow, level: caseLevel },
+          invert: invertSlices,
+        }
+      : studyState.caseView,
+  }), [studyState, caseX, caseY, caseZ, caseWindow, caseLevel, caseAxis, caseZoom, invertSlices]);
+  useEffect(() => {
+    if (!app.volume || readyVolume !== app.volume || !stateWithView.study) return;
+    setCaseWorkspace((current) => ({
+      state: stateWithView,
+      masks: Object.entries(maskBuffers).map(([id, data]) => ({ id, data })),
+      labelmaps: Object.entries(labelmapBuffers).map(([id, data]) => ({ id, data })),
+      predictions,
+      surfaces: current?.surfaces ?? [],
+    }));
+  }, [stateWithView, maskBuffers, labelmapBuffers, predictions, readyVolume, app.volume, setCaseWorkspace]);
+  useEffect(() => {
+    if (!app.volume || readyVolume !== app.volume) return;
+    let cancelled = false;
+    void Promise.all(Object.entries(surfaceBlobs).map(async ([id, blob]) => ({
+      id,
+      data: new Uint8Array(await blob.arrayBuffer()),
+    }))).then((surfaces) => {
+      if (!cancelled) setCaseWorkspace((current) => current ? { ...current, surfaces } : current);
+    });
+    return () => { cancelled = true; };
+  }, [surfaceBlobs, readyVolume, app.volume, setCaseWorkspace]);
 
   useEffect(() => {
     surfaceUrlsRef.current = surfaceUrls;
@@ -1242,6 +1456,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   );
 
   const snapshotMasks = (): MaskSnapshot => ({
+    toothFindings: structuredClone(studyState.toothFindings),
+    toothInstances: structuredClone(studyState.toothInstances),
+    analysisLayers: structuredClone(studyState.analysisLayers),
+    analysisModels: structuredClone(studyState.analysisModels),
+    selectedInstanceId: studyState.selectedInstanceId,
+    analysisRevisions: structuredClone(studyState.analysisRevisions),
     masks: studyState.masks.map((mask) => ({ ...mask })),
     segmentGroups: studyState.segmentGroups.map((group) => ({
       ...group,
@@ -1317,7 +1537,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
 
   // Run DentalSegmentator full-anatomy segmentation in-place and add the result
   // as a multi-label segment group, rendered by the existing overlay pipeline.
-  const runFullAnatomy = async () => {
+  const runFullAnatomy = async (variant: DentalSegVariantId = 'full') => {
     if (
       !app.volume ||
       !studyState.study ||
@@ -1332,10 +1552,31 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setAnatomyRunning(true);
     setAnatomyProgress({ completed: 0, total: 1 });
     try {
-      const result = await segmentDentalAnatomy(app.volume, setAnatomyProgress, {
-        signal: controller.signal,
-      });
-      const groupName = getDentalSegVariant(result.variant).groupName;
+      const result = await segmentDentalAnatomy(
+        app.volume,
+        setAnatomyProgress,
+        {
+          signal: controller.signal,
+          variant,
+        },
+      );
+      if (
+        result.labelmap.length !== app.volume.voxels.length ||
+        !sameVec3(result.dims, volumeMaskDims(app.volume.meta.dimensions)) ||
+        !sameVec3(result.spacing, app.volume.meta.spacing)
+      )
+        throw new Error('Model output is not aligned to the loaded scan.');
+      const config = getDentalSegVariant(result.variant);
+      const modelId = createAppId('model'),
+        predictionId = createAppId('prediction');
+      const groupName = config.groupName;
+      setPredictions((p) => [
+        ...p,
+        {
+          id: predictionId,
+          data: uint16ArrayToBytes(new Uint16Array(result.labelmap)),
+        },
+      ]);
       const stats = summarizeDentalVariant(
         result.labelmap,
         result.spacing,
@@ -1357,17 +1598,105 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         stats,
         groupName,
       );
+      const toothLabels =
+        result.variant === 'universal'
+          ? result.labelmap.map((v) => (UNIVERSAL_FDI_BY_VALUE[v] ? v : 0))
+          : undefined;
+      const toothGroup = toothLabels
+        ? createStudySegmentGroup(
+            studyState.study.id,
+            studyState.activeImageId,
+            { name: 'Model tooth instances' },
+          )
+        : undefined;
+      const modelTeeth =
+        toothLabels && toothGroup
+          ? summarizeTeeth(
+              toothLabels,
+              app.volume.meta.dimensions,
+              toothGroup.id,
+              [],
+              'model',
+            ).map((t) => ({ ...t, fdi: UNIVERSAL_FDI_BY_VALUE[t.value] }))
+          : [];
+      if (toothGroup)
+        toothGroup.segments = modelTeeth.map((t) =>
+          createStudySegment({
+            value: t.value,
+            name: `FDI ${t.fdi}`,
+            color: '#38bdf8',
+            voxelCount: t.voxelCount,
+          }),
+        );
       setLabelmapBuffers((current) => ({
         ...current,
         [group.id]: uint16ArrayToBytes(result.labelmap),
+        ...(toothGroup && toothLabels
+          ? { [toothGroup.id]: uint16ArrayToBytes(toothLabels) }
+          : {}),
       }));
       setStudyState((current) => ({
         ...current,
-        segmentGroups: [...current.segmentGroups, group],
+        segmentGroups: [
+          ...current.segmentGroups,
+          group,
+          ...(toothGroup ? [toothGroup] : []),
+        ],
+        toothInstances: [...(current.toothInstances ?? []), ...modelTeeth],
         activeSegmentGroupId: group.id,
+        analysisLayers: [
+          ...(current.analysisLayers ?? []),
+          { id: group.id, role: 'anatomy', modelId, predictionId },
+          { id: predictionId, role: 'prediction', modelId },
+          ...(toothGroup
+            ? [
+                {
+                  id: toothGroup.id,
+                  role: 'teeth' as const,
+                  modelId,
+                  predictionId,
+                },
+              ]
+            : []),
+        ],
+        analysisModels: [
+          ...(current.analysisModels ?? []),
+          {
+            id: modelId,
+            name: config.name,
+            version: null,
+            weightsSha256: result.weightsSha256 ?? null,
+            createdAt: Date.now(),
+            preprocessing: {
+              variant: result.variant,
+              modelFile: config.modelFile,
+              spacing: config.spacing,
+              patchSize: config.patchSize,
+              normalization: JSON.stringify(config.normalization),
+              overlap: 0,
+              minComponentMm3: 60,
+            },
+          },
+        ],
+        analysisRevisions: [
+          ...(current.analysisRevisions ?? []),
+          {
+            id: createAppId('revision'),
+            at: Date.now(),
+            action: 'model prediction',
+            instanceIds: [],
+            modelId,
+          },
+        ],
       }));
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Anatomy segmentation failed.';
+        setCaseStatus(message);
+        setReviewError(message);
         console.error('Full anatomy segmentation failed', error);
       }
     } finally {
@@ -1579,7 +1908,6 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       ),
     }));
   };
-
 
   const createThresholdMask = (preset: {
     label: string;
@@ -1793,8 +2121,15 @@ export default function ViewerPage({ app }: ViewerPageProps) {
 
   const keepLargestActiveMaskComponent = async () => {
     if (!app.volume || maskStatus) return;
-    const activeMaskId = studyState.activeMaskId;
-    if (!activeMaskId || !maskBuffers[activeMaskId]) return;
+    const selectedGroup = studyState.segmentGroups.find(
+      (g) => g.id === studyState.activeSegmentGroupId,
+    );
+    const activeMaskId =
+      studyState.activeMaskId ??
+      (selectedGroup && labelmapBuffers[selectedGroup.id]
+        ? `${selectedGroup.id}:${selectedGroup.activeSegmentValue}`
+        : undefined);
+    if (!activeMaskId) return;
     const activeSegment = studyState.segmentGroups
       .flatMap((group) => group.segments)
       .find((segment) => segment.maskId === activeMaskId);
@@ -2161,10 +2496,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setRedoStack([]);
     if (session.labelmapGroupId && session.labelmap && session.segmentValue) {
       const mask = labelmapToMask(session.labelmap, session.segmentValue);
-      setMaskBuffers((current) => ({
-        ...current,
-        [session.maskId]: mask,
-      }));
+      if (studyState.masks.some((m) => m.id === session.maskId))
+        setMaskBuffers((current) => ({
+          ...current,
+          [session.maskId]: mask,
+        }));
       setLabelmapBuffers((current) => ({
         ...current,
         [session.labelmapGroupId as string]: uint16ArrayToBytes(session.labelmap as Uint16Array),
@@ -2175,18 +2511,36 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         [session.maskId]: session.buffer,
       }));
     }
+    const updatedTeeth=session.labelmap&&session.labelmapGroupId&&app.volume&&studyState.analysisLayers?.some(l=>l.id===session.labelmapGroupId&&l.role==='teeth')?
+      (studyState.toothInstances??[]).filter(t=>t.groupId!==session.labelmapGroupId).concat(summarizeTeeth(session.labelmap,app.volume.meta.dimensions,session.labelmapGroupId,studyState.toothInstances,'manual').map(t=>({...t,review:'corrected' as const}))):studyState.toothInstances;
+    const editedTooth=updatedTeeth?.find(t=>t.groupId===session.labelmapGroupId&&t.value===session.segmentValue);
     setStudyState((current) => ({
       ...current,
       masks: nextMasks,
+      toothInstances:updatedTeeth,
+      selectedInstanceId:editedTooth?.id??current.selectedInstanceId,
+      analysisRevisions: [
+        ...(current.analysisRevisions ?? []),
+        {
+          id: createAppId('revision'),
+          at: Date.now(),
+          action: 'paint correction',
+          instanceIds: current.selectedInstanceId
+            ? [current.selectedInstanceId]
+            : [],
+        },
+      ],
       segmentGroups: current.segmentGroups.map((group) => ({
         ...group,
         segments: group.segments.map((segment) =>
-          segment.maskId === session.maskId
+          segment.maskId === session.maskId||(group.id===session.labelmapGroupId&&segment.value===session.segmentValue)
             ? { ...segment, voxelCount, updatedAt: Date.now() }
             : segment,
         ),
       })),
-      activeMaskId: session.maskId,
+      activeMaskId: current.masks.some((m) => m.id === session.maskId)
+        ? session.maskId
+        : undefined,
       maskWorkflow: {
         ...current.maskWorkflow,
         canUndo: nextUndo.length > 0,
@@ -2276,8 +2630,15 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       return;
     }
 
-    const activeMaskId = studyState.activeMaskId;
-    if (!activeMaskId || !maskBuffers[activeMaskId]) return;
+    const selectedGroup = studyState.segmentGroups.find(
+      (g) => g.id === studyState.activeSegmentGroupId,
+    );
+    const activeMaskId =
+      studyState.activeMaskId ??
+      (selectedGroup && labelmapBuffers[selectedGroup.id]
+        ? `${selectedGroup.id}:${selectedGroup.activeSegmentValue}`
+        : undefined);
+    if (!activeMaskId) return;
     const activeGroup =
       studyState.segmentGroups.find(
         (group) => group.id === studyState.activeSegmentGroupId,
@@ -2302,7 +2663,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       maskEditSessionRef.current = {
         snapshot: snapshotMasks(),
         maskId: activeMaskId,
-        buffer: new Uint8Array(maskBuffers[activeMaskId]),
+        buffer: maskBuffers[activeMaskId]
+          ? new Uint8Array(maskBuffers[activeMaskId])
+          : labelmapToMask(labelmap, segmentValue),
         labelmapGroupId: groupId,
         labelmap,
         segmentValue,
@@ -2348,10 +2711,11 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     );
     session.buffer = labelmapToMask(session.labelmap, segmentValue);
     session.lastVoxel = voxel;
-    setMaskBuffers((current) => ({
-      ...current,
-      [session.maskId]: new Uint8Array(session.buffer),
-    }));
+    if (studyState.masks.some((m) => m.id === session.maskId))
+      setMaskBuffers((current) => ({
+        ...current,
+        [session.maskId]: new Uint8Array(session.buffer),
+      }));
     if (session.labelmapGroupId) {
       setLabelmapBuffers((current) => ({
         ...current,
@@ -2499,6 +2863,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setLabelmapBuffers(cloneMaskBuffers(previous.labelmaps));
     setStudyState((current) => ({
       ...current,
+      toothFindings: previous.toothFindings,
+      toothInstances: previous.toothInstances,
+      analysisLayers: previous.analysisLayers,
+      analysisModels: previous.analysisModels,
+      selectedInstanceId: previous.selectedInstanceId,
+      analysisRevisions: previous.analysisRevisions,
       masks: previous.masks,
       segmentGroups: previous.segmentGroups,
       activeMaskId: previous.activeMaskId,
@@ -2521,6 +2891,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     setLabelmapBuffers(cloneMaskBuffers(next.labelmaps));
     setStudyState((current) => ({
       ...current,
+      toothFindings: next.toothFindings,
+      toothInstances: next.toothInstances,
+      analysisLayers: next.analysisLayers,
+      analysisModels: next.analysisModels,
+      selectedInstanceId: next.selectedInstanceId,
+      analysisRevisions: next.analysisRevisions,
       masks: next.masks,
       segmentGroups: next.segmentGroups,
       activeMaskId: next.activeMaskId,
@@ -2546,8 +2922,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const createSurfaceFromActiveMask = async (
     quality: SurfaceGenerationQuality = 'balanced',
   ) => {
-    const activeMaskId = studyState.activeMaskId;
-    if (!app.volume || !studyState.study || !activeMaskId || surfaceStatus) return;
+    const selected = studyState.toothInstances?.find(
+      (t) => t.id === studyState.selectedInstanceId,
+    );
+    const activeMaskId = studyState.activeMaskId ?? selected?.id;
+    if (!app.volume || !studyState.study || !activeMaskId || surfaceStatus)
+      return;
     const activeGroup = studyState.segmentGroups.find(
       (group) => group.id === studyState.activeSegmentGroupId,
     );
@@ -2564,7 +2944,14 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     const sourceBuffer = labelmapMask ?? maskBuffers[activeMaskId];
     const sourceMask =
       studyState.masks.find((item) => item.id === activeSegment?.maskId) ??
-      studyState.masks.find((item) => item.id === activeMaskId);
+      studyState.masks.find((item) => item.id === activeMaskId) ??
+      (selected
+        ? {
+            name: selected.fdi ? `FDI ${selected.fdi}` : 'Selected tooth',
+            color: activeSegment?.color ?? '#38bdf8',
+            voxelCount: selected.voxelCount,
+          }
+        : undefined);
     if (!sourceBuffer || !sourceMask || !sourceMask.voxelCount) return;
 
     const dims = volumeMaskDims(app.volume.meta.dimensions);
@@ -2589,13 +2976,14 @@ export default function ViewerPage({ app }: ViewerPageProps) {
         },
       });
       const surface = createStudySurface(studyState.study.id, {
-        maskId: activeMaskId,
+        maskId: studyState.activeMaskId,
         name: `${activeSegment?.name ?? sourceMask.name} ${quality} surface`,
         color: activeSegment?.color ?? sourceMask.color,
         areaMm2: generated.areaMm2,
         triangleCount: generated.triangleCount,
         volumeMm3: generated.volumeMm3,
       });
+      surface.toothInstanceId = selected?.id;
       const url = URL.createObjectURL(generated.blob);
 
       setSurfaceBlobs((current) => ({ ...current, [surface.id]: generated.blob }));
@@ -2687,7 +3075,9 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     );
 
     const archive = await buildProjectArchive({
-      state: studyState,
+      binding: await bindVolume(volume),
+      predictions,
+      state: stateWithView,
       masks: Object.entries(maskBuffers).map(([id, data]) => ({
         id,
         data,
@@ -2743,9 +3133,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     }
   };
 
-  const applyProjectArchive = (archive: Awaited<ReturnType<typeof readProjectArchive>>) => {
+  const applyProjectArchive = async (
+    archive: Awaited<ReturnType<typeof readProjectArchive>>,
+  ) => {
     const volume = app.volume;
     if (!volume) return;
+    await assertProjectBinding(archive.manifest.binding, volume);
     const restoredImage = archive.manifest.state.images.find((image) =>
       sameVec3(image.dimensions, volume.meta.dimensions),
     );
@@ -2809,6 +3202,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       ),
       activeImageId: restoredImage.id,
     });
+    setPredictions(archive.predictions ?? []);
     setMaskBuffers(nextMaskBuffers);
     setLabelmapBuffers(nextLabelmapBuffers);
     setSurfaceBlobs(nextSurfaceBlobs);
@@ -2820,31 +3214,50 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const importProject = async (file: File) => {
     if (!app.volume) return;
     try {
-      applyProjectArchive(await readProjectArchive(file));
+      await applyProjectArchive(await readProjectArchive(file));
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Project import failed.');
     }
   };
 
-  const saveLocalProject = async () => {
+  const persistLocalProject = async () => {
     const surfaces = await Promise.all(
       Object.entries(surfaceBlobs).map(async ([id, blob]) => ({
         id,
         data: new Uint8Array(await blob.arrayBuffer()),
       })),
     );
+    if (!app.volume) return;
     await saveLatestProject({
-      state: studyState,
+      binding: await bindVolume(app.volume),
+      predictions,
+      labelmaps: Object.entries({
+        ...buildLabelmapBuffers(
+          studyState.segmentGroups,
+          maskBuffers,
+          app.volume.voxels.length,
+        ),
+        ...labelmapBuffers,
+      }).map(([id, data]) => ({ id, data })),
+      state: stateWithView,
       masks: Object.entries(maskBuffers).map(([id, data]) => ({ id, data })),
       surfaces,
     });
   };
 
+  const saveLocalProject = async () => {
+    try {
+      await persistLocalProject();
+      setCaseStatus('Case saved on this device.');
+    } catch (e) {
+      setCaseStatus(e instanceof Error ? e.message : 'Local saving failed.');
+    }
+  };
   const restoreLocalProject = async () => {
     try {
       const archive = await loadLatestProject();
       if (!archive) throw new Error('No local project has been saved yet.');
-      applyProjectArchive(archive);
+      await applyProjectArchive(archive);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Local restore failed.');
     }
@@ -2920,6 +3333,27 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     (axis: VolumeAxis) => (point: { xRatio: number; yRatio: number }) => {
       setActiveAxis(axis);
       app.updateCursor(axis)(point);
+      if (app.cursor && app.volume) {
+        const p = axisPointToVoxel(
+            axis,
+            point,
+            app.cursor,
+            app.volume.meta.dimensions,
+          ),
+          i =
+            (p[2] * app.volume.meta.dimensions[1] + p[1]) *
+              app.volume.meta.dimensions[0] +
+            p[0];
+        const tooth = studyState.toothInstances?.find((t) => {
+          const b = labelmapBuffers[t.groupId];
+          return (
+            b &&
+            new Uint16Array(b.buffer, b.byteOffset, b.byteLength / 2)[i] ===
+              t.value
+          );
+        });
+        if (tooth) selectInstance(tooth.id, false);
+      }
     };
 
   const stepSliceOnAxis = (axis: VolumeAxis, delta: number) => {
@@ -3019,7 +3453,12 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   ) => {
     setStudyState((current) => ({
       ...current,
-      toothFindings: update(current.toothFindings),
+      toothFindings: update(current.toothFindings).map((f) => ({
+        ...f,
+        instanceId:
+          current.toothInstances?.find((t) => t.fdi === f.fdi)?.id ??
+          f.instanceId,
+      })),
     }));
   };
 
@@ -3203,6 +3642,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
   const exportScanPackage = async (options: {
     name: string;
     contents: ScanPackageContents;
+    storage: 'classic' | 'streamable';
+    caseContents?: 'scan' | 'case';
     includePreview: boolean;
   }) => {
     const volume = app.volume;
@@ -3225,58 +3666,497 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       name: options.name,
       windowLevel: app.windowLevel,
       contents: options.contents,
+      storage: options.storage,
       previewPng,
+      analysis:
+        options.caseContents === 'case'
+          ? {
+              state: stateWithView,
+              binding: await bindVolume(volume),
+              masks: Object.entries(maskBuffers).map(([id, data]) => ({
+                id,
+                data,
+              })),
+              labelmaps: Object.entries({
+                ...buildLabelmapBuffers(
+                  studyState.segmentGroups,
+                  maskBuffers,
+                  volume.voxels.length,
+                ),
+                ...labelmapBuffers,
+              }).map(([id, data]) => ({ id, data })),
+              predictions,
+              surfaces: await Promise.all(
+                Object.entries(surfaceBlobs).map(async ([id, blob]) => ({
+                  id,
+                  data: new Uint8Array(await blob.arrayBuffer()),
+                })),
+              ),
+            }
+          : undefined,
     });
     downloadBlob(blob, scanPackageFileName(options.name));
     return { bytes: blob.size };
   };
 
+  const selectInstance = (id: string, move = true) => {
+    const tooth = studyState.toothInstances?.find((t) => t.id === id);
+    if (!tooth) return;
+    setSelectedTooth(tooth.fdi);
+    setStudyState((c) => ({
+      ...c,
+      selectedInstanceId: id,
+      activeMaskId: undefined,
+      activeSegmentGroupId: tooth.groupId,
+      segmentGroups: c.segmentGroups.map((g) =>
+        g.id === tooth.groupId ? { ...g, activeSegmentValue: tooth.value } : g,
+      ),
+    }));
+    if (move)
+      app.setCursor({
+        x: Math.round(tooth.centroid[0]),
+        y: Math.round(tooth.centroid[1]),
+        z: Math.round(tooth.centroid[2]),
+      });
+  };
+  const selectChartTooth = (fdi: number | null) => {
+    setSelectedTooth(fdi);
+    const tooth = studyState.toothInstances?.find(
+      (t) => t.fdi === fdi && fdi !== null,
+    );
+    if (tooth) selectInstance(tooth.id);
+    else setStudyState((c) => ({ ...c, selectedInstanceId: undefined }));
+  };
+  const revise = (
+    action: string,
+    instanceIds: string[],
+    update: (state: StudyState) => StudyState,
+  ) => {
+    setUndoStack((c) => [...c, snapshotMasks()].slice(-24));
+    setRedoStack([]);
+    setStudyState((c) => ({
+      ...update(c),
+      analysisRevisions: [
+        ...(c.analysisRevisions ?? []),
+        { id: createAppId('revision'), at: Date.now(), action, instanceIds },
+      ],
+    }));
+  };
+  const changeTooth = (id: string, changes: Partial<ToothInstance>) => {
+    setReviewError('');
+    if (
+      changes.fdi !== undefined &&
+      changes.fdi !== null &&
+      (!FDI_NUMBERS.includes(changes.fdi) ||
+        studyState.toothInstances?.some(
+          (t) => t.id !== id && t.fdi === changes.fdi,
+        ))
+    ) {
+      setReviewError(
+        'This FDI number is already assigned or invalid. Correct the other tooth first.',
+      );
+      return;
+    }
+    revise(
+      changes.fdi !== undefined ? 'assign FDI' : 'review outline',
+      [id],
+      (c) => {
+        const old = c.toothInstances?.find((t) => t.id === id);
+        return {
+          ...c,
+          toothInstances: c.toothInstances?.map((t) =>
+            t.id === id ? { ...t, ...changes } : t,
+          ),
+          toothFindings:
+            changes.fdi != null
+              ? c.toothFindings.map((f) =>
+                  f.instanceId === id || f.fdi === old?.fdi
+                    ? { ...f, instanceId: id, fdi: changes.fdi! }
+                    : f,
+                )
+              : c.toothFindings,
+        };
+      },
+    );
+    if (changes.fdi !== undefined) setSelectedTooth(changes.fdi);
+  };
+  const selectedInstance = studyState.toothInstances?.find(
+    (t) => t.id === studyState.selectedInstanceId,
+  );
+  const newManualTooth=()=>{
+    if(!app.volume||!studyState.study||!studyState.activeImageId)return;
+    const group=createStudySegmentGroup(studyState.study.id,studyState.activeImageId,{name:'Manual tooth outline',segments:[createStudySegment({value:1,name:'Unassigned tooth',color:'#38bdf8'})]});
+    revise('start manual tooth',[],c=>({...c,selectedInstanceId:undefined,activeMaskId:undefined,activeSegmentGroupId:group.id,activeTool:'mask-brush',segmentGroups:[...c.segmentGroups,group],analysisLayers:[...(c.analysisLayers??[]),{id:group.id,role:'teeth'}]}));
+    setLabelmapBuffers(c=>({...c,[group.id]:new Uint8Array(app.volume!.voxels.length*2)}));setSelectedTooth(null);setReviewOpen(false);
+  };
+  const editInstance = (erase: boolean) => {
+    if (!selectedInstance) return;
+    selectInstance(selectedInstance.id, false);
+    setStudyState((c) => ({
+      ...c,
+      activeTool: erase ? 'mask-erase' : 'mask-brush',
+    }));
+    setReviewOpen(false);
+  };
+  const replaceToothLabels = (
+    labels: Uint16Array,
+    action: string,
+    parentIds: string[],
+    newValue?: number,
+  ) => {
+    if (!selectedInstance || !app.volume) return;
+    const groupId = selectedInstance.groupId;
+    const instances = summarizeTeeth(
+      labels,
+      app.volume.meta.dimensions,
+      groupId,
+      studyState.toothInstances,
+    ).map((t) => ({
+      ...t,
+      review: 'corrected' as const,
+      ...(t.value === newValue ? { parentIds, fdi: null } : {}),
+      ...(action === 'merge teeth' && t.id === selectedInstance.id
+        ? { parentIds }
+        : {}),
+    }));
+    revise(action, parentIds, (c) => ({
+      ...c,
+      toothInstances: [
+        ...(c.toothInstances ?? []).filter((t) => t.groupId !== groupId),
+        ...instances,
+      ],
+      segmentGroups: c.segmentGroups.map((g) =>
+        g.id === groupId
+          ? {
+              ...g,
+              segments: instances.map((t, i) =>
+                createStudySegment({
+                  value: t.value,
+                  name: t.fdi ? `FDI ${t.fdi}` : `Tooth ${i + 1}`,
+                  color: '#38bdf8',
+                  voxelCount: t.voxelCount,
+                }),
+              ),
+            }
+          : g,
+      ),
+    }));
+    setLabelmapBuffers((c) => ({
+      ...c,
+      [groupId]: uint16ArrayToBytes(labels),
+    }));
+  };
+  const splitInstance = (axis: 0 | 1 | 2) => {
+    setReviewError('');
+    try {
+      if (!selectedInstance || !app.volume || !app.cursor) return;
+      const result = splitTooth(
+        bytesToUint16Array(labelmapBuffers[selectedInstance.groupId]),
+        app.volume.meta.dimensions,
+        selectedInstance.value,
+        axis,
+        [app.cursor.x, app.cursor.y, app.cursor.z][axis],
+      );
+      replaceToothLabels(
+        result.labels,
+        'split tooth',
+        [selectedInstance.id],
+        result.newValue,
+      );
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const mergeInstance = (id: string) => {
+    setReviewError('');
+    try {
+      const other = studyState.toothInstances?.find((t) => t.id === id);
+      if (
+        !selectedInstance ||
+        !other ||
+        other.groupId !== selectedInstance.groupId
+      )
+        return;
+      replaceToothLabels(
+        mergeTeeth(
+          bytesToUint16Array(labelmapBuffers[selectedInstance.groupId]),
+          selectedInstance.value,
+          other.value,
+        ),
+        'merge teeth',
+        [selectedInstance.id, other.id],
+      );
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const separateTeeth = (
+    source: string,
+    values: number[],
+    minMm3: number,
+    core: number,
+  ) => {
+    const volume = app.volume;
+    if (
+      !volume ||
+      !studyState.study ||
+      !studyState.activeImageId ||
+      separationBusy
+    )
+      return;
+    setReviewError('');
+    if (
+      !Number.isFinite(minMm3) ||
+      minMm3 <= 0 ||
+      !Number.isFinite(core) ||
+      core < 1 ||
+      core > 20 ||
+      values.some((v) => !Number.isInteger(v) || v < 1 || v > 65535)
+    ) {
+      setReviewError('Choose valid label values, minimum size and core size.');
+      return;
+    }
+    const groupBytes = labelmapBuffers[source];
+    const binary = maskBuffers[source];
+    if (!groupBytes && !binary) {
+      setReviewError('The selected source has no voxel data.');
+      return;
+    }
+    const mask = groupBytes
+      ? Uint8Array.from(bytesToUint16Array(groupBytes), (v) =>
+          values.includes(v) ? 1 : 0,
+        )
+      : new Uint8Array(binary);
+    const worker = new Worker(
+      new URL('../workers/toothSeparation.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    separationWorker.current = worker;
+    setSeparationBusy(true);
+    const snapshot = snapshotMasks();
+    const finish = () => {
+      worker.terminate();
+      separationWorker.current = null;
+      setSeparationBusy(false);
+    };
+    worker.onerror = () => {
+      setReviewError('Tooth separation failed. Try a smaller region.');
+      finish();
+    };
+    worker.onmessage = (
+      event: MessageEvent<{ labels: Uint16Array; error?: string }>,
+    ) => {
+      finish();
+      if (event.data.error) {
+        setReviewError(event.data.error);
+        return;
+      }
+      const group = createStudySegmentGroup(
+          studyState.study!.id,
+          studyState.activeImageId!,
+          { name: 'Individual teeth' },
+        ),
+        labels = event.data.labels;
+      const instances = summarizeTeeth(
+        labels,
+        volume.meta.dimensions,
+        group.id,
+      );
+      if (!instances.length) {
+        setReviewError(
+          'No regions exceed the minimum size. Lower it and retry.',
+        );
+        return;
+      }
+      group.segments = instances.map((t, i) =>
+        createStudySegment({
+          value: t.value,
+          name: `Tooth ${i + 1}`,
+          color: '#38bdf8',
+          voxelCount: t.voxelCount,
+        }),
+      );
+      group.activeSegmentValue = instances[0].value;
+      const predictionId = createAppId('prediction');
+      setPredictions((c) => [
+        ...c,
+        { id: predictionId, data: uint16ArrayToBytes(new Uint16Array(labels)) },
+      ]);
+      setUndoStack((c) => [...c, snapshot].slice(-24));
+      setRedoStack([]);
+      setLabelmapBuffers((c) => ({
+        ...c,
+        [group.id]: uint16ArrayToBytes(labels),
+      }));
+      setStudyState((c) => ({
+        ...c,
+        segmentGroups: [...c.segmentGroups, group],
+        activeSegmentGroupId: group.id,
+        activeMaskId: undefined,
+        selectedInstanceId: instances[0].id,
+        toothInstances: [...(c.toothInstances ?? []), ...instances],
+        analysisLayers: [
+          ...(c.analysisLayers ?? []),
+          { id: group.id, role: 'teeth', predictionId },
+          { id: predictionId, role: 'prediction' },
+        ],
+        analysisRevisions: [
+          ...(c.analysisRevisions ?? []),
+          {
+            id: createAppId('revision'),
+            at: Date.now(),
+            action: `watershed separation; source=${source}; labels=${values.join(',')}; core=${core}; minMm3=${minMm3}`,
+            instanceIds: instances.map((t) => t.id),
+          },
+        ],
+      }));
+    };
+    worker.postMessage(
+      {
+        mask,
+        dimensions: volume.meta.dimensions,
+        minVoxels: Math.ceil(
+          minMm3 / volume.meta.spacing.reduce((a, b) => a * b, 1),
+        ),
+        coreThreshold: core,
+        maxRoi: compactLayout ? 4000000 : 12000000,
+      },
+      [mask.buffer],
+    );
+  };
+  const isolated3D = useMemo(() => {
+    const mode = studyState.toothVisibility ?? 'all';
+    const toothLayers = (studyState.analysisLayers ?? [])
+      .filter((layer) => layer.role === 'teeth' && labelmapBuffers[layer.id])
+      .map((layer) => bytesToUint16Array(labelmapBuffers[layer.id]));
+    const selectedLabels = selectedInstance
+      ? labelmapBuffers[selectedInstance.groupId]
+      : undefined;
+    if (
+      !app.prepared3D ||
+      !app.volume ||
+      mode === 'all' ||
+      (mode === 'selected' && !selectedLabels) ||
+      (mode === 'hide-teeth' && !toothLayers.length)
+    )
+      return app.prepared3D;
+    const anatomy = studyState.analysisLayers?.find(
+      (l) => l.role === 'anatomy' && labelmapBuffers[l.id],
+    );
+    const boneGroup = studyState.segmentGroups.find(
+        (g) => g.id === anatomy?.id,
+      ),
+      boneValues = boneGroup?.segments
+        .filter(
+          (s) =>
+            /bone|skull|mandible|maxilla/i.test(s.name) &&
+            !/teeth|tooth/i.test(s.name),
+        )
+        .map((s) => s.value) ?? [1, 2];
+    return isolatePreview(
+      app.prepared3D,
+      selectedLabels ? bytesToUint16Array(selectedLabels) : toothLayers[0],
+      app.volume.meta.dimensions,
+      selectedInstance?.value ?? 0,
+      mode,
+      studyState.showSurroundingBone && anatomy
+        ? bytesToUint16Array(labelmapBuffers[anatomy.id])
+        : undefined,
+      boneValues,
+      toothLayers,
+    );
+  }, [
+    app.prepared3D,
+    app.volume,
+    selectedInstance,
+    labelmapBuffers,
+    studyState.toothVisibility,
+    studyState.showSurroundingBone,
+    studyState.analysisLayers,
+    studyState.segmentGroups,
+  ]);
+  const reviewPanel = reviewOpen ? (
+    <ToothReviewPanel
+      state={studyState}
+      busy={separationBusy}
+      error={reviewError}
+      onClose={() => setReviewOpen(false)}
+      onSelect={selectInstance}
+      onSeparate={separateTeeth}
+      onChange={changeTooth}
+      onCorrect={editInstance}
+      onNewTooth={newManualTooth}
+      onAnatomy={(variant) => void runFullAnatomy(variant)}
+      anatomyBusy={anatomyRunning}
+      onCancelAnatomy={cancelFullAnatomy}
+      onSurface={() => void createSurfaceFromActiveMask()}
+      surfaceBusy={Boolean(surfaceStatus)}
+      onSplit={splitInstance}
+      onMerge={mergeInstance}
+      onVisibility={(toothVisibility, showSurroundingBone) =>
+        setStudyState((c) => ({ ...c, toothVisibility, showSurroundingBone }))
+      }
+      onUndo={undoMaskEdit}
+      onRedo={redoMaskEdit}
+      canUndo={undoStack.length > 0}
+      canRedo={redoStack.length > 0}
+    />
+  ) : null;
+
   // Keyboard shortcuts (desktop and tablets with keyboards) ---------------
 
   const handleViewerKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        event.defaultPrevented ||
-        event.altKey ||
-        target?.closest('input, textarea, select, [contenteditable="true"], [role="listbox"]')
-      ) {
-        return;
-      }
-      if (event.ctrlKey || event.metaKey) return;
-      const key = event.key;
-      const toolForKey = DENTAL_TOOLS.find(
-        (item) => item.shortcut.toLowerCase() === key.toLowerCase(),
+    const target = event.target as HTMLElement | null;
+    if (
+      event.defaultPrevented ||
+      event.altKey ||
+      target?.closest(
+        'input, textarea, select, [contenteditable="true"], [role="listbox"]',
+      )
+    ) {
+      return;
+    }
+    if (event.ctrlKey || event.metaKey) return;
+    const key = event.key;
+    const toolForKey = DENTAL_TOOLS.find(
+      (item) => item.shortcut.toLowerCase() === key.toLowerCase(),
+    );
+    if (key === 'Escape') {
+      setTool('crosshair');
+      setMobileSheet(null);
+    } else if (toolForKey) {
+      setTool(toolForKey.tool);
+    } else if (key === 'i' || key === 'I') {
+      setInvertSlices((current) => !current);
+    } else if (/^[1-6]$/.test(key)) {
+      const preset = windowPresets[Number(key) - 1];
+      if (preset) applyPreset(preset.id);
+    } else if (key === 'ArrowUp' || key === 'PageUp') {
+      app.stepSlice(
+        keyboardAxis,
+        event.shiftKey || key === 'PageUp' ? -10 : -1,
       );
-      if (key === 'Escape') {
-        setTool('crosshair');
-        setMobileSheet(null);
-      } else if (toolForKey) {
-        setTool(toolForKey.tool);
-      } else if (key === 'i' || key === 'I') {
-        setInvertSlices((current) => !current);
-      } else if (/^[1-6]$/.test(key)) {
-        const preset = windowPresets[Number(key) - 1];
-        if (preset) applyPreset(preset.id);
-      } else if (key === 'ArrowUp' || key === 'PageUp') {
-        app.stepSlice(keyboardAxis, event.shiftKey || key === 'PageUp' ? -10 : -1);
-      } else if (key === 'ArrowDown' || key === 'PageDown') {
-        app.stepSlice(keyboardAxis, event.shiftKey || key === 'PageDown' ? 10 : 1);
-      } else if (key === '+' || key === '=') {
-        setZoom(app.mprZoom * 1.25);
-      } else if (key === '-' || key === '_') {
-        setZoom(app.mprZoom / 1.25);
-      } else if (key === '0') {
-        setZoom(1);
-      } else if ((key === 'f' || key === 'F') && !compactLayout) {
-        toggleMaximize(keyboardAxis);
-      } else if (key === 's' || key === 'S') {
-        saveSnapshot();
-      } else if (key === '?') {
-        setShortcutsOpen(true);
-      } else {
-        return;
-      }
-      event.preventDefault();
+    } else if (key === 'ArrowDown' || key === 'PageDown') {
+      app.stepSlice(
+        keyboardAxis,
+        event.shiftKey || key === 'PageDown' ? 10 : 1,
+      );
+    } else if (key === '+' || key === '=') {
+      setZoom(app.mprZoom * 1.25);
+    } else if (key === '-' || key === '_') {
+      setZoom(app.mprZoom / 1.25);
+    } else if (key === '0') {
+      setZoom(1);
+    } else if ((key === 'f' || key === 'F') && !compactLayout) {
+      toggleMaximize(keyboardAxis);
+    } else if (key === 's' || key === 'S') {
+      saveSnapshot();
+    } else if (key === '?') {
+      setShortcutsOpen(true);
+    } else {
+      return;
+    }
+    event.preventDefault();
   };
   // The listener is installed once and always calls the latest handler.
   const viewerKeyRef = useRef(handleViewerKey);
@@ -3315,7 +4195,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       dentition={dentition}
       caseNotes={studyState.caseNotes}
       onDentitionChange={setDentition}
-      onSelectTooth={setSelectedTooth}
+      onSelectTooth={selectChartTooth}
       onToggleCondition={toggleCondition}
       onNoteChange={setToothNote}
       onPinToCursor={pinToothToCursor}
@@ -3405,7 +4285,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
       onSeriesChange={(seriesId) => void app.selectSeries(seriesId)}
       onOpenDirectory={() => void app.openDirectory()}
       onOpenTeeth={openTeeth}
-      onRunAnatomy={runFullAnatomy}
+      onRunAnatomy={() => void runFullAnatomy()}
       onCancelAnatomy={cancelFullAnatomy}
       anatomyRunning={anatomyRunning}
       anatomyProgress={anatomyProgress}
@@ -3467,10 +4347,28 @@ export default function ViewerPage({ app }: ViewerPageProps) {
     >
       <VolumeViewport3D
         ref={viewport3DRef}
-        volume={app.prepared3D}
+        volume={isolated3D}
         onDownsampledChange={app.setDownsampled3D}
         labels={volume3DLabels}
-        surfaces={surfacePreviews}
+        surfaces={surfacePreviews.map((surface) => {
+          const owner = studyState.surfaces.find(
+            (s) => s.id === surface.id,
+          )?.toothInstanceId;
+          return {
+            ...surface,
+            color:
+              owner === studyState.selectedInstanceId
+                ? '#facc15'
+                : surface.color,
+            visible:
+              surface.visible &&
+              (studyState.toothVisibility === 'selected'
+                ? owner === studyState.selectedInstanceId
+                : studyState.toothVisibility === 'hide-teeth'
+                  ? !owner
+                  : true),
+          };
+        })}
         cropBounds={studyState.cropBounds}
       />
     </ViewportFrame>
@@ -3600,6 +4498,31 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           )}
         >
           <section className="flex min-h-0 min-w-0 flex-col">
+            <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-2">
+              <button
+                type="button"
+                className="min-h-11 rounded px-3 text-sm text-sky-200"
+                onClick={() => setReviewOpen((v) => !v)}
+              >
+                Review teeth
+              </button>
+              <button
+                className="min-h-11 shrink-0 rounded px-2 text-xs text-sky-200"
+                onClick={() => void saveLocalProject()}
+              >
+                Save case locally
+              </button>
+              {caseStatus && (
+                <span role="status" className="text-xs text-slate-300">
+                  {caseStatus}
+                </span>
+              )}
+              <span className="truncate text-xs text-slate-400">
+                {selectedInstance
+                  ? `${selectedInstance.fdi ? `FDI ${selectedInstance.fdi}` : 'Unassigned tooth'} · ${selectedInstance.review}`
+                  : `${studyState.toothInstances?.length ?? 0} tooth instances`}
+              </span>
+            </div>
             {manualToothBanner}
             <div className="relative min-h-0 flex-1">
               {dentalLayout === '3d' ? frame3D : renderAxisGrid(false)}
@@ -3616,6 +4539,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           probe={sliceProbe}
           toolHint={toolHint}
         />
+        {reviewPanel}
         {shortcutsOpen ? (
           <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
         ) : null}
@@ -3655,6 +4579,31 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           app.setSelectedAxis(view);
         }}
       />
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-2">
+        <button
+          type="button"
+          className="min-h-11 rounded px-3 text-sm text-sky-200"
+          onClick={() => setReviewOpen((v) => !v)}
+        >
+          Review teeth
+        </button>
+        <button
+          className="min-h-11 shrink-0 rounded px-2 text-xs text-sky-200"
+          onClick={() => void saveLocalProject()}
+        >
+          Save case locally
+        </button>
+        {caseStatus && (
+          <span role="status" className="text-xs text-slate-300">
+            {caseStatus}
+          </span>
+        )}
+        <span className="truncate text-xs text-slate-400">
+          {selectedInstance
+            ? `${selectedInstance.fdi ? `FDI ${selectedInstance.fdi}` : 'Unassigned tooth'} · ${selectedInstance.review}`
+            : `${studyState.toothInstances?.length ?? 0} tooth instances`}
+        </span>
+      </div>
       {manualToothBanner}
       <div className="relative min-h-0 flex-1 bg-black">
         {mobile3D ? frame3D : renderAxisGrid(true)}
@@ -3664,7 +4613,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-sky-500/60 bg-slate-950/90 py-1 pl-3 pr-1 text-xs text-sky-100 shadow-lg">
               <activeToolDefinition.icon className="h-4 w-4" aria-hidden="true" />
               <span>
-                {t(`dental.toolbar.${activeToolDefinition.labelKey}`)} · {toolHint}
+                {t(`dental.toolbar.${activeToolDefinition.labelKey}`)} ·{' '}
+                {toolHint}
               </span>
               <button
                 type="button"
@@ -3676,7 +4626,6 @@ export default function ViewerPage({ app }: ViewerPageProps) {
             </div>
           </div>
         ) : null}
-
       </div>
       <MobileDock
         activeSheet={mobileSheet}
@@ -3898,6 +4847,7 @@ export default function ViewerPage({ app }: ViewerPageProps) {
           </div>
         </div>
       ) : null}
+      {reviewPanel}
       {packageDialogOpen ? (
         <ExportPackageDialog
           touch

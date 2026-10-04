@@ -56,11 +56,36 @@ interface ThresholdPreset {
 
 const THRESHOLD_PRESETS: ThresholdPreset[] = [
   { id: 'bone', label: 'Bone', range: [226, 3071], color: '#facc15' },
-  { id: 'enamelAdult', label: 'Enamel adult', range: [1553, 2850], color: '#f8fafc' },
-  { id: 'enamelChild', label: 'Enamel child', range: [2042, 3023], color: '#bae6fd' },
-  { id: 'compactBone', label: 'Compact bone', range: [662, 1988], color: '#fb923c' },
-  { id: 'spongialBone', label: 'Spongial bone', range: [148, 661], color: '#fbbf24' },
-  { id: 'softTissue', label: 'Soft tissue', range: [-700, 225], color: '#f9a8d4' },
+  {
+    id: 'enamelAdult',
+    label: 'Enamel adult',
+    range: [1553, 2850],
+    color: '#f8fafc',
+  },
+  {
+    id: 'enamelChild',
+    label: 'Enamel child',
+    range: [2042, 3023],
+    color: '#bae6fd',
+  },
+  {
+    id: 'compactBone',
+    label: 'Compact bone',
+    range: [662, 1988],
+    color: '#fb923c',
+  },
+  {
+    id: 'spongialBone',
+    label: 'Spongial bone',
+    range: [148, 661],
+    color: '#fbbf24',
+  },
+  {
+    id: 'softTissue',
+    label: 'Soft tissue',
+    range: [-700, 225],
+    color: '#f9a8d4',
+  },
 ];
 
 interface StudyWorkflowPanelProps {
@@ -214,7 +239,11 @@ export function StudyWorkflowPanel({
     label: string;
   }> = [
     { tool: 'mask-brush', operation: 'draw', label: t('workflow.masks.draw') },
-    { tool: 'mask-erase', operation: 'erase', label: t('workflow.masks.erase') },
+    {
+      tool: 'mask-erase',
+      operation: 'erase',
+      label: t('workflow.masks.erase'),
+    },
     {
       tool: 'mask-threshold',
       operation: 'threshold',
@@ -241,7 +270,9 @@ export function StudyWorkflowPanel({
     <section className="min-w-0 rounded border border-slate-800 bg-slate-950/70 p-2.5">
       <div
         className="grid gap-1"
-        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+        }}
       >
         {tabs.map((item) => {
           const Icon = item.icon;
@@ -272,10 +303,22 @@ export function StudyWorkflowPanel({
       {tab === 'study' ? (
         <div className="mt-3 space-y-3 text-xs text-slate-400">
           <div className="font-medium text-slate-100">{state.study?.name}</div>
-          <div>{t('workflow.study.images', { count: state.images.length })}</div>
-          <div>{t('workflow.study.dimensions', { dimensions: dimensions.join(' x ') })}</div>
-          <div>{t('workflow.study.spacing', { spacing: spacing.map((item) => item.toFixed(2)).join(' x ') })}</div>
-          <div>{t('workflow.study.activeTool', { tool: state.activeTool })}</div>
+          <div>
+            {t('workflow.study.images', { count: state.images.length })}
+          </div>
+          <div>
+            {t('workflow.study.dimensions', {
+              dimensions: dimensions.join(' x '),
+            })}
+          </div>
+          <div>
+            {t('workflow.study.spacing', {
+              spacing: spacing.map((item) => item.toFixed(2)).join(' x '),
+            })}
+          </div>
+          <div>
+            {t('workflow.study.activeTool', { tool: state.activeTool })}
+          </div>
           <label className="block space-y-1">
             <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
               {t('workflow.study.dicomEngine')}
@@ -570,7 +613,11 @@ export function StudyWorkflowPanel({
               />
               <div className="mt-1.5 grid grid-cols-3 gap-1">
                 <Button
-                  variant={state.activeTool === 'mask-watershed-seed' ? 'primary' : 'ghost'}
+                  variant={
+                    state.activeTool === 'mask-watershed-seed'
+                      ? 'primary'
+                      : 'ghost'
+                  }
                   size="sm"
                   block
                   disabled={!state.activeMaskId}
@@ -598,7 +645,10 @@ export function StudyWorkflowPanel({
                   variant="ghost"
                   size="sm"
                   block
-                  disabled={!state.activeMaskId || state.maskWorkflow.watershedSeeds.length === 0}
+                  disabled={
+                    !state.activeMaskId ||
+                    state.maskWorkflow.watershedSeeds.length === 0
+                  }
                   onClick={onApplyWatershedSeeds}
                 >
                   {t('workflow.masks.applySeeds')}
@@ -639,7 +689,9 @@ export function StudyWorkflowPanel({
                           type="button"
                           className="min-w-0 truncate text-left text-xs font-medium text-slate-200"
                           onClick={() =>
-                            onUpdateStudyViewState({ activeSegmentGroupId: group.id })
+                            onUpdateStudyViewState({
+                              activeSegmentGroupId: group.id,
+                            })
                           }
                         >
                           {group.name}
@@ -691,7 +743,11 @@ export function StudyWorkflowPanel({
                             <button
                               type="button"
                               className="rounded px-1 text-slate-500 hover:bg-slate-800 hover:text-slate-100"
-                              aria-label={segment.visible ? t('common.hide') : t('common.show')}
+                              aria-label={
+                                segment.visible
+                                  ? t('common.hide')
+                                  : t('common.show')
+                              }
                               onClick={(event) => {
                                 event.stopPropagation();
                                 onUpdateSegment(group.id, segment.id, {
@@ -704,7 +760,11 @@ export function StudyWorkflowPanel({
                             <button
                               type="button"
                               className="rounded px-1 text-slate-500 hover:bg-slate-800 hover:text-slate-100"
-                              aria-label={segment.locked ? 'Unlock segment' : 'Lock segment'}
+                              aria-label={
+                                segment.locked
+                                  ? 'Unlock segment'
+                                  : 'Lock segment'
+                              }
                               onClick={(event) => {
                                 event.stopPropagation();
                                 onUpdateSegment(group.id, segment.id, {
@@ -792,7 +852,9 @@ export function StudyWorkflowPanel({
                       {mask.name}
                     </div>
                     <div className="truncate text-[11px] text-slate-500">
-                      {mask.thresholdRange ? formatRange(mask.thresholdRange) : t('workflow.masks.manual')}{' '}
+                      {mask.thresholdRange
+                        ? formatRange(mask.thresholdRange)
+                        : t('workflow.masks.manual')}{' '}
                       · {formatVoxelVolume(mask.voxelCount, spacing)}
                     </div>
                     <input
@@ -814,7 +876,9 @@ export function StudyWorkflowPanel({
                   <button
                     type="button"
                     className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
-                    aria-label={mask.visible ? t('common.hide') : t('common.show')}
+                    aria-label={
+                      mask.visible ? t('common.hide') : t('common.show')
+                    }
                     onClick={(event) => {
                       event.stopPropagation();
                       onToggleMaskVisibility(mask.id);
@@ -843,7 +907,10 @@ export function StudyWorkflowPanel({
             variant="primary"
             size="sm"
             block
-            disabled={!state.activeMaskId || Boolean(surfaceStatus)}
+            disabled={
+              (!state.activeMaskId && !state.selectedInstanceId) ||
+              Boolean(surfaceStatus)
+            }
             onClick={() => onCreateSurfaceFromActiveMask(surfaceQuality)}
           >
             <Layers3 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -872,7 +939,9 @@ export function StudyWorkflowPanel({
               )}
               onClick={() => setSurfaceQuality(preset.quality)}
             >
-              <div className="font-medium capitalize text-slate-200">{preset.quality}</div>
+              <div className="font-medium capitalize text-slate-200">
+                {preset.quality}
+              </div>
               <div className="mt-1 text-slate-500">
                 {t('workflow.surfaces.presetDetail', {
                   smooth: preset.smoothIterations,
@@ -913,7 +982,9 @@ export function StudyWorkflowPanel({
                   <button
                     type="button"
                     className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
-                    aria-label={surface.visible ? t('common.hide') : t('common.show')}
+                    aria-label={
+                      surface.visible ? t('common.hide') : t('common.show')
+                    }
                     onClick={() => onToggleSurfaceVisibility(surface.id)}
                   >
                     {surface.visible ? (
@@ -1009,7 +1080,9 @@ export function StudyWorkflowPanel({
                       </div>
                       <div className="mt-0.5 text-[11px] text-slate-500">
                         {measurement.kind} · {measurement.value.toFixed(1)}{' '}
-                        {measurement.unit === 'degrees' ? 'deg' : measurement.unit}
+                        {measurement.unit === 'degrees'
+                          ? 'deg'
+                          : measurement.unit}
                         {' · '}
                         {measurement.points.length} pts
                       </div>
@@ -1036,12 +1109,7 @@ export function StudyWorkflowPanel({
             <Waves className="h-3.5 w-3.5" aria-hidden="true" />
             {t('workflow.export.clientSide')}
           </div>
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            onClick={onExportProject}
-          >
+          <Button variant="primary" size="sm" block onClick={onExportProject}>
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
             {t('workflow.export.downloadProject')}
           </Button>
@@ -1076,10 +1144,20 @@ export function StudyWorkflowPanel({
             {t('workflow.export.importProject')}
           </Button>
           <div className="grid grid-cols-2 gap-1.5">
-            <Button variant="ghost" size="sm" block onClick={onSaveLocalProject}>
+            <Button
+              variant="ghost"
+              size="sm"
+              block
+              onClick={onSaveLocalProject}
+            >
               {t('workflow.export.saveLocal')}
             </Button>
-            <Button variant="ghost" size="sm" block onClick={onRestoreLocalProject}>
+            <Button
+              variant="ghost"
+              size="sm"
+              block
+              onClick={onRestoreLocalProject}
+            >
               {t('workflow.export.restoreLocal')}
             </Button>
           </div>

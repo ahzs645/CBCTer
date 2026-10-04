@@ -6,7 +6,18 @@ metadata around the one volume the app needs; the package keeps only the
 volume, its geometry and a display window, so a scan can be shared, opened
 on a phone, or archived without the rest.
 
-## Making and opening packages
+## Package formats
+
+The export dialog offers **Classic** (version 1, the compatibility default)
+and **Streamable · volume + preview** (version 2). Version 2 preserves native
+raw words when the importer has them and loads a preview before native
+regions. Version 1 stores the processed Int16 display volume.
+See [streaming validation and rollout](streaming-validation.md) for the
+source audit, complete voxel comparisons, measured package sizes, and
+browser results. The legacy results below are sampled comparisons of the
+processed workflow; they are not proof of native source fidelity.
+
+## Making and opening classic packages
 
 - **Export:** open any supported scan (whole export folder, series folder,
   or a ZIP of either), then use *Export slim package* (desktop toolbar
@@ -30,7 +41,7 @@ on a phone, or archived without the rest.
     (desktop) or *Load full resolution* / *Switch to phone version* in
     *More* (phone). Switching reopens the package at that level.
 
-## Levels
+## Classic levels
 
 The phone level is the same scan averaged over 2×2×2 blocks:
 - 1/8 of the voxels at double the voxel size, so a 0.125 mm scan becomes
@@ -47,7 +58,7 @@ When the package is opened from a zip, the importer:
 A phone therefore loads about 1/8 of the data and never holds the full
 volume in memory.
 
-## Contents
+## Classic contents
 
 ```text
 CT_20260414110156.cbct.zip
@@ -58,8 +69,8 @@ CT_20260414110156.cbct.zip
 ```
 
 Each level file holds `width × height × depth` signed 16-bit voxels:
-- order: x fastest, then y, then z, with z running inferior → superior (the
-  app's internal layout);
+- order: x fastest, then y, then z, with z following the imported grid; patient orientation is described
+  separately when known;
 - `encoding: "byte-shuffle"`: all low bytes first, then all high bytes. On
   noisy CBCT data this deflates 15–20% smaller than interleaved
   little-endian. To decode, interleave `low[i]` and `high[i]` back into
@@ -138,7 +149,7 @@ de-identification rules (such as HIPAA Safe Harbor) treat full dates as
 identifiers, so rename the package before sharing it outside the clinic. Clinical information can still be visible *in the
 image itself*, so treat a package as patient data.
 
-## Results on the example exports (Oct 2026)
+## Earlier classic-package measurements (Oct 2026)
 
 Measured in the test container (Chromium, software rendering, iPhone 15 Pro
 Max emulated in Chromium):
@@ -165,3 +176,80 @@ original vendor files:
 
 The reopened packages show the same window/level, and at full resolution
 the same dimensions, spacing and voxel values, as the original import.
+
+
+## Streamable packages (version 2)
+
+```text
+scan.cbct.zip
+├── cbct-scan.json
+├── chunks/0.zst
+├── chunks/1.zst
+├── …
+├── preview.i16
+└── preview.png       optional thumbnail
+```
+
+`volume` describes the complete canonical source grid: XYZ dimensions and
+spacing, signed or unsigned 16-bit dtype, stored bit count, optional DICOM
+high bit, padding, origin, three voxel-axis directions, coordinate system,
+source calibration, and whether the words are native or already processed.
+DICOM patient geometry is LPS. OneVolume coordinates are explicitly labelled
+`vendor`; the importer does not infer a patient transform. Calibration is
+`(raw / divisor) * slope + intercept`. Raw stored words are the primary
+representation; windowing uses a separately rounded, clamped Int16 view.
+
+Blocks are 64 × 64 × 64 voxels, with smaller edge blocks. Block descriptors
+are ordered X, then Y, then Z and include their start, actual shape, encoded
+byte count and raw SHA-256. Within each block, subtract the preceding X
+sample modulo 65536, restarting each row at zero. Store all low delta bytes,
+then all high delta bytes, and encode this stream with Zstd level 3. Decode
+by unshuffling and cumulatively adding modulo 65536, then interpreting the
+restored words according to dtype. The predictor preserves every bit,
+including padding and unused DICOM bits. ZIP stores the already compressed
+Zstd entries without outer compression, allowing independent range reads.
+
+`preview` is a derived Int16 array sampled at native indices `2*x, 2*y, 2*z`,
+with dimensions `ceil(nativeDimensions / 2)` and twice the spacing. It keeps
+odd edges and the source grid origin. It is ZIP-deflated and checked against
+its SHA-256. It is used for initial MPR and 3D display. Measurements are
+blocked until the visible native slice has loaded; MPR crosshairs and slice
+navigation always use native dimensions and spacing.
+
+The manifest also contains the whole canonical raw-volume SHA-256, display
+window, scalar range and known orientation. The reader checks ZIP CRCs,
+geometry, complete nonoverlapping block coverage, declared Zstd content
+sizes and decoded raw hashes. Full-volume loading verifies the complete
+raw-volume hash. These checks detect corruption; the package is not an
+authenticated provenance record.
+
+Both desktop and phone open version 2 preview-first. Desktop fills three
+native MPR planes; the phone fetches the selected plane. The worker uses a
+64 MiB desktop / 32 MiB light-device LRU cache of decoded chunks and at most
+four chunk operations per request. Plane requests cancel at chunk boundaries
+when the cursor changes. Window/level changes reuse the current raw plane.
+**Load full volume for advanced tools** explicitly materializes the raw and
+derived dense arrays for the existing segmentation and panoramic tools.
+The cache limit covers decoded chunks, not total application RAM.
+
+Old readers cannot open version 2. Current CBCTer retains version 1 import,
+export and resolution switching. Exporting an existing version 1 package as
+version 2 labels its words `processed`: it cannot restore source samples
+that were previously cropped, calibrated, averaged or omitted.
+
+### Hosting
+
+The app must run on HTTPS or localhost for SHA-256 verification. Local ZIPs
+and unpacked folders support independent reads. Direct remote
+package URLs should end in `.cbct.zip`; query strings are supported. The
+host must return exact `206 Partial Content` responses with `Content-Range`.
+For cross-origin access, allow CORS and expose `Content-Range` and `ETag`;
+if a strong ETag is supplied, allow `If-Range` requests as well. The reader
+rejects changing resources, invalid ranges and full `200` responses, cancels
+their bodies, and tells the user to download and open the ZIP locally.
+Generic download URLs and remote folder manifests retain their existing
+whole-file import path. The app service worker bypasses all Range requests.
+
+ZIP64 and encrypted archives are unsupported. Version 2 currently requires
+16-bit source words, a regular orthogonal grid, and blocks in the specified
+order. Larger-than-64 MiB region outputs require explicit full loading.

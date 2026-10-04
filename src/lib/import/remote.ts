@@ -30,7 +30,9 @@ export { fetchRemoteRange };
 function filenameFromUrl(url: string): string {
   try {
     const base =
-      typeof window === 'undefined' ? 'http://localhost/' : window.location.href;
+      typeof window === 'undefined'
+        ? 'http://localhost/'
+        : window.location.href;
     const parsed = new URL(url, base);
     const pathname = decodeURIComponent(parsed.pathname);
     return pathname.split('/').filter(Boolean).pop() || 'download';
@@ -50,7 +52,8 @@ export function filenameFromContentDisposition(
 }
 
 function isRemoteManifest(value: unknown): value is RemoteManifest {
-  const entries = (value as RemoteManifest | null)?.files ??
+  const entries =
+    (value as RemoteManifest | null)?.files ??
     (value as RemoteManifest | null)?.resources;
   return (
     Boolean(value) &&
@@ -76,12 +79,16 @@ async function fetchRemoteFile(
   await fetchRemoteRange(entry.url, 0, 511).catch(() => null);
   const response = await fetch(entry.url);
   if (!response.ok) {
-    throw new Error(`Remote import failed for ${entry.url}: ${response.status}`);
+    throw new Error(
+      `Remote import failed for ${entry.url}: ${response.status}`,
+    );
   }
 
   const name =
     entry.name ||
-    filenameFromContentDisposition(response.headers.get('content-disposition')) ||
+    filenameFromContentDisposition(
+      response.headers.get('content-disposition'),
+    ) ||
     filenameFromUrl(response.url || entry.url) ||
     `remote-${index}`;
   const type =
@@ -97,7 +104,26 @@ async function fetchRemoteFile(
   };
 }
 
-export async function loadRemoteImport(url: string): Promise<LoadedRemoteImport> {
+export async function loadRemoteImport(
+  url: string,
+): Promise<LoadedRemoteImport> {
+  const remoteName = filenameFromUrl(url);
+  if (/\.cbct\.zip$/i.test(remoteName)) {
+    return {
+      type: 'scan-folder',
+      label: remoteName,
+      source: filesToScanFolderSource(remoteName, [
+        {
+          id: 'remote-package',
+          name: remoteName,
+          path: remoteName,
+          file: new File([], remoteName),
+          archiveKind: 'cbct-package',
+          remoteUrl: url,
+        },
+      ]),
+    };
+  }
   const first = await fetchRemoteFile({ url }, 0);
   const ext = getExtension(first.name);
   const looksJson =
@@ -115,7 +141,9 @@ export async function loadRemoteImport(url: string): Promise<LoadedRemoteImport>
           ),
         );
         const label =
-          parsed.name || first.name.replace(/\.json$/i, '') || 'remote manifest';
+          parsed.name ||
+          first.name.replace(/\.json$/i, '') ||
+          'remote manifest';
         return {
           type: 'scan-folder',
           label,

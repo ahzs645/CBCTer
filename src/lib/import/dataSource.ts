@@ -14,6 +14,7 @@ export interface LoadedDataSourceFile {
   path: string;
   file: File;
   archiveKind?: ScanFolderEntry['archiveKind'];
+  remoteUrl?: string;
 }
 
 export interface ImportPipelineResult {
@@ -35,6 +36,7 @@ export function filesToScanFolderSource(
     relativePath: normalizeArchivePath(item.path || item.name),
     file: item.file,
     ...(item.archiveKind ? { archiveKind: item.archiveKind } : {}),
+    ...(item.remoteUrl ? { remoteUrl: item.remoteUrl } : {}),
   }));
   return {
     kind: ScanFolderSourceKind.FileList,
@@ -140,6 +142,7 @@ export async function importDataSources(
           file: entry.file,
           // Keeps scan-package zips marked so they stay zipped.
           ...(entry.archiveKind ? { archiveKind: entry.archiveKind } : {}),
+          ...(entry.remoteUrl ? { remoteUrl: entry.remoteUrl } : {}),
         })),
       );
       continue;

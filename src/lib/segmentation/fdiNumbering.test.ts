@@ -74,11 +74,13 @@ describe('FDI numbering', () => {
     ];
     const result = assignFdiNumbers(
       halfArch.map(([x, y]) => ({ position: [x, y, 0] as Vec3 })),
-      { jaw: 'upper', leftAxis: [1, 0, 0], anteriorAxis: [0, 1, 0] },
+      { jaw: 'upper', leftAxis: [1, 0, 0], anteriorAxis: [0, 1, 0],archOrigin:[0,0,0] },
     );
 
     expect(result.map((tooth) => tooth.fdi)).toEqual([
       21, 22, 24, 25, 26, 27, 28,
     ]);
+    const translated=assignFdiNumbers(halfArch.map(([x,y])=>({position:[x+100,y+200,0] as Vec3})),{jaw:'upper',leftAxis:[1,0,0],anteriorAxis:[0,1,0],archOrigin:[100,200,0]});
+    expect(translated.map(t=>t.fdi)).toEqual(result.map(t=>t.fdi));
   });
 });

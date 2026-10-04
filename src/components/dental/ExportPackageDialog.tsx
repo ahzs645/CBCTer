@@ -18,6 +18,8 @@ interface ExportPackageDialogProps {
   onExport: (options: {
     name: string;
     contents: ScanPackageContents;
+    storage: 'classic' | 'streamable';
+    caseContents: 'scan' | 'case';
     includePreview: boolean;
   }) => Promise<{ bytes: number }>;
   onClose: () => void;
@@ -42,9 +44,14 @@ export function ExportPackageDialog({
   const { t } = useTranslation();
   const [name, setName] = useState(() => anonymousScanName(scanId));
   const [contents, setContents] = useState<ScanPackageContents>('full+half');
+  const [storage, setStorage] = useState<'classic' | 'streamable'>('classic');
+  const [caseContents, setCaseContents] = useState<'scan' | 'case'>('scan');
   const [includePreview, setIncludePreview] = useState(true);
   const [status, setStatus] = useState<
-    { state: 'idle' } | { state: 'packing' } | { state: 'done'; bytes: number } | { state: 'error'; message: string }
+    | { state: 'idle' }
+    | { state: 'packing' }
+    | { state: 'done'; bytes: number }
+    | { state: 'error'; message: string }
   >({ state: 'idle' });
 
   useEffect(() => {
@@ -67,7 +74,9 @@ export function ExportPackageDialog({
     try {
       const result = await onExport({
         name: name.trim() || anonymousScanName(scanId),
-        contents,
+        contents: storage === 'streamable' ? 'full+half' : contents,
+        storage: caseContents === 'case' ? 'streamable' : storage,
+        caseContents,
         includePreview,
       });
       setStatus({ state: 'done', bytes: result.bytes });
@@ -79,7 +88,11 @@ export function ExportPackageDialog({
     }
   };
 
-  const option = (value: ScanPackageContents, title: string, detail: string) => (
+  const option = (
+    value: ScanPackageContents,
+    title: string,
+    detail: string,
+  ) => (
     <label
       className={cn(
         'flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition',
@@ -124,16 +137,21 @@ export function ExportPackageDialog({
           'relative w-full border-slate-700 bg-slate-900 shadow-2xl',
           touch
             ? 'max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]'
-            : 'max-w-md rounded-lg border p-4',
+            : 'max-h-[90dvh] max-w-md overflow-y-auto rounded-lg border p-4',
         )}
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-              <FileArchive className="h-4 w-4 text-sky-300" aria-hidden="true" />
+              <FileArchive
+                className="h-4 w-4 text-sky-300"
+                aria-hidden="true"
+              />
               {t('dental.package.title')}
             </h2>
-            <p className="mt-1 text-xs text-slate-400">{t('dental.package.description')}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {t('dental.package.description')}
+            </p>
           </div>
           <button
             type="button"
@@ -159,36 +177,87 @@ export function ExportPackageDialog({
             className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-base text-slate-100 focus:border-sky-500 focus:outline-none sm:text-sm"
           />
           <span className="mt-1 block text-[11px] text-slate-500">
-            {t('dental.package.nameHint')} · {scanPackageFileName(name || 'cbct')}
+            {t('dental.package.nameHint')} ·{' '}
+            {scanPackageFileName(name || 'cbct')}
           </span>
         </label>
 
-        <div className="mt-3 space-y-1.5">
-          {option(
-            'full+half',
-            t('dental.package.both'),
-            t('dental.package.bothDetail', {
-              full: formatMb(rawBytes(false)),
-              half: formatMb(rawBytes(true)),
-            }),
+        <fieldset
+          className="mt-3 grid gap-2"
+          disabled={status.state === 'packing'}
+        >
+          <legend className="text-sm">Export contents</legend>
+          {(['scan', 'case'] as const).map((value) => (
+            <label
+              key={value}
+              className="flex min-h-11 items-center gap-2 rounded border border-slate-700 p-2 text-sm"
+            >
+              <input
+                type="radio"
+                name="case-contents"
+                checked={caseContents === value}
+                onChange={() => {
+                  setCaseContents(value);
+                  if (value === 'case') setStorage('streamable');
+                }}
+              />
+              {value === 'scan' ? 'Scan only' : 'Scan + analysis'}
+            </label>
+          ))}
+          {caseContents === 'case' && (
+            <p className="text-xs text-slate-400">
+              Includes masks, tooth IDs, review history, notes, measurements,
+              surfaces and saved arch. Findings may contain patient information.
+            </p>
           )}
-          {option(
-            'full',
-            t('dental.package.full'),
-            t('dental.package.sizeDetail', {
-              dims: dimensions.join(' × '),
-              size: formatMb(rawBytes(false)),
-            }),
-          )}
-          {option(
-            'half',
-            t('dental.package.half'),
-            t('dental.package.sizeDetail', {
-              dims: halfDims.join(' × '),
-              size: formatMb(rawBytes(true)),
-            }),
-          )}
-        </div>
+        </fieldset>
+        <label className="mt-3 block text-xs text-slate-300">
+          {t('streaming.exportFormat')}
+          <select
+            aria-label={t('streaming.exportFormat')}
+            className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-2"
+            disabled={caseContents === 'case' || status.state === 'packing'}
+            value={storage}
+            onChange={(e) =>
+              setStorage(e.target.value as 'classic' | 'streamable')
+            }
+          >
+            <option value="classic">{t('streaming.classic')}</option>
+            <option value="streamable">{t('streaming.streamable')}</option>
+          </select>
+        </label>
+        {storage === 'streamable' ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {t('streaming.exportHint')}
+          </p>
+        ) : (
+          <div className="mt-3 space-y-1.5">
+            {option(
+              'full+half',
+              t('dental.package.both'),
+              t('dental.package.bothDetail', {
+                full: formatMb(rawBytes(false)),
+                half: formatMb(rawBytes(true)),
+              }),
+            )}
+            {option(
+              'full',
+              t('dental.package.full'),
+              t('dental.package.sizeDetail', {
+                dims: dimensions.join(' × '),
+                size: formatMb(rawBytes(false)),
+              }),
+            )}
+            {option(
+              'half',
+              t('dental.package.half'),
+              t('dental.package.sizeDetail', {
+                dims: halfDims.join(' × '),
+                size: formatMb(rawBytes(true)),
+              }),
+            )}
+          </div>
+        )}
 
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
           <input
@@ -201,7 +270,9 @@ export function ExportPackageDialog({
         </label>
 
         <p className="mt-3 rounded border border-slate-800 bg-slate-950/70 px-2.5 py-2 text-[11px] leading-4 text-slate-400">
-          {t('dental.package.excluded')}
+          {caseContents === 'scan'
+            ? t('dental.package.excluded')
+            : 'The full native scan and optional analysis are saved together. Model weights and vendor software are excluded.'}
         </p>
 
         {status.state === 'done' ? (
@@ -227,7 +298,9 @@ export function ExportPackageDialog({
           ) : (
             <FileArchive className="h-4 w-4" aria-hidden="true" />
           )}
-          {status.state === 'packing' ? t('dental.package.packing') : t('dental.package.export')}
+          {status.state === 'packing'
+            ? t('dental.package.packing')
+            : t('dental.package.export')}
         </Button>
       </section>
     </div>

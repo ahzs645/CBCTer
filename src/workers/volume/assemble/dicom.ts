@@ -1,3 +1,4 @@
+import { displaySample } from '../../../lib/volume/native';
 import {
   parseEnhancedMultiframeDicom,
   parseImplicitLittleEndianDicom,
@@ -47,6 +48,10 @@ export async function assembleDicomVolume({
   const [width, height, depth] = meta.dimensions;
   const voxelsPerSlice = width * height;
   const voxels = new Int16Array(voxelsPerSlice * depth);
+  const nativeVoxels =
+    meta.nativeGeometry?.dtype === 'uint16'
+      ? new Uint16Array(voxels.length)
+      : new Int16Array(voxels.length);
   const slope = meta.nativeValueScale?.slope ?? 1;
   const intercept = meta.nativeValueScale?.intercept ?? 0;
 
@@ -91,9 +96,13 @@ export async function assembleDicomVolume({
               )
             : [sourceX, sourceY, sourceZ];
 
-          voxels[z * voxelsPerSlice + y * width + x] = Math.round(
-            raw * slope + intercept,
-          );
+          nativeVoxels[z * voxelsPerSlice + y * width + x] = raw;
+          voxels[z * voxelsPerSlice + y * width + x] = meta.nativeGeometry
+            ? displaySample(raw, meta.nativeGeometry)
+            : Math.max(
+                -32767,
+                Math.min(32767, Math.round(raw * slope + intercept)),
+              );
         }
       }
 
@@ -116,6 +125,9 @@ export async function assembleDicomVolume({
         scalarRange,
       },
       voxels,
+      ...(meta.nativeGeometry
+        ? { native: { voxels: nativeVoxels, metadata: meta.nativeGeometry } }
+        : {}),
       histogram: buildScalarHistogram(voxels, scalarRange),
     } satisfies LoadedVolume;
   }
@@ -142,7 +154,13 @@ export async function assembleDicomVolume({
         header.pixelRepresentation === 0
           ? view.getUint16(pixel * 2, true)
           : view.getInt16(pixel * 2, true);
-      voxels[offset + pixel] = Math.round(raw * slope + intercept);
+      nativeVoxels[offset + pixel] = raw;
+      voxels[offset + pixel] = meta.nativeGeometry
+        ? displaySample(raw, meta.nativeGeometry)
+        : Math.max(
+            -32767,
+            Math.min(32767, Math.round(raw * slope + intercept)),
+          );
     }
 
     post({
@@ -164,6 +182,9 @@ export async function assembleDicomVolume({
       scalarRange,
     },
     voxels,
+    ...(meta.nativeGeometry
+      ? { native: { voxels: nativeVoxels, metadata: meta.nativeGeometry } }
+      : {}),
     histogram: buildScalarHistogram(voxels, scalarRange),
   } satisfies LoadedVolume;
 }

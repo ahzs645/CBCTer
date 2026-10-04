@@ -28,6 +28,7 @@ self.onmessage = (event: MessageEvent<VolumeWorkerRequest>) => {
       scope.postMessage(message, [
         volume.voxels.buffer,
         volume.histogram.buffer,
+        ...(volume.native ? [volume.native.voxels.buffer] : []),
         prepared3D.voxels.buffer,
       ] as Transferable[]);
     },

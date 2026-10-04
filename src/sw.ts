@@ -156,7 +156,7 @@ async function cacheFirst(request: Request): Promise<Response> {
 
 sw.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET') return;
+  if (request.method !== 'GET' || request.headers.has('Range')) return;
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;

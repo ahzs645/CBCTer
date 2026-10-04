@@ -142,3 +142,7 @@ folder is only accepted from the parent window, and `VITE_HANDOFF_ORIGINS`
 (comma-separated) restricts which parent origins may send one. See
 `src/app/sources/embeddedHandoff.ts`. A zipped folder can also be opened
 directly with the folder picker's archive support.
+
+## Complete dental cases
+
+Use **Review teeth** for instance selection, FDI assignment, outline correction, split/merge and isolation. **Scan + analysis** exports the native scan together with masks, original predictions, notes, measurements and saved dental arches. See [dental case workflows and validation](docs/dental-case.md) for storage, alignment, desktop/mobile behavior and model requirements.

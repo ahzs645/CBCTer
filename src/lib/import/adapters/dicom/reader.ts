@@ -12,6 +12,8 @@ const UNDEFINED_LENGTH = 0xffffffff;
 
 const TAG_BITS_ALLOCATED = '00280100';
 const TAG_BITS_STORED = '00280101';
+const TAG_HIGH_BIT = '00280102';
+const TAG_PIXEL_PADDING = '00280120';
 const TAG_COLUMNS = '00280011';
 const TAG_IMAGE_ORIENTATION = '00200037';
 const TAG_IMAGE_POSITION = '00200032';
@@ -63,6 +65,8 @@ const LONG_VR = new Set([
 export interface DicomHeader {
   bitsAllocated: number;
   bitsStored: number;
+  highBit?: number;
+  paddingValue?: number;
   columns: number;
   framePositions?: Vec3[];
   imageOrientationPatient: [number, number, number, number, number, number];
@@ -489,6 +493,8 @@ export function parseEnhancedMultiframeDicom(
 
   let bitsAllocated = 16;
   let bitsStored = 16;
+  let highBit: number | undefined;
+  let paddingWord: number | undefined;
   let columns: number | undefined;
   const framePositions: Vec3[] = [];
   const imageOrientations: [number, number, number, number, number, number][] =
@@ -571,6 +577,12 @@ export function parseEnhancedMultiframeDicom(
           break;
         case TAG_BITS_STORED:
           bitsStored = readUint16Value(view, valueOffset, length) ?? bitsStored;
+          break;
+        case TAG_HIGH_BIT:
+          highBit = readUint16Value(view, valueOffset, length);
+          break;
+        case TAG_PIXEL_PADDING:
+          paddingWord = readUint16Value(view, valueOffset, length);
           break;
         case TAG_PIXEL_REPRESENTATION:
           pixelRepresentation =
@@ -684,6 +696,13 @@ export function parseEnhancedMultiframeDicom(
   return {
     bitsAllocated,
     bitsStored,
+    highBit: highBit ?? bitsStored - 1,
+    paddingValue:
+      paddingWord == null
+        ? undefined
+        : pixelRepresentation === 1 && paddingWord >= 32768
+          ? paddingWord - 65536
+          : paddingWord,
     columns,
     framePositions,
     imageOrientationPatient,
@@ -736,6 +755,8 @@ export function parseImplicitLittleEndianDicom(
 
   let bitsAllocated = 16;
   let bitsStored = 16;
+  let highBit: number | undefined;
+  let paddingWord: number | undefined;
   let columns: number | undefined;
   let imageOrientationPatient:
     | [number, number, number, number, number, number]
@@ -790,6 +811,10 @@ export function parseImplicitLittleEndianDicom(
       bitsAllocated = readUint16Value(view, offset, length) ?? bitsAllocated;
     else if (tag === TAG_BITS_STORED)
       bitsStored = readUint16Value(view, offset, length) ?? bitsStored;
+    else if (tag === TAG_HIGH_BIT)
+      highBit = readUint16Value(view, offset, length);
+    else if (tag === TAG_PIXEL_PADDING)
+      paddingWord = readUint16Value(view, offset, length);
     else if (tag === TAG_PIXEL_REPRESENTATION)
       pixelRepresentation =
         readUint16Value(view, offset, length) ?? pixelRepresentation;
@@ -888,6 +913,13 @@ export function parseImplicitLittleEndianDicom(
   return {
     bitsAllocated,
     bitsStored,
+    highBit: highBit ?? bitsStored - 1,
+    paddingValue:
+      paddingWord == null
+        ? undefined
+        : pixelRepresentation === 1 && paddingWord >= 32768
+          ? paddingWord - 65536
+          : paddingWord,
     columns,
     imageOrientationPatient,
     imagePositionPatient,

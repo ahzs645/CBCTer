@@ -70,8 +70,8 @@ export function ArchEditor({
     return () => observer.disconnect();
   }, []);
   const fitScale = Math.min(
-    frameSize.width / Math.max(1, width),
-    frameSize.height / Math.max(1, height),
+    frameSize.width / Math.max(0.001, width * sx),
+    frameSize.height / Math.max(0.001, height * sy),
   );
 
   // Paint the MIP into the canvas with the active window/level.
@@ -108,8 +108,17 @@ export function ArchEditor({
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
     return {
-      x: ((event.clientX - rect.left) / rect.width) * width,
-      y: ((event.clientY - rect.top) / rect.height) * height,
+      x: Math.max(
+        0,
+        Math.min(width - 1, ((event.clientX - rect.left) / rect.width) * width),
+      ),
+      y: Math.max(
+        0,
+        Math.min(
+          height - 1,
+          ((event.clientY - rect.top) / rect.height) * height,
+        ),
+      ),
     };
   };
 
@@ -186,61 +195,72 @@ export function ArchEditor({
   const handleRadius = Math.max(3, width * 0.012);
 
   return (
-    <div ref={frameRef} className="absolute inset-0 flex items-center justify-center">
     <div
-      className="relative"
-      style={{
-        width: Math.max(0, Math.floor(width * fitScale)),
-        height: Math.max(0, Math.floor(height * fitScale)),
-      }}
+      ref={frameRef}
+      className="absolute inset-0 flex items-center justify-center"
     >
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full bg-black"
-        style={{ imageRendering: 'auto' }}
-      />
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="absolute inset-0 h-full w-full touch-none"
-        onPointerDown={handleBackgroundDown}
-        onPointerMove={handleMove}
-        onPointerUp={handleUp}
-        onPointerCancel={handleUp}
-        onContextMenu={(e) => e.preventDefault()}
+      <div
+        className="relative"
+        style={{
+          width: Math.max(0, Math.floor(width * sx * fitScale)),
+          height: Math.max(0, Math.floor(height * sy * fitScale)),
+        }}
       >
-        {polyline ? (
-          <polyline
-            points={polyline}
-            fill="none"
-            stroke="#38bdf8"
-            strokeWidth={Math.max(1, width * 0.004)}
-            strokeOpacity={0.9}
-            vectorEffect="non-scaling-stroke"
-          />
-        ) : null}
-        {curve.controlPoints.map((p, i) => (
-          <g key={i} onPointerDown={handleHandleDown(i)} className="cursor-grab">
-            {/* Invisible ~44 px touch target around the visible handle. */}
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={Math.max(handleRadius * 2, 22 / Math.max(0.01, fitScale))}
-              fill="transparent"
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 h-full w-full bg-black"
+          style={{ imageRendering: 'auto' }}
+        />
+        <svg
+          ref={svgRef}
+          data-testid="dental-arch-editor"
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full touch-none"
+          onPointerDown={handleBackgroundDown}
+          onPointerMove={handleMove}
+          onPointerUp={handleUp}
+          onPointerCancel={handleUp}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {polyline ? (
+            <polyline
+              points={polyline}
+              fill="none"
+              stroke="#38bdf8"
+              strokeWidth={Math.max(1, width * 0.004)}
+              strokeOpacity={0.9}
+              vectorEffect="non-scaling-stroke"
             />
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={handleRadius}
-              fill={dragIndex === i ? '#f59e0b' : '#0ea5e9'}
-              stroke="#0b1220"
-              strokeWidth={Math.max(0.5, width * 0.0015)}
-            />
-          </g>
-        ))}
-      </svg>
-    </div>
+          ) : null}
+          {curve.controlPoints.map((p, i) => (
+            <g
+              key={i}
+              onPointerDown={handleHandleDown(i)}
+              className="cursor-grab"
+            >
+              {/* Invisible ~44 px touch target around the visible handle. */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={Math.max(
+                  handleRadius * 2,
+                  22 / Math.max(0.01, fitScale * Math.min(sx, sy)),
+                )}
+                fill="transparent"
+              />
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={handleRadius}
+                fill={dragIndex === i ? '#f59e0b' : '#0ea5e9'}
+                stroke="#0b1220"
+                strokeWidth={Math.max(0.5, width * 0.0015)}
+              />
+            </g>
+          ))}
+        </svg>
+      </div>
     </div>
   );
 }

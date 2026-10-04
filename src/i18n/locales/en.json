@@ -598,5 +598,28 @@
       "openHalf": "Switch to phone version (lighter)",
       "levelBadgeHalf": "phone version"
     }
+  },
+  "streaming": {
+    "close": "Close scan",
+    "advanced": "Load full volume for advanced tools",
+    "loadingFull": "Loading full volume…",
+    "loadingSlices": "Preview · loading full-resolution slices…",
+    "fullSlices": "Full-resolution slices",
+    "measure": "Measure",
+    "window": "Window",
+    "level": "Level",
+    "preview3d": "3D preview",
+    "advancedHint": "Segmentation, panoramic views and full-volume processing are available after loading the full volume.",
+    "exportFormat": "Package format",
+    "classic": "Classic · compatible with earlier versions",
+    "streamable": "Streamable · volume + preview",
+    "exportHint": "Preserves the complete native grid when available and opens a preview before loading full-resolution regions. Older packages retain their existing processed values.",
+    "tools": {
+      "off": "Navigate",
+      "distance": "Distance",
+      "angle": "Angle",
+      "ellipse": "Ellipse area",
+      "polygon": "Polygon area"
+    }
   }
 }

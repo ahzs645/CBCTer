@@ -43,7 +43,9 @@ const CONDITION_BY_ID = new Map(
 export function toothConditionDefinition(
   id: ToothCondition,
 ): ToothConditionDefinition {
-  return CONDITION_BY_ID.get(id) ?? TOOTH_CONDITIONS[TOOTH_CONDITIONS.length - 1];
+  return (
+    CONDITION_BY_ID.get(id) ?? TOOTH_CONDITIONS[TOOTH_CONDITIONS.length - 1]
+  );
 }
 
 export function toothName(fdi: number): string {
@@ -80,6 +82,7 @@ export function upsertToothFinding(
     conditions: existing?.conditions ?? [],
     note: existing?.note ?? '',
     point: existing?.point,
+    instanceId: existing?.instanceId,
     ...patch,
     updatedAt: now,
   };

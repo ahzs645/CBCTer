@@ -39,6 +39,8 @@ export function archAxesFromMeta(meta?: ParsedVolumeMeta): ArchAxes {
 }
 
 export interface ToothFdiOptions extends Partial<ArchAxes> {
+  /** Known arch midline origin, in full-volume XYZ voxel coordinates. */
+  archOrigin?:Vec3;
   /**
    * Which jaw the instances belong to. `'both'` splits them by the superior
    * axis (median) and numbers each jaw independently. Default `'both'`.
@@ -71,7 +73,7 @@ export function assignFdiToItems(
   const annotate = (indices: number[], jawSide: Jaw) => {
     const assigned = assignFdiNumbers(
       indices.map((index) => ({ position: itemPosition(items[index]) })),
-      { jaw: jawSide, leftAxis, anteriorAxis },
+      { jaw: jawSide, leftAxis, anteriorAxis,archOrigin:options.archOrigin },
     );
     indices.forEach((itemIndex, order) => {
       const a = assigned[order];

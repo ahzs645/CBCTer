@@ -100,6 +100,8 @@ export interface FdiFields {
 }
 
 export interface FdiOptions {
+  /** Known arch midline origin in the same frame as the centroids. Needed for a unilateral/partial arch; otherwise PCA uses the candidate mean. */
+  archOrigin?:Vec3;
   jaw: Jaw;
   /** Unit-ish axis pointing to the patient's LEFT. Defaults to PCA axis 0. */
   leftAxis?: Vec3;
@@ -188,7 +190,7 @@ export function assignFdiNumbers<T extends ToothInput>(
 
   // Project each tooth onto the left↔right and anterior↔posterior axes.
   const projected: ProjectedTooth[] = teeth.map((tooth, index) => {
-    const d = subtract(tooth.position, principal.center);
+    const d = subtract(tooth.position, options.archOrigin??principal.center);
     const lr = dot(d, left);
     const ap = dot(d, anterior);
     return { index, lr, ap };

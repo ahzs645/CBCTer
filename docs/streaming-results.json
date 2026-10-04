@@ -1,0 +1,93 @@
+{
+  "measuredAt": "2026-10-04",
+  "baseCommit": "8a97dbfd791b89291d693512ee6d8f61126952ef",
+  "environment": "Linux Node / Chromium 148 headless, software rendering, localhost HTTP ranges, one run per case; phone viewport emulation",
+  "packages": [
+    {
+      "name": "onevolume",
+      "dimensions": [
+        341,
+        341,
+        344
+      ],
+      "nativeBytes": 80001328,
+      "packageBytes": 59550213,
+      "chunks": 216,
+      "encodeMs": 3790.627612999997,
+      "roiMs": 53.7472259999995,
+      "roiBytes": 3441368,
+      "decodeMs": 973.8546669999996,
+      "sha256": "3d833e4447700727d435f3c7d751ac826721e73378c9a7dd2a3bb1666a383c1e",
+      "chunkBytes": 52703154,
+      "previewCompressedBytes": 6813116
+    },
+    {
+      "name": "sidexis",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "nativeBytes": 268435456,
+      "packageBytes": 184465612,
+      "chunks": 512,
+      "encodeMs": 13550.794890000001,
+      "roiMs": 71.6424760000009,
+      "roiBytes": 2530123,
+      "decodeMs": 4749.333347,
+      "sha256": "e5c022d44347e61b1e090b0275c179c060f947b1b55549fbcdf4635d1a5ad9f3",
+      "chunkBytes": 160012861,
+      "previewCompressedBytes": 24371488
+    }
+  ],
+  "browsers": [
+    {
+      "name": "onevolume",
+      "mobile": false,
+      "previewMs": 1540,
+      "firstNativeMs": 2352,
+      "firstBytes": 34898720,
+      "firstHttpBytes": 34988750,
+      "packageBytes": 59550213,
+      "cacheBytes": 61811840,
+      "cacheLimit": 67108864,
+      "afterScrubBytes": 49561356
+    },
+    {
+      "name": "onevolume",
+      "mobile": true,
+      "previewMs": 1451,
+      "firstNativeMs": 1487,
+      "firstBytes": 16707108,
+      "firstHttpBytes": 16797138,
+      "packageBytes": 59550213,
+      "cacheBytes": 31038592,
+      "cacheLimit": 33554432,
+      "afterScrubBytes": 25666122
+    },
+    {
+      "name": "sidexis",
+      "mobile": false,
+      "previewMs": 3242,
+      "firstNativeMs": 5069,
+      "firstBytes": 78537857,
+      "firstHttpBytes": 78662183,
+      "packageBytes": 184465612,
+      "cacheBytes": 67108864,
+      "cacheLimit": 67108864,
+      "afterScrubBytes": 111004035
+    },
+    {
+      "name": "sidexis",
+      "mobile": true,
+      "previewMs": 3018,
+      "firstNativeMs": 3829,
+      "firstBytes": 44867798,
+      "firstHttpBytes": 44992124,
+      "packageBytes": 184465612,
+      "cacheBytes": 33554432,
+      "cacheLimit": 33554432,
+      "afterScrubBytes": 77526197
+    }
+  ]
+}

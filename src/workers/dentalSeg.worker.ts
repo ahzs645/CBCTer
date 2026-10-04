@@ -1,3 +1,4 @@
+import { sha256 } from '../lib/import/chunked/codec';
 /// <reference lib="webworker" />
 import * as ort from 'onnxruntime-web';
 import type { Vec3 } from '../types';
@@ -57,18 +58,39 @@ export type DentalSegResponse =
       labelmap: ArrayBuffer;
       dims: [number, number, number];
       spacing: Vec3;
+      weightsSha256: string;
     }
   | { type: 'error'; message: string };
 
 // One ONNX session per model file (variants share the worker but not weights).
-const sessions = new Map<string, Promise<ort.InferenceSession>>();
+const sessions = new Map<
+  string,
+  Promise<{ session: ort.InferenceSession; hash: string }>
+>();
 
-function getSession(modelFile: string): Promise<ort.InferenceSession> {
+function getSession(
+  modelFile: string,
+): Promise<{ session: ort.InferenceSession; hash: string }> {
   let session = sessions.get(modelFile);
   if (!session) {
-    session = ort.InferenceSession.create(modelUrl(modelFile), {
-      executionProviders,
-    });
+    session = (async () => {
+      const response = await fetch(modelUrl(modelFile));
+      if (
+        !response.ok ||
+        response.headers.get('content-type')?.includes('text/html')
+      )
+        throw new Error(
+          'Model weights are unavailable. Install the selected model.',
+        );
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const hash = await sha256(bytes);
+      return {
+        session: await ort.InferenceSession.create(bytes, {
+          executionProviders,
+        }),
+        hash,
+      };
+    })();
     sessions.set(modelFile, session);
   }
   return session;
@@ -78,7 +100,7 @@ async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
   const variant = getDentalSegVariant(
     request.variant ?? DEFAULT_DENTAL_SEG_VARIANT,
   );
-  const session = await getSession(variant.modelFile);
+  const { session, hash } = await getSession(variant.modelFile);
   // Int16 HU voxels (half the transfer/memory of Float32); resampled to Float32
   // at the much smaller model grid inside runDentalSegmentation.
   const source = new Int16Array(request.data);
@@ -111,6 +133,7 @@ async function segment(request: DentalSegRequest): Promise<DentalSegResponse> {
 
   return {
     type: 'result',
+    weightsSha256: hash,
     labelmap: result.labelmap.buffer as ArrayBuffer,
     dims: result.dims,
     spacing: result.spacing,

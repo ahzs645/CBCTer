@@ -13,9 +13,43 @@ import {
  * the volume open in the viewer stays intact.
  */
 export function packScanPackage(
-  volume: Pick<LoadedVolume, 'voxels' | 'meta'>,
+  volume: Pick<LoadedVolume, 'voxels' | 'meta' | 'native'>,
   options: ScanPackageOptions,
-): Promise<{ blob: Blob; manifest: ScanPackageManifest }> {
+): Promise<{
+  blob: Blob;
+  manifest: ScanPackageManifest | import('./chunked/manifest').ChunkedManifest;
+}> {
+  if (options.analysis && options.storage !== 'streamable')
+    return Promise.reject(
+      new Error('Scan + analysis uses the streamable package format.'),
+    );
+  if (options.storage === 'streamable') {
+    const worker = new Worker(
+      new URL('../../workers/packageExport.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    return new Promise((resolve, reject) => {
+      worker.onmessage = (event) => {
+        worker.terminate();
+        if (event.data.error) reject(new Error(event.data.error));
+        else resolve(event.data);
+      };
+      worker.onerror = (event) => {
+        worker.terminate();
+        reject(new Error(event.message || 'Package export worker failed.'));
+      };
+      worker.postMessage({
+        volume: {
+          // The native writer derives its preview from raw words; avoid cloning
+          // the additional dense display volume into the export worker.
+          voxels: volume.native ? new Int16Array() : volume.voxels,
+          meta: volume.meta,
+          native: volume.native,
+        },
+        options,
+      });
+    });
+  }
   const { files, manifest } = buildScanPackageFiles(volume, options);
   const zippable: AsyncZippable = {};
   for (const [name, data] of Object.entries(files)) {
@@ -29,7 +63,9 @@ export function packScanPackage(
         return;
       }
       resolve({
-        blob: new Blob([data as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
+        blob: new Blob([data as Uint8Array<ArrayBuffer>], {
+          type: 'application/zip',
+        }),
         manifest,
       });
     });

@@ -69,6 +69,12 @@ function buildOneVolumeMeta(
     }),
     dimensions,
     sourceDimensions,
+    nativeGeometry: {
+      dimensions: sourceDimensions, spacing, dtype: 'int16', bitsStored: 16,
+      paddingValue: -32768, origin: [xMin * spacing[0], yMin * spacing[1], zMin * spacing[2]],
+      direction: [[1,0,0],[0,1,0],[0,0,1]], coordinateSystem: 'vendor', representation: 'native',
+      calibration: {divisor: 1000, slope, intercept},
+    },
     sourceOffset: crop?.offset,
     spacing,
     scalarRange: [scalarMin, scalarMax],
