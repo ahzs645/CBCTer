@@ -50,6 +50,65 @@ async function exportCase(page: Page, path: string, mobile: boolean) {
   await (await download).saveAs(path);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 }
+test('an embedding app hands off a complete case and preserves its analysis', async ({
+  page,
+}) => {
+  const scanBytes = [...(await readFile(fixturePath))];
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate((bytes) => {
+    const frame = document.createElement('iframe');
+    frame.title = 'Embedded CBCTer';
+    frame.style.cssText = 'width:100%;height:880px;border:0';
+    window.addEventListener('message', function handoff(event) {
+      if (
+        event.source !== frame.contentWindow ||
+        event.data?.type !== 'cbcter:ready'
+      )
+        return;
+      frame.contentWindow?.postMessage(
+        {
+          type: 'cbcter:scan-folder',
+          protocol: 1,
+          label: 'Shared synthetic case',
+          entries: [
+            {
+              name: 'shared.cbct.zip',
+              relativePath: 'shared.cbct.zip',
+              file: new File([new Uint8Array(bytes)], 'shared.cbct.zip', {
+                type: 'application/zip',
+              }),
+            },
+          ],
+        },
+        window.location.origin,
+      );
+      window.removeEventListener('message', handoff);
+    });
+    frame.src = '/?handoff=postmessage';
+    document.body.replaceChildren(frame);
+  }, scanBytes);
+  const viewer = page.frameLocator('iframe[title="Embedded CBCTer"]');
+  await expect(viewer.getByTestId('progressive-viewer')).toBeVisible();
+  await expect(viewer.getByTestId('streaming-status')).toHaveText(
+    'Full-resolution slices',
+  );
+  await expect(viewer.getByLabel('Selected tooth instance')).toContainText(
+    'FDI 11',
+  );
+  await viewer.getByRole('button', { name: 'Review and export case' }).click();
+  await viewer
+    .getByRole('button', { name: 'Review teeth', exact: true })
+    .click();
+  await expect(
+    viewer
+      .getByRole('region', { name: 'Tooth review' })
+      .getByLabel('Selected tooth instance'),
+  ).toContainText('FDI 21');
+  expect(errors).toEqual([]);
+});
+
 for (const mobile of [false, true]) {
   test.describe(mobile ? 'touch case' : 'desktop case', () => {
     test.use({
@@ -263,10 +322,27 @@ for (const mobile of [false, true]) {
       await expect(
         panel.getByRole('button', { name: 'Regenerate tooth 3D surface' }),
       ).toBeEnabled();
-      await panel.getByRole('button',{name:'Draw a new tooth outline'}).click();
-      const manualCanvas=page.locator('canvas[data-slice-canvas="axial"]'),manualBox=await manualCanvas.boundingBox();if(!manualBox)throw new Error('No manual edit canvas');
-      if(mobile)await page.touchscreen.tap(manualBox.x+manualBox.width*10/69,manualBox.y+manualBox.height*10/37);else await page.mouse.click(manualBox.x+manualBox.width*10/69,manualBox.y+manualBox.height*10/37);
-      await page.keyboard.press('Escape');await page.getByRole('button',{name:'Review teeth',exact:true}).click();await panel.getByLabel('FDI number').selectOption('13');
+      await panel
+        .getByRole('button', { name: 'Draw a new tooth outline' })
+        .click();
+      const manualCanvas = page.locator('canvas[data-slice-canvas="axial"]'),
+        manualBox = await manualCanvas.boundingBox();
+      if (!manualBox) throw new Error('No manual edit canvas');
+      if (mobile)
+        await page.touchscreen.tap(
+          manualBox.x + (manualBox.width * 10) / 69,
+          manualBox.y + (manualBox.height * 10) / 37,
+        );
+      else
+        await page.mouse.click(
+          manualBox.x + (manualBox.width * 10) / 69,
+          manualBox.y + (manualBox.height * 10) / 37,
+        );
+      await page.keyboard.press('Escape');
+      await page
+        .getByRole('button', { name: 'Review teeth', exact: true })
+        .click();
+      await panel.getByLabel('FDI number').selectOption('13');
       await panel.getByRole('button', { name: 'Close tooth review' }).click();
       await page
         .getByRole('button', { name: 'Save case locally', exact: true })
@@ -343,7 +419,11 @@ for (const mobile of [false, true]) {
         }),
         metadata = await readCaseMetadata(reader),
         workspace = await readCaseWorkspace(reader, metadata!);
-      expect(workspace.state.toothInstances!.some(t=>t.fdi===13&&t.source==='manual')).toBe(true);
+      expect(
+        workspace.state.toothInstances!.some(
+          (t) => t.fdi === 13 && t.source === 'manual',
+        ),
+      ).toBe(true);
       expect(workspace.surfaces).toHaveLength(1);
       expect(workspace.predictions).toHaveLength(2);
       expect(await sha256(workspace.predictions![0].data)).toBe(predictionHash);

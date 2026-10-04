@@ -4,6 +4,14 @@ _Drafted: 2026-07-25. Companion to `fdi-model-scorecard.md` (results),
 `yolo-pipeline.md` (how the shipping path works), and `browser-fdi-ideas.md`
 (idea bank). This doc is the sequenced, gated version of that idea bank._
 
+> Integration status: this is a research proposal, not a record of completed
+> experiments. Performance figures below refer to the earlier scorecard and
+> specific samples; they are not general accuracy guarantees. The current
+> case workflow supports reviewed stable tooth instances, manual corrections
+> and watershed separation. Full/pediatric/universal anatomy weights are not
+> bundled in this checkout. See [dental-case.md](dental-case.md) for the current
+> implementation, validated export behavior and remaining model/device checks.
+
 ## Where we actually are
 
 The 2.5D change (commit `19d8bc9`) maps `z-2, z, z+2` onto the RGB channels of
