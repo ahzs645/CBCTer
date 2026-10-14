@@ -24,3 +24,20 @@ export function localToothName(t: TFunction, fdi: number): string {
   });
   return primary ? t('dental.toothNames.primary', { name }) : name;
 }
+
+/**
+ * Translated short label for an outline. In English it reads exactly like
+ * `toothLabel()` from `lib/case/toothSelection`: "Tooth 12", or
+ * "Unnumbered 3" for an outline without a number.
+ */
+export function localToothLabel(
+  t: TFunction,
+  tooth: { fdi: number | null; value: number },
+  index?: number,
+): string {
+  return tooth.fdi
+    ? t('dental.toothNames.unknown', { fdi: tooth.fdi })
+    : t('dental.toothNames.unnumbered', {
+        n: index === undefined ? tooth.value : index + 1,
+      });
+}

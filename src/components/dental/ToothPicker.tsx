@@ -1,14 +1,15 @@
 import { Check, Download, X } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from '../../i18n';
 import type { ToothInstance } from '../../lib/case/types';
 import {
   TOOTH_GROUPS,
   mirrorFdi,
-  toothLabel,
   type ToothGroupId,
 } from '../../lib/case/toothSelection';
-import { PERMANENT_CHART_ROWS, toothName } from '../../lib/dental/toothChart';
+import { PERMANENT_CHART_ROWS } from '../../lib/dental/toothChart';
 import { cn } from '../../utils/cn';
+import { localToothLabel, localToothName } from './toothNames';
 
 export type ToothShowMode = 'all' | 'selected' | 'hide-teeth';
 
@@ -43,6 +44,8 @@ export function ToothArchGrid({
   touch?: boolean;
   onSelect: (id: string, additive: boolean) => void;
 }) {
+  const { t: tr } = useTranslation();
+  const toothName = (fdi: number) => localToothName(tr, fdi);
   const shown = (t: ToothInstance) => (swapSides ? mirrorFdi(t.fdi) : t.fdi);
   const byFdi = new Map<number, ToothInstance>();
   // Outlines without a number, or sharing one with another outline, are listed
@@ -68,7 +71,11 @@ export function ToothArchGrid({
       return (
         <span
           key={`empty-${fdi}`}
-          title={fdi ? `${fdi} ${toothName(fdi)}: no outline` : undefined}
+          title={
+            fdi
+              ? tr('dental.picker.noOutline', { fdi, name: toothName(fdi) })
+              : undefined
+          }
           className={cn(
             'flex min-w-0 items-center justify-center rounded border border-dashed border-slate-800 font-mono text-slate-600',
             touch ? 'h-9 text-[11px]' : 'h-7 text-[10px]',
@@ -83,8 +90,9 @@ export function ToothArchGrid({
         key={t.id}
         type="button"
         aria-pressed={isSelected}
+        // The raw review state stays in the accessible name; tests match it.
         aria-label={`${label}${fdi ? ` ${toothName(fdi)}` : ''}, ${t.review}`}
-        title={`${label}${fdi ? ` · ${toothName(fdi)}` : ''} · ${t.review}`}
+        title={`${label}${fdi ? ` · ${toothName(fdi)}` : ''} · ${tr(`dental.reviewState.${t.review}`)}`}
         onClick={(event) =>
           onSelect(
             t.id,
@@ -125,31 +133,39 @@ export function ToothArchGrid({
             index === 8 && 'border-l-2 border-slate-500 pl-px',
           )}
         >
-          {cell(fdi, byFdi.get(fdi), `Tooth ${fdi}`)}
+          {cell(fdi, byFdi.get(fdi), tr('dental.toothNames.unknown', { fdi }))}
         </div>
       ))}
     </div>
   );
   return (
-    <div className="space-y-1" role="group" aria-label="Teeth">
+    <div
+      className="space-y-1"
+      role="group"
+      aria-label={tr('dental.picker.teeth')}
+    >
       <div className="flex justify-between text-[10px] uppercase tracking-wide text-slate-400">
-        <span>Patient right</span>
-        <span>Upper</span>
-        <span>Patient left</span>
+        <span>{tr('dental.picker.patientRight')}</span>
+        <span>{tr('dental.chart.upper')}</span>
+        <span>{tr('dental.picker.patientLeft')}</span>
       </div>
       {row(PERMANENT_CHART_ROWS.upper)}
       {row(PERMANENT_CHART_ROWS.lower)}
       <div className="text-center text-[10px] uppercase tracking-wide text-slate-400">
-        Lower
+        {tr('dental.chart.lower')}
       </div>
       {extras.length ? (
         <div className="flex flex-wrap items-center gap-1 pt-1 text-[11px] text-slate-400">
-          <span>Unnumbered or duplicate:</span>
+          <span>{tr('dental.picker.extras')}</span>
           {extras.map((t, i) => (
             <span key={t.id} className="w-9">
               {shown(t)
-                ? cell(shown(t), t, `Tooth ${shown(t)} (duplicate)`)
-                : cell(null, t, toothLabel({ ...t, fdi: null }, i))}
+                ? cell(
+                    shown(t),
+                    t,
+                    tr('dental.picker.duplicate', { fdi: shown(t) }),
+                  )
+                : cell(null, t, localToothLabel(tr, { ...t, fdi: null }, i))}
             </span>
           ))}
         </div>
@@ -168,13 +184,15 @@ export function ToothGroupChips({
   onPick: (group: ToothGroupId) => void;
   available: (group: ToothGroupId) => number;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex flex-wrap gap-1.5"
-      aria-label="Select a group of teeth"
+      aria-label={t('dental.picker.groupsLabel')}
     >
       {TOOTH_GROUPS.map((g) => {
         const count = available(g.id);
+        const label = t(`dental.picker.groups.${g.id}`);
         return (
           <button
             key={g.id}
@@ -182,9 +200,9 @@ export function ToothGroupChips({
             className={chip}
             disabled={!count}
             onClick={() => onPick(g.id)}
-            title={`${g.label}: ${count} teeth`}
+            title={t('dental.picker.groupTitle', { group: label, count })}
           >
-            {g.label}
+            {label}
           </button>
         );
       })}
@@ -204,16 +222,17 @@ export function ToothShowControl({
   hasSelection: boolean;
   onChange: (mode: ToothShowMode) => void;
 }) {
+  const { t } = useTranslation();
   const options: Array<[ToothShowMode, string]> = [
-    ['all', 'Show all'],
-    ['selected', 'Only selected'],
-    ['hide-teeth', 'Hide teeth'],
+    ['all', t('dental.picker.showAll')],
+    ['selected', t('dental.picker.onlySelected')],
+    ['hide-teeth', t('dental.picker.hideTeeth')],
   ];
   return (
     <div
       className="flex gap-0.5 rounded-md border border-slate-700 bg-slate-950 p-0.5"
       role="group"
-      aria-label="Show"
+      aria-label={t('dental.picker.show')}
     >
       {options.map(([value, label]) => (
         <button
@@ -256,6 +275,7 @@ export function ToothModelExportForm({
   status: string;
   onExport: (request: ToothModelRequest) => void;
 }) {
+  const { t } = useTranslation();
   const [crownOnly, setCrownOnly] = useState(true);
   const [gumOffsetMm, setGumOffsetMm] = useState(2);
   const [archModel, setArchModel] = useState(true);
@@ -266,7 +286,7 @@ export function ToothModelExportForm({
       <div
         className="flex gap-0.5 rounded-md border border-slate-700 bg-slate-950 p-0.5"
         role="group"
-        aria-label="Model shape"
+        aria-label={t('dental.picker.modelShape')}
       >
         <button
           type="button"
@@ -274,7 +294,7 @@ export function ToothModelExportForm({
           aria-pressed={crownOnly}
           onClick={() => setCrownOnly(true)}
         >
-          Crowns above gumline
+          {t('dental.picker.crowns')}
         </button>
         <button
           type="button"
@@ -282,14 +302,16 @@ export function ToothModelExportForm({
           aria-pressed={!crownOnly}
           onClick={() => setCrownOnly(false)}
         >
-          Whole teeth with roots
+          {t('dental.picker.wholeTeeth')}
         </button>
       </div>
       {crownOnly ? (
         <label className="block">
           <span className="flex justify-between">
-            <span>Gumline above bone crest</span>
-            <span className="font-mono">{gumOffsetMm.toFixed(1)} mm</span>
+            <span>{t('dental.picker.gumOffset')}</span>
+            <span className="font-mono">
+              {t('dental.units.mm', { value: gumOffsetMm.toFixed(1) })}
+            </span>
           </span>
           <input
             type="range"
@@ -297,7 +319,7 @@ export function ToothModelExportForm({
             max={4}
             step={0.5}
             value={gumOffsetMm}
-            aria-label="Gumline above bone crest (mm)"
+            aria-label={t('dental.picker.gumOffsetLabel')}
             onChange={(e) => setGumOffsetMm(Number(e.target.value))}
             className="h-6 w-full accent-sky-400"
           />
@@ -311,17 +333,17 @@ export function ToothModelExportForm({
             checked={archModel}
             onChange={(e) => setArchModel(e.target.checked)}
           />
-          <span className="flex-1">Printable model on a base</span>
+          <span className="flex-1">{t('dental.picker.archModel')}</span>
           {archModel ? (
             <select
-              aria-label="Base height"
+              aria-label={t('dental.picker.baseHeight')}
               className="rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-xs"
               value={baseHeightMm}
               onChange={(e) => setBaseHeightMm(Number(e.target.value))}
             >
               {[5, 8, 12, 15].map((mm) => (
                 <option key={mm} value={mm}>
-                  {mm} mm base
+                  {t('dental.picker.base', { mm })}
                 </option>
               ))}
             </select>
@@ -336,8 +358,10 @@ export function ToothModelExportForm({
           onChange={(e) => setSmaller(e.target.checked)}
         />
         <span className="flex-1">
-          Smaller files{' '}
-          <span className="text-slate-400">(simplified, still printable)</span>
+          {t('dental.picker.smaller')}{' '}
+          <span className="text-slate-400">
+            {t('dental.picker.smallerDetail')}
+          </span>
         </span>
       </label>
       <button
@@ -356,8 +380,8 @@ export function ToothModelExportForm({
       >
         <Download className="h-3.5 w-3.5" aria-hidden="true" />
         {busy
-          ? 'Building model…'
-          : `Export ${count} ${count === 1 ? 'tooth' : 'teeth'} as STL`}
+          ? t('dental.picker.building')
+          : t('dental.picker.export', { count })}
       </button>
       {status ? (
         <p role="status" className="text-slate-300">
@@ -365,10 +389,7 @@ export function ToothModelExportForm({
         </p>
       ) : null}
       <p className="text-[11px] leading-snug text-slate-400">
-        CBCT shows gums poorly, so the gumline is estimated from the bone. CBCT
-        crowns are less exact than an intraoral scan, and teeth can move after
-        the scan. Use the model as a reference for your orthodontist or lab, not
-        as a direct replacement for a new scan.
+        {t('dental.picker.disclaimer')}
       </p>
     </div>
   );

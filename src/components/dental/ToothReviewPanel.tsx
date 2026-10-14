@@ -4,6 +4,7 @@ import {
   type DentalSegVariantId,
 } from '../../lib/segmentation/dentalSegVariants';
 import { useState } from 'react';
+import { useTranslation } from '../../i18n';
 import type { StudyState } from '../../domain/types';
 import type { ToothInstance } from '../../lib/case/types';
 import { FDI_NUMBERS } from '../../lib/case/teeth';
@@ -11,7 +12,6 @@ import {
   archOrder,
   selectionIds,
   teethInGroup,
-  toothLabel,
   type ToothGroupId,
 } from '../../lib/case/toothSelection';
 import {
@@ -21,6 +21,7 @@ import {
   ToothShowControl,
   type ToothModelRequest,
 } from './ToothPicker';
+import { localToothLabel } from './toothNames';
 interface Props {
   state: StudyState;
   busy: boolean;
@@ -80,6 +81,12 @@ const heading =
  * separate a mask) sit in a collapsed section below.
  */
 export function ToothReviewPanel(p: Props) {
+  const { t } = useTranslation();
+  const toothLabel = (tooth: ToothInstance) => localToothLabel(t, tooth);
+  const optionName = (tooth: ToothInstance, i: number) =>
+    tooth.fdi
+      ? t('dental.review.fdi', { fdi: tooth.fdi })
+      : t('dental.review.unassignedN', { n: i + 1 });
   const teeth = p.state.toothInstances ?? [],
     selected = teeth.find((t) => t.id === p.state.selectedInstanceId);
   const chosen = selectionIds(p.state);
@@ -113,7 +120,7 @@ export function ToothReviewPanel(p: Props) {
   return (
     <aside
       role="region"
-      aria-label="Tooth review"
+      aria-label={t('dental.review.region')}
       className={
         p.docked
           ? 'h-full space-y-2.5 overflow-y-auto bg-slate-900 p-3'
@@ -122,19 +129,22 @@ export function ToothReviewPanel(p: Props) {
     >
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="font-semibold">Review teeth</h2>
+          <h2 className="font-semibold">{t('dental.review.title')}</h2>
           {teeth.length ? (
             <p className="text-xs text-slate-400">
-              {reviewed} of {teeth.length} reviewed
+              {t('dental.review.progress', {
+                reviewed,
+                total: teeth.length,
+              })}
             </p>
           ) : null}
         </div>
         <button
           className={button}
           onClick={p.onClose}
-          aria-label="Close tooth review"
+          aria-label={t('dental.review.closeLabel')}
         >
-          Close
+          {t('dental.review.close')}
         </button>
       </div>
       {teeth.length ? (
@@ -155,22 +165,24 @@ export function ToothReviewPanel(p: Props) {
       )}
       {p.mirrored ? (
         <div className="rounded border border-amber-400/40 bg-amber-950/40 p-2 text-xs text-amber-100">
-          Left and right numbers look swapped: most teeth sit on the opposite
-          side of the midline from their number. Check a tooth you know first.
+          {t('dental.review.mirrored')}
           <button className={`${button} mt-2 block`} onClick={p.onSwapSides}>
-            Swap left and right numbers
+            {t('dental.review.swap')}
           </button>
         </div>
       ) : null}
       {p.splits?.length ? (
         <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
-          <p>Cut in two by the model (the parts share a large surface):</p>
+          <p>{t('dental.review.splits')}</p>
           <ul className="mt-1 space-y-0.5">
             {p.splits.map(({ a, b, sharedMm2 }) => (
               <li key={`${a.id}-${b.id}`} className="flex items-center gap-2">
                 <span className="flex-1">
-                  {toothLabel(a)} + {toothLabel(b)} · {Math.round(sharedMm2)}{' '}
-                  mm²
+                  {t('dental.review.splitPair', {
+                    a: toothLabel(a),
+                    b: toothLabel(b),
+                    area: Math.round(sharedMm2),
+                  })}
                 </span>
                 {p.onMergePair ? (
                   <button
@@ -182,7 +194,7 @@ export function ToothReviewPanel(p: Props) {
                         : p.onMergePair!(b.id, a.id)
                     }
                   >
-                    Merge
+                    {t('dental.review.merge')}
                   </button>
                 ) : null}
               </li>
@@ -194,8 +206,10 @@ export function ToothReviewPanel(p: Props) {
         <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
           {p.overlaps.map(([a, b]) => (
             <p key={`${a.id}-${b.id}`}>
-              {toothLabel(a)} and {toothLabel(b)} overlap: probably one tooth
-              split in two. Select one, then merge the other into it.
+              {t('dental.review.overlap', {
+                a: toothLabel(a),
+                b: toothLabel(b),
+              })}
             </p>
           ))}
         </div>
@@ -212,32 +226,35 @@ export function ToothReviewPanel(p: Props) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              aria-label="Previous tooth"
+              aria-label={t('dental.review.previous')}
               className={button}
               onClick={() => step(-1)}
             >
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </button>
             <label className="min-w-0 flex-1">
-              <span className="sr-only">Selected tooth</span>
+              <span className="sr-only">{t('dental.review.selected')}</span>
               <select
                 className={field}
-                aria-label="Selected tooth instance"
+                aria-label={t('dental.review.selectedInstance')}
                 value={selected?.id ?? ''}
                 onChange={(e) => p.onSelect(e.target.value)}
               >
-                <option value="">Select a tooth</option>
-                {teeth.map((t, i) => (
-                  <option key={t.id} value={t.id}>
-                    {t.fdi ? `FDI ${t.fdi}` : `Unassigned ${i + 1}`} ·{' '}
-                    {t.review} · {t.voxelCount} voxels
+                <option value="">{t('dental.review.selectPlaceholder')}</option>
+                {teeth.map((tooth, i) => (
+                  <option key={tooth.id} value={tooth.id}>
+                    {t('dental.review.option', {
+                      name: optionName(tooth, i),
+                      review: t(`dental.reviewState.${tooth.review}`),
+                      voxels: tooth.voxelCount,
+                    })}
                   </option>
                 ))}
               </select>
             </label>
             <button
               type="button"
-              aria-label="Next tooth"
+              aria-label={t('dental.review.next')}
               className={button}
               onClick={() => step(1)}
             >
@@ -251,7 +268,7 @@ export function ToothReviewPanel(p: Props) {
               checked={multi}
               onChange={(e) => setMulti(e.target.checked)}
             />
-            Select several (or Ctrl/⌘-click)
+            {t('dental.review.multi')}
           </label>
           <ToothGroupChips
             available={(group) => teethInGroup(teeth, group).length}
@@ -263,7 +280,8 @@ export function ToothReviewPanel(p: Props) {
         <section className="grid gap-2">
           <div className="flex items-center gap-2">
             <h3 className={`${heading} flex-1`}>
-              {toothLabel(selected)} · {selected.review}
+              {toothLabel(selected)} ·{' '}
+              {t(`dental.reviewState.${selected.review}`)}
             </h3>
             {p.onFocus ? (
               <button
@@ -271,7 +289,7 @@ export function ToothReviewPanel(p: Props) {
                 className={`${button} border-sky-500/60`}
                 onClick={() => p.onFocus!(selected.id)}
               >
-                Focus on this tooth
+                {t('dental.review.focus')}
               </button>
             ) : null}
           </div>
@@ -279,27 +297,27 @@ export function ToothReviewPanel(p: Props) {
             <button
               className={`${button} border-emerald-500/50`}
               onClick={acceptAndNext}
-              title="Accept this outline and go to the next unreviewed tooth"
+              title={t('dental.review.acceptNextTitle')}
             >
-              Accept &amp; next
+              {t('dental.review.acceptNext')}
             </button>
             <button
               className={button}
               onClick={() => p.onChange(selected.id, { review: 'accepted' })}
             >
-              Accept outline
+              {t('dental.review.accept')}
             </button>
             <button
               className={button}
               onClick={() => p.onChange(selected.id, { review: 'rejected' })}
             >
-              Reject outline
+              {t('dental.review.reject')}
             </button>
             <label className="text-xs">
-              <span className="sr-only">FDI number</span>
+              <span className="sr-only">{t('dental.review.fdiNumber')}</span>
               <select
                 className={field}
-                aria-label="FDI number"
+                aria-label={t('dental.review.fdiNumber')}
                 value={selected.fdi ?? ''}
                 onChange={(e) =>
                   p.onChange(selected.id, {
@@ -307,7 +325,7 @@ export function ToothReviewPanel(p: Props) {
                   })
                 }
               >
-                <option value="">Unassigned</option>
+                <option value="">{t('dental.review.unassigned')}</option>
                 {FDI_NUMBERS.map((n) => (
                   <option key={n} value={n}>
                     {n}
@@ -318,49 +336,49 @@ export function ToothReviewPanel(p: Props) {
           </div>
           <details>
             <summary className="cursor-pointer py-1.5 text-xs">
-              Fix the outline
+              {t('dental.review.fix')}
             </summary>
             <div className="grid gap-2">
               <div className="grid grid-cols-2 gap-2">
                 <button className={button} onClick={() => p.onCorrect(false)}>
-                  Correct outline
+                  {t('dental.review.correct')}
                 </button>
                 <button className={button} onClick={() => p.onCorrect(true)}>
-                  Erase outline
+                  {t('dental.review.erase')}
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <select
                   className={field}
-                  aria-label="Split plane"
+                  aria-label={t('dental.review.splitPlane')}
                   value={axis}
                   onChange={(e) => setAxis(Number(e.target.value) as 0 | 1 | 2)}
                 >
-                  <option value={0}>Sagittal (X)</option>
-                  <option value={1}>Coronal (Y)</option>
-                  <option value={2}>Axial (Z)</option>
+                  <option value={0}>{t('dental.review.sagittal')}</option>
+                  <option value={1}>{t('dental.review.coronal')}</option>
+                  <option value={2}>{t('dental.review.axial')}</option>
                 </select>
                 <button className={button} onClick={() => p.onSplit(axis)}>
-                  Split at crosshair
+                  {t('dental.review.splitAt')}
                 </button>
               </div>
               <label className="text-xs">
-                Merge into selected tooth
+                {t('dental.review.mergeInto')}
                 <select
                   className={field}
-                  aria-label="Merge tooth"
+                  aria-label={t('dental.review.mergeTooth')}
                   value={merge}
                   onChange={(e) => setMerge(e.target.value)}
                 >
-                  <option value="">Choose another tooth</option>
+                  <option value="">{t('dental.review.chooseOther')}</option>
                   {teeth
                     .filter(
                       (t) =>
                         t.id !== selected.id && t.groupId === selected.groupId,
                     )
-                    .map((t, i) => (
-                      <option key={t.id} value={t.id}>
-                        {t.fdi ? `FDI ${t.fdi}` : `Unassigned ${i + 1}`}
+                    .map((tooth, i) => (
+                      <option key={tooth.id} value={tooth.id}>
+                        {optionName(tooth, i)}
                       </option>
                     ))}
                 </select>
@@ -373,7 +391,7 @@ export function ToothReviewPanel(p: Props) {
                   setMerge('');
                 }}
               >
-                Merge outlines
+                {t('dental.review.mergeOutlines')}
               </button>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -381,14 +399,14 @@ export function ToothReviewPanel(p: Props) {
                   disabled={!p.canUndo}
                   onClick={p.onUndo}
                 >
-                  Undo correction
+                  {t('dental.review.undo')}
                 </button>
                 <button
                   className={button}
                   disabled={!p.canRedo}
                   onClick={p.onRedo}
                 >
-                  Redo correction
+                  {t('dental.review.redo')}
                 </button>
               </div>
             </div>
@@ -399,13 +417,13 @@ export function ToothReviewPanel(p: Props) {
             onClick={p.onSurface}
           >
             {p.surfaceBusy
-              ? 'Generating surface…'
-              : 'Regenerate tooth 3D surface'}
+              ? t('dental.review.generating')
+              : t('dental.review.regenerate')}
           </button>
         </section>
       )}
       <section className="space-y-2">
-        <h3 className={heading}>Show</h3>
+        <h3 className={heading}>{t('dental.review.show')}</h3>
         <ToothShowControl
           mode={p.state.toothVisibility ?? 'all'}
           hasSelection={chosen.length > 0}
@@ -422,12 +440,12 @@ export function ToothReviewPanel(p: Props) {
               p.onVisibility(p.state.toothVisibility ?? 'all', e.target.checked)
             }
           />
-          Show surrounding bone
+          {t('dental.review.showBone')}
         </label>
       </section>
       {teeth.length ? (
         <section className="space-y-2">
-          <h3 className={heading}>Export model (STL)</h3>
+          <h3 className={heading}>{t('dental.review.exportTitle')}</h3>
           <ToothModelExportForm
             count={teeth.filter((t) => chosen.includes(t.id)).length}
             busy={p.exportBusy}
@@ -441,16 +459,16 @@ export function ToothReviewPanel(p: Props) {
         className="rounded border border-slate-800 p-2"
       >
         <summary className="cursor-pointer py-1.5 text-xs font-medium">
-          Add or propose outlines
+          {t('dental.review.add')}
         </summary>
         <div className="space-y-2">
           <button className={button} onClick={p.onNewTooth}>
-            Draw a new tooth outline
+            {t('dental.review.draw')}
           </button>
           <label className={`${button} block cursor-pointer`}>
-            Import model result
+            {t('dental.review.import')}
             <input
-              aria-label="Import model result"
+              aria-label={t('dental.review.import')}
               type="file"
               accept=".zip"
               className="sr-only"
@@ -463,13 +481,14 @@ export function ToothReviewPanel(p: Props) {
             />
           </label>
           <p className="text-xs text-slate-400">
-            Choose a .cbcter.zip result for this scan. Imported proposals need
-            review; your notes and corrections are kept.
+            {t('dental.review.importHint')}
           </p>
           {(p.state.analysisModels ?? []).length > 0 && (
             <details>
               <summary className="cursor-pointer py-1.5 text-xs">
-                Loaded model results ({p.state.analysisModels!.length})
+                {t('dental.review.loaded', {
+                  count: p.state.analysisModels!.length,
+                })}
               </summary>
               <ul className="text-xs text-slate-300">
                 {p.state.analysisModels!.map((m) => (
@@ -478,8 +497,17 @@ export function ToothReviewPanel(p: Props) {
                     {p.state.analysisLayers?.some(
                       (l) => l.modelId === m.id && l.role === 'teeth',
                     )
-                      ? `${(p.state.toothInstances ?? []).filter((t) => t.review === 'unreviewed' && p.state.analysisLayers?.some((l) => l.id === t.groupId && l.modelId === m.id)).length} teeth awaiting review`
-                      : 'Structure proposals'}
+                      ? t('dental.review.awaiting', {
+                          count: (p.state.toothInstances ?? []).filter(
+                            (tooth) =>
+                              tooth.review === 'unreviewed' &&
+                              p.state.analysisLayers?.some(
+                                (l) =>
+                                  l.id === tooth.groupId && l.modelId === m.id,
+                              ),
+                          ).length,
+                        })
+                      : t('dental.review.structures')}
                   </li>
                 ))}
               </ul>
@@ -487,13 +515,13 @@ export function ToothReviewPanel(p: Props) {
           )}
           <details>
             <summary className="cursor-pointer py-1.5 text-xs">
-              Propose outlines with a model
+              {t('dental.review.propose')}
             </summary>
             <label className="text-xs">
-              Anatomy model
+              {t('dental.review.anatomyModel')}
               <select
                 className={field}
-                aria-label="Anatomy model"
+                aria-label={t('dental.review.anatomyModel')}
                 value={model}
                 disabled={p.anatomyBusy}
                 onChange={(e) => setModel(e.target.value as DentalSegVariantId)}
@@ -510,17 +538,17 @@ export function ToothReviewPanel(p: Props) {
               disabled={p.anatomyBusy}
               onClick={() => p.onAnatomy(model)}
             >
-              {p.anatomyBusy ? 'Segmenting…' : 'Run anatomy model'}
+              {p.anatomyBusy
+                ? t('dental.review.segmenting')
+                : t('dental.review.runModel')}
             </button>
             {p.anatomyBusy && (
               <button className={button} onClick={p.onCancelAnatomy}>
-                Cancel model
+                {t('dental.review.cancelModel')}
               </button>
             )}
             <p className="mt-2 text-xs text-slate-400">
-              Requires installed ONNX weights and enough device memory. Full and
-              pediatric models label anatomy; the universal model also proposes
-              tooth identities. All proposals need review.
+              {t('dental.review.modelHint')}
             </p>
             <a
               className={`${button} mt-2 block text-center`}
@@ -528,28 +556,26 @@ export function ToothReviewPanel(p: Props) {
               rel="noreferrer"
               href="https://colab.research.google.com/github/ahzs645/CBCTer/blob/main/notebooks/CBCTer_GPU_models.ipynb"
             >
-              Open cloud model runner
+              {t('dental.review.cloud')}
             </a>
             <p className="mt-2 text-xs text-slate-400">
-              Experimental OralSeg and TIPs runner. You choose a scan to upload
-              to your Colab runtime, then import its result here. A GPU runtime
-              is required.
+              {t('dental.review.cloudHint')}
             </p>
           </details>
           <details open={!teeth.length}>
             <summary className="cursor-pointer py-1.5 text-xs">
-              Separate individual teeth
+              {t('dental.review.separate')}
             </summary>
             <div className="grid gap-2">
               <label className="text-xs">
-                Source
+                {t('dental.review.source')}
                 <select
-                  aria-label="Separation source"
+                  aria-label={t('dental.review.separationSource')}
                   className={field}
                   value={source}
                   onChange={(e) => setSource(e.target.value)}
                 >
-                  <option value="">Select a mask or label group</option>
+                  <option value="">{t('dental.review.selectSource')}</option>
                   {p.state.segmentGroups
                     .filter(
                       (g) =>
@@ -564,13 +590,13 @@ export function ToothReviewPanel(p: Props) {
                     ))}
                   {p.state.masks.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} (binary mask)
+                      {t('dental.review.binaryMask', { name: m.name })}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="text-xs">
-                Tooth label values (comma separated)
+                {t('dental.review.values')}
                 <input
                   className={field}
                   value={values}
@@ -579,7 +605,7 @@ export function ToothReviewPanel(p: Props) {
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-xs">
-                  Minimum size (mm³)
+                  {t('dental.review.minSize')}
                   <input
                     type="number"
                     min=".01"
@@ -590,7 +616,7 @@ export function ToothReviewPanel(p: Props) {
                   />
                 </label>
                 <label className="text-xs">
-                  Core size (voxels)
+                  {t('dental.review.coreSize')}
                   <input
                     type="number"
                     min="1"
@@ -613,12 +639,12 @@ export function ToothReviewPanel(p: Props) {
                   )
                 }
               >
-                {p.busy ? 'Separating…' : 'Propose separate teeth'}
+                {p.busy
+                  ? t('dental.review.separating')
+                  : t('dental.review.proposeSeparate')}
               </button>
               <p className="text-xs text-slate-400">
-                Run anatomy segmentation in Study if no mask is available.
-                Anatomy model weights are required. Separation uses a watershed
-                and may need splits or merges.
+                {t('dental.review.separateHint')}
               </p>
             </div>
           </details>

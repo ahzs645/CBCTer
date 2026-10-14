@@ -1,15 +1,16 @@
 import { AsyncZipDeflate, Zip } from 'fflate';
 import type { Vec3 } from '../../types';
-import { maskToBinaryStl } from '../segmentation/maskMesh';
+import { maskToSurface, orientMesh } from '../surface/maskSurface';
 import {
   DEFAULT_MAX_ERROR_MM,
   DEFAULT_TARGET_RATIO,
-  simplifyClosedStl,
+  indexedToStl,
+  simplifyClosedMesh,
+  type IndexedMesh,
 } from '../surface/simplifyClosed';
 import {
-  archModelStl,
+  archModelMesh,
   biteContacts,
-  orientStl,
   type ArchModelOptions,
 } from './archModel';
 import { meshToBinaryStl, type TriMesh } from '../ios/meshIo';
@@ -118,37 +119,29 @@ export async function meshToothPart(
       }
     : null;
   if (!voxels) return { stl: null, cut };
-  let stl = orientStl(
-    new Uint8Array(
-      await maskToBinaryStl(
-        mask,
-        [shape[2], shape[1], shape[0]],
-        spacing,
-        start,
-        1,
-        // No decimation: the mesher's decimation drops triangles (holes).
-        { extraction: 'iso', smoothIterations: 8, decimateReduction: 0 },
-      ).arrayBuffer(),
-    ),
-  );
-  if (input.smaller) stl = await shrinkStl(stl, spacing);
-  return { stl, cut };
+  const mesh = maskToSurface(mask, shape, spacing, start, 8);
+  orientMesh(mesh);
+  return {
+    stl: indexedToStl(input.smaller ? shrink(mesh, spacing) : mesh),
+    cut,
+  };
 }
 
 /** The printable arch model's STL, optionally simplified. */
 export async function archModelPart(
   options: ArchModelOptions & { smaller?: boolean },
 ): Promise<Uint8Array> {
-  const stl = await archModelStl(options);
-  return options.smaller ? shrinkStl(stl, options.spacing) : stl;
+  const mesh = archModelMesh(options);
+  return indexedToStl(options.smaller ? shrink(mesh, options.spacing) : mesh);
 }
 
 /**
- * Simplify a closed surface (it stays closed and printable). The error bound
- * is a fraction of the voxel size, so detail the scan resolves is kept.
+ * Simplify a closed, oriented surface (it stays closed and printable). The
+ * error bound is a fraction of the voxel size, so detail the scan resolves
+ * is kept.
  */
-async function shrinkStl(stl: Uint8Array, spacing: Vec3): Promise<Uint8Array> {
-  return simplifyClosedStl(stl, {
+function shrink(mesh: IndexedMesh, spacing: Vec3): IndexedMesh {
+  return simplifyClosedMesh(mesh, {
     targetRatio: DEFAULT_TARGET_RATIO,
     maxErrorMm: Math.max(DEFAULT_MAX_ERROR_MM, 0.3 * Math.min(...spacing)),
   });

@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 import type { ScanComparison } from '../../lib/dental/compareScans';
 import { cn } from '../../utils/cn';
 import { Button } from '../Button';
@@ -24,6 +25,7 @@ export function ScanComparePanel({
   onGoToTooth?: (fdi: number) => void;
   onClose?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-2 text-xs text-slate-300">
       <div className="flex items-center gap-1.5">
@@ -33,14 +35,16 @@ export function ScanComparePanel({
           disabled={busy}
           onClick={onOpenAfterScan}
         >
-          {comparison ? 'Open another later scan…' : 'Open a later scan…'}
+          {comparison
+            ? t('dental.compare.openAnother')
+            : t('dental.compare.open')}
         </Button>
         {onClose ? (
           <Button
             variant="quiet"
             size="icon"
-            aria-label="Close comparison"
-            title="Close comparison"
+            aria-label={t('dental.compare.close')}
+            title={t('dental.compare.close')}
             onClick={onClose}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -56,8 +60,7 @@ export function ScanComparePanel({
         <Results comparison={comparison} onGoToTooth={onGoToTooth} />
       ) : null}
       <p className="text-[10px] leading-snug text-slate-400">
-        Compares tooth positions only. Small differences can come from scan
-        noise; ask your orthodontist to confirm.
+        {t('dental.compare.disclaimer')}
       </p>
     </div>
   );
@@ -70,38 +73,39 @@ function Results({
   comparison: ScanComparison;
   onGoToTooth?: (fdi: number) => void;
 }) {
+  const { t: tr } = useTranslation();
   const { teeth, noiseFloorMm, angleFloorDeg } = comparison;
   return (
     <>
       <div className="overflow-x-auto">
         <table className="w-full text-[11px]">
           <caption className="pb-0.5 text-left text-slate-400">
-            Change since the earlier scan, largest first
+            {tr('dental.compare.caption')}
           </caption>
           <thead className="text-slate-400">
             <tr>
               <th scope="col" className="py-0.5 pr-1 text-left font-normal">
-                Tooth
+                {tr('dental.compare.tooth')}
               </th>
               <th scope="col" className="py-0.5 pr-1 text-right font-normal">
-                Moved
+                {tr('dental.compare.moved')}
               </th>
               <th scope="col" className="py-0.5 pr-1 text-left font-normal">
-                Direction
+                {tr('dental.compare.direction')}
               </th>
               <th
                 scope="col"
                 className="py-0.5 pr-1 text-right font-normal"
-                title="Tipped or turned, in degrees"
+                title={tr('dental.compare.angleTitle')}
               >
-                Angle
+                {tr('dental.compare.angle')}
               </th>
               <th
                 scope="col"
                 className="py-0.5 text-right font-normal"
-                title="Largest surface difference once the tooth is lined up (wear, chips, fillings)"
+                title={tr('dental.compare.shapeTitle')}
               >
-                Shape
+                {tr('dental.compare.shape')}
               </th>
             </tr>
           </thead>
@@ -125,7 +129,7 @@ function Results({
                           'rounded underline-offset-2 hover:underline',
                           FOCUS_RING,
                         )}
-                        title={`Go to tooth ${t.fdi}`}
+                        title={tr('dental.compare.goTo', { fdi: t.fdi })}
                         onClick={() => onGoToTooth(t.fdi)}
                       >
                         {t.fdi}
@@ -136,7 +140,7 @@ function Results({
                     {t.reference ? (
                       <span
                         className="ml-0.5 text-slate-500"
-                        title="Used to line the scans up"
+                        title={tr('dental.compare.reference')}
                       >
                         ·
                       </span>
@@ -174,9 +178,10 @@ function Results({
         </table>
       </div>
       <p className="text-[10px] text-slate-400">
-        mm; changes under {noiseFloorMm.toFixed(1)} mm or{' '}
-        {Math.round(angleFloorDeg)}° are below what the scans can show. · marks
-        the teeth used to line the scans up.
+        {tr('dental.compare.floor', {
+          mm: noiseFloorMm.toFixed(1),
+          deg: Math.round(angleFloorDeg),
+        })}
       </p>
       <ul className="list-disc space-y-0.5 pl-4">
         {comparison.summary.map((line) => (

@@ -1,5 +1,6 @@
 import type { Vec3 } from '../../types';
-import { maskToBinaryStl } from '../segmentation/maskMesh';
+import { maskToSurface, orientMesh } from '../surface/maskSurface';
+import { indexedToStl, type IndexedMesh } from '../surface/simplifyClosed';
 import { fdiArch, type CropLabels, toothValues } from './toothSelection';
 import type { ToothInstance } from './types';
 
@@ -551,20 +552,24 @@ export function orientStl(stl: Uint8Array): Uint8Array {
 export async function archModelStl(
   options: ArchModelOptions & { smoothIterations?: number },
 ): Promise<Uint8Array> {
+  return indexedToStl(archModelMesh(options));
+}
+
+/** The arch model as an oriented indexed mesh (see `archModelStl`). */
+export function archModelMesh(
+  options: ArchModelOptions & { smoothIterations?: number },
+): IndexedMesh {
   const model = buildArchModelMask(options);
-  const blob = maskToBinaryStl(
+  // Typed-array mesher: a whole arch would need gigabytes with the old one.
+  const mesh = maskToSurface(
     model.mask,
-    [model.shape[2], model.shape[1], model.shape[0]],
+    model.shape,
     options.spacing,
     model.start,
-    1,
-    {
-      extraction: 'iso',
-      smoothIterations: options.smoothIterations ?? 6,
-      decimateReduction: 0,
-    },
+    options.smoothIterations ?? 6,
   );
-  return orientStl(new Uint8Array(await blob.arrayBuffer()));
+  orientMesh(mesh);
+  return mesh;
 }
 
 export interface BiteContact {

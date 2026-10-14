@@ -1,8 +1,9 @@
 /**
  * A rough memory plan for a tooth export, so a phone doesn't run out of
- * memory half way. Numbers come from measured exports: about 9.5 MB of
- * unsimplified STL per crown on a printable model, and a handful of
- * one-byte and two-byte arrays per voxel of the box around the selection.
+ * memory half way. Numbers come from measured exports of a whole upper arch
+ * (12 teeth, a 20.5M-voxel box): the tab grew by about 570 MB, mostly the
+ * printable model's masks and mesh, i.e. about 25 bytes per voxel of the box
+ * around the selection, plus about 9.5 MB of unsimplified STL per crown.
  */
 export interface ExportPlanInput {
   teeth: number;
@@ -23,7 +24,7 @@ export interface ExportPlan {
 }
 
 const STL_PER_TOOTH = 9.5e6;
-const ARCH_BYTES_PER_VOXEL = 12;
+const ARCH_BYTES_PER_VOXEL = 25;
 const MiB = 1024 * 1024;
 
 export function planToothExport(input: ExportPlanInput): ExportPlan {

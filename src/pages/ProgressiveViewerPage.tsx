@@ -83,7 +83,6 @@ import {
   toothValues,
   selectionBounds,
   teethInGroup,
-  toothLabel,
 } from '../lib/case/toothSelection';
 import type { ToothInstance } from '../lib/case/types';
 import {
@@ -102,6 +101,7 @@ import { buildDentalReportHtml } from '../lib/dental/report';
 import { downloadText } from '../lib/dental/snapshot';
 import { CanalPanel, type CanalSide } from '../components/dental/CanalPanel';
 import { LayerList } from '../components/dental/LayerList';
+import { localToothLabel } from '../components/dental/toothNames';
 import { ToothFocusView } from '../components/dental/ToothFocusView';
 import {
   alignInWorker,
@@ -187,9 +187,6 @@ function addedGroup(teeth: AddedTooth[]) {
     updatedAt: now,
   };
 }
-
-const numberName = (fdi: number | null) =>
-  fdi ? `Tooth ${fdi}` : 'Added tooth';
 
 const indexKey = (a: VolumeAxis) =>
   a === VolumeAxis.Axial ? 'z' : a === VolumeAxis.Coronal ? 'y' : 'x';
@@ -405,7 +402,7 @@ export default function ProgressiveViewerPage({
   // Load this scan's saved corrections once; a share link's swap and merges
   // take precedence over the device's.
   const [editsReady, setEditsReady] = useState(false);
-  const [editsNote, setEditsNote] = useState('');
+  const [editsFailed, setEditsFailed] = useState(false);
   useEffect(() => {
     let live = true;
     void loadCaseEdits(editsKey).then((saved) => {
@@ -434,11 +431,8 @@ export default function ProgressiveViewerPage({
         hiddenTeeth: [...hiddenTeeth],
         toothColors,
       }).then(
-        () => setEditsNote(''),
-        () =>
-          setEditsNote(
-            'Corrections could not be saved on this device (storage is off or full).',
-          ),
+        () => setEditsFailed(false),
+        () => setEditsFailed(true),
       );
     }, 400);
     return () => window.clearTimeout(timer);
@@ -461,7 +455,14 @@ export default function ProgressiveViewerPage({
   const shownFdi = (tooth: ToothInstance) =>
     swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi;
   const nameOf = (tooth: ToothInstance) =>
-    toothLabel({ ...tooth, fdi: shownFdi(tooth) }, teeth.indexOf(tooth));
+    localToothLabel(t, { ...tooth, fdi: shownFdi(tooth) }, teeth.indexOf(tooth));
+  /** Name of a hand-added tooth as shown (number already mirrored). */
+  const addedName = (fdi: number | null) =>
+    fdi
+      ? t('dental.toothNames.unknown', { fdi })
+      : t('dental.teethPanel.addedTooth');
+  const reviewWord = (tooth: ToothInstance) =>
+    t(`dental.reviewState.${tooth.review}`);
   const selectedTeeth = teeth.filter((tooth) => selectedIds.includes(tooth.id));
   const focus = teeth.find((tooth) => tooth.id === focusId) ?? null;
   const ordered = useMemo(
@@ -770,10 +771,10 @@ export default function ProgressiveViewerPage({
   const isoStatus = !isoKey
     ? ''
     : isoTooBig
-      ? 'Too many teeth for 3D on this device. Pick an arch or fewer teeth.'
+      ? t('dental.teethPanel.isoTooBig')
       : isoResult?.key === isoKey
         ? isoResult.status
-        : 'Loading 3D of the selected teeth…';
+        : t('dental.teethPanel.isoLoading');
   useEffect(() => {
     if (!isoKey || isoTooBig || !isoBox) return;
     const box = isoBox;
@@ -1005,7 +1006,7 @@ export default function ProgressiveViewerPage({
           )) as Uint16Array,
         }),
         onProgress: (done, total) =>
-          setExportStatus(`Meshing tooth ${done} of ${total}…`),
+          setExportStatus(t('dental.toothExport.meshing', { done, total })),
         compute: {
           part: (input) => compute('toothPart', input),
           arch: (options) => compute('archModel', options),
@@ -1019,10 +1020,12 @@ export default function ProgressiveViewerPage({
       );
       const guessed = reports.filter((r) => r.gumlineMeasured === false).length;
       setExportStatus(
-        `Saved ${reports.length} ${reports.length === 1 ? 'tooth' : 'teeth'}` +
-          (guessed
-            ? `; gumline guessed for ${guessed} (no bone contact found).`
-            : '.') +
+        (guessed
+          ? t('dental.toothExport.savedGuessed', {
+              count: reports.length,
+              guessed,
+            })
+          : t('dental.toothExport.saved', { count: reports.length })) +
           (plan.note ? ` ${plan.note}` : ''),
       );
     } catch (e) {
@@ -1093,9 +1096,9 @@ export default function ProgressiveViewerPage({
     if (!shareLink) return;
     try {
       await navigator.clipboard.writeText(shareLink);
-      setCopied('Link copied.');
+      setCopied(t('dental.teethPanel.copied'));
     } catch {
-      setCopied('Copy the link from the box below.');
+      setCopied(t('dental.teethPanel.copyFallback'));
     }
   };
 
@@ -1112,7 +1115,7 @@ export default function ProgressiveViewerPage({
     );
     setIosBusy(true);
     setIosFit(null);
-    setIosStatus('Reading the scan…');
+    setIosStatus(t('dental.teethPanel.iosReading'));
     try {
       // Align against every crown of the arch(es) involved, then keep the
       // parts of the scan over the chosen teeth.
@@ -1124,7 +1127,9 @@ export default function ProgressiveViewerPage({
           tooth.review !== 'rejected' &&
           arches.has(crownDirectionFor(tooth, teeth, superiorSign)),
       );
-      setIosStatus(`Finding the crowns of ${archTeeth.length} teeth…`);
+      setIosStatus(
+        t('dental.teethPanel.iosFinding', { count: archTeeth.length }),
+      );
       const common = {
         allTeeth: teeth,
         dims: dimensions,
@@ -1140,7 +1145,7 @@ export default function ProgressiveViewerPage({
         archTeeth.length === target.length
           ? archTarget
           : await crownTargetPoints({ ...common, teeth: target });
-      setIosStatus('Reading and aligning the scan…');
+      setIosStatus(t('dental.teethPanel.iosAligning'));
       const fit = await alignInWorker(
         new Uint8Array(await file.arrayBuffer()),
         file.name,
@@ -1245,7 +1250,7 @@ export default function ProgressiveViewerPage({
   };
   const traceCanal = async (side: CanalSide, a: Vec3, b: Vec3) => {
     setCanalBusy(true);
-    setCanalStatus('Finding the canal…');
+    setCanalStatus(t('dental.teethPanel.canalFinding'));
     try {
       const snap = async (point: Vec3) =>
         compute('snapCanal', {
@@ -1256,7 +1261,7 @@ export default function ProgressiveViewerPage({
         });
       const from = await snap(a),
         to = await snap(b);
-      setCanalStatus('Following the canal…');
+      setCanalStatus(t('dental.teethPanel.canalFollowing'));
       const { centerline, lengthMm } = await compute('traceCanal', {
         read: await readBox([from, to], 10),
         from,
@@ -1267,7 +1272,7 @@ export default function ProgressiveViewerPage({
         ...current,
         [side]: { centerline, lengthMm },
       }));
-      setCanalStatus('Measuring distances to the lower teeth…');
+      setCanalStatus(t('dental.teethPanel.canalMeasuring'));
       // Lower-arch teeth: crowns point superiorly.
       const lower = teeth.filter(
         (tooth) =>
@@ -1373,7 +1378,7 @@ export default function ProgressiveViewerPage({
         crownDirection,
       });
       if (!grown) {
-        setAddStatus('No tooth found there. Click on the crown of the tooth.');
+        setAddStatus(t('dental.teethPanel.addNotFound'));
         return;
       }
       // Keep only the outline's own box.
@@ -1421,7 +1426,9 @@ export default function ProgressiveViewerPage({
     setSelectedIds([tooth.id]);
     setFocusId(tooth.id);
     setAddStatus(
-      `${numberName(swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi)} added. Saved on this device.`,
+      t('dental.teethPanel.addDone', {
+        name: addedName(swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi),
+      }),
     );
   };
   const presentNumbers = new Set(
@@ -1436,12 +1443,15 @@ export default function ProgressiveViewerPage({
   );
   const addToothSection = () =>
     section(
-    'Add a missing tooth',
+    t('dental.addTooth.title'),
     <AddToothPanel
       fdiChoices={missingNumbers}
       picking={addPick}
       busy={addBusy}
-      status={addStatus || editsNote}
+      status={
+        addStatus ||
+        (editsFailed ? t('dental.teethPanel.editsSaveFailed') : '')
+      }
       draft={
         draftTooth
           ? {
@@ -1454,7 +1464,7 @@ export default function ProgressiveViewerPage({
       }
       added={addedTeeth.map((tooth) => ({
         id: tooth.id,
-        name: numberName(swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi),
+        name: addedName(swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi),
       }))}
       onStart={(fdi) => {
         setCanalPick(null);
@@ -1491,7 +1501,7 @@ export default function ProgressiveViewerPage({
   const compareWith = async (file: File) => {
     setCompareBusy(true);
     setComparison(null);
-    setCompareStatus('Opening the other scan…');
+    setCompareStatus(t('dental.teethPanel.compareOpening'));
     const other = new ChunkedSession({ blob: file });
     try {
       await other.initialize(32 * 1024 * 1024);
@@ -1499,9 +1509,7 @@ export default function ProgressiveViewerPage({
         (tooth) => tooth.review !== 'rejected',
       );
       if (!otherTeeth.length)
-        throw new Error(
-          'The other scan has no tooth outlines. Open it on its own first and propose them.',
-        );
+        throw new Error(t('dental.teethPanel.compareNoTeeth'));
       const otherDims = other.manifest.volume.dimensions,
         otherSpacing = other.manifest.volume.spacing;
       const clouds = async (
@@ -1514,7 +1522,13 @@ export default function ProgressiveViewerPage({
       ) => {
         const out: ToothCloud[] = [];
         for (const [index, tooth] of list.entries()) {
-          setCompareStatus(`Reading ${label}: tooth ${index + 1} of ${list.length}…`);
+          setCompareStatus(
+            t('dental.teethPanel.compareReading', {
+              scan: label,
+              n: index + 1,
+              total: list.length,
+            }),
+          );
           const box = selectionBounds([tooth], dims, 2)!;
           const points = await compute('toothPoints', {
             labels: await read(tooth.groupId, box.start, box.shape),
@@ -1534,7 +1548,7 @@ export default function ProgressiveViewerPage({
         spacing,
         (groupId, start, shape) => labelRegion(groupId, start, shape),
         shownFdi,
-        'this scan',
+        t('dental.teethPanel.thisScan'),
       );
       const after = await clouds(
         otherTeeth,
@@ -1543,15 +1557,15 @@ export default function ProgressiveViewerPage({
         async (groupId, start, shape) =>
           (await other.analysisRegion(groupId, start, shape)) as Uint16Array,
         (tooth) => tooth.fdi,
-        'the other scan',
+        t('dental.teethPanel.otherScan'),
       );
-      setCompareStatus('Aligning the jaws and comparing teeth…');
+      setCompareStatus(t('dental.teethPanel.compareAligning'));
       const result = await compareInWorker(before, after, {
         voxelSizeMm: Math.max(...spacing, ...otherSpacing),
         superiorSign,
       });
       setComparison(result);
-      setCompareStatus(`Compared with ${file.name}.`);
+      setCompareStatus(t('dental.teethPanel.compared', { name: file.name }));
     } catch (e) {
       setCompareStatus(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1561,14 +1575,14 @@ export default function ProgressiveViewerPage({
   };
   const compareSection = () =>
     section(
-      'Compare with another scan',
+      t('dental.teethPanel.compareTitle'),
       <>
         <input
           ref={compareInput}
           type="file"
           accept=".zip,application/zip"
           className="hidden"
-          aria-label="Choose another scan package to compare"
+          aria-label={t('dental.teethPanel.compareInput')}
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = '';
@@ -1628,7 +1642,9 @@ export default function ProgressiveViewerPage({
       scan: {
         id: m.name,
         format: m.source.formatLabel,
-        dimensions: `${dimensions.join(' × ')} voxels`,
+        dimensions: t('dental.teethPanel.voxels', {
+          dims: dimensions.join(' × '),
+        }),
         voxelSize: formatSpacing(spacing),
       },
       snapshots,
@@ -1644,11 +1660,13 @@ export default function ProgressiveViewerPage({
         conditions: [
           ...focal.map(
             (area) =>
-              `Dark area ${area.volumeMm3.toFixed(1)} mm³ reaching the surface (automatic check)`,
+              t('dental.teethPanel.reportDarkArea', {
+                volume: area.volumeMm3.toFixed(1),
+              }),
           ),
-          ...(pulp ? [] : ['No pulp canal visible (automatic check)']),
+          ...(pulp ? [] : [t('dental.teethPanel.reportNoPulp')]),
         ].join('; '),
-        note: 'Unvalidated automatic finding — confirm with a dental X-ray.',
+        note: t('dental.teethPanel.reportNote'),
         bookmarked: false,
       })),
       caseNotes: caseState?.caseNotes ?? '',
@@ -1703,7 +1721,7 @@ export default function ProgressiveViewerPage({
   const statusText = pending
     ? t('streaming.loadingSlices')
     : outlinesLoading
-      ? 'Loading tooth outlines…'
+      ? t('dental.teethPanel.loadingOutlines')
       : t('streaming.fullSlices');
   const statusChip = (
     <span
@@ -1786,7 +1804,14 @@ export default function ProgressiveViewerPage({
     <div className="relative flex h-full flex-col">
       <p className="px-3 py-1 text-xs text-slate-400">
         {iso3D
-          ? `3D · ${selectedTeeth.length === 1 ? nameOf(selectedTeeth[0]) : `${selectedTeeth.length} selected teeth`} (full resolution)`
+          ? t('dental.teethPanel.iso3d', {
+              name:
+                selectedTeeth.length === 1
+                  ? nameOf(selectedTeeth[0])
+                  : t('dental.teethPanel.selectedTeeth', {
+                      count: selectedTeeth.length,
+                    }),
+            })
           : t('streaming.preview3d')}
       </p>
       {isoStatus ? (
@@ -1839,7 +1864,9 @@ export default function ProgressiveViewerPage({
             index: cursor[indexKey(a)],
             record: createStudyMeasurement(`study_${m.name}`, {
               kind: measurement.kind,
-              name: `${measurement.kind === 'distance' ? 'Distance' : measurement.kind === 'angle' ? 'Angle' : measurement.kind === 'ellipse' ? 'Ellipse ROI' : 'Polygon ROI'} ${v.length + 1}`,
+              name: t(`dental.teethPanel.measureName.${measurement.kind}`, {
+                n: v.length + 1,
+              }),
               points: measurement.points.map((point) =>
                 axisPointToVoxel(a, point, cursor, dimensions),
               ),
@@ -1874,45 +1901,39 @@ export default function ProgressiveViewerPage({
   const teethPanel = teeth.length ? (
     <>
       {section(
-        `Teeth · ${teeth.filter((tooth) => tooth.review !== 'rejected').length} outlined`,
+        t('dental.teethPanel.title', {
+          count: teeth.filter((tooth) => tooth.review !== 'rejected').length,
+        }),
         <>
           {mirrored && !swapSides ? (
             <div
               role="alert"
               className="rounded border border-amber-400/40 bg-amber-950/40 p-2 text-xs text-amber-100"
             >
-              Left and right numbers look swapped compared with the scan
-              orientation: most teeth sit on the opposite side from their
-              number. Check a tooth you know (a filling, a gap) before trusting
-              them.
+              {t('dental.teethPanel.mirrored')}
               <button
                 type="button"
                 className="mt-1 block min-h-9 rounded border border-amber-400/50 px-2"
                 onClick={() => setSwapSides(true)}
               >
-                Swap left and right numbers
+                {t('dental.review.swap')}
               </button>
             </div>
           ) : swapSides ? (
             <p className="text-xs text-amber-100">
-              Showing numbers swapped left ↔ right.{' '}
+              {t('dental.teethPanel.swapped')}{' '}
               <button
                 type="button"
                 className="underline"
                 onClick={() => setSwapSides(false)}
               >
-                Undo
+                {t('dental.teethPanel.undo')}
               </button>
             </p>
           ) : null}
           {splits.length ? (
             <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
-              <p>
-                {splits.length === 1
-                  ? 'One tooth looks'
-                  : `${splits.length} teeth look`}{' '}
-                cut in two by the model (the parts share a large surface):
-              </p>
+              <p>{t('dental.teethPanel.splits', { count: splits.length })}</p>
               <ul className="mt-1 space-y-0.5">
                 {splits.map(({ a, b, sharedMm2 }) => {
                   const merged = mergedPairs.some(
@@ -1925,9 +1946,11 @@ export default function ProgressiveViewerPage({
                       className="flex items-center gap-2"
                     >
                       <span className="flex-1">
-                        {toothLabel({ ...a, fdi: shownFdi(a) })} +{' '}
-                        {toothLabel({ ...b, fdi: shownFdi(b) })} ·{' '}
-                        {Math.round(sharedMm2)} mm² shared
+                        {t('dental.teethPanel.splitPair', {
+                          a: localToothLabel(t, { ...a, fdi: shownFdi(a) }),
+                          b: localToothLabel(t, { ...b, fdi: shownFdi(b) }),
+                          area: Math.round(sharedMm2),
+                        })}
                       </span>
                       <button
                         type="button"
@@ -1946,7 +1969,9 @@ export default function ProgressiveViewerPage({
                           )
                         }
                       >
-                        {merged ? 'Keep apart' : 'Treat as one'}
+                        {merged
+                          ? t('dental.teethPanel.keepApart')
+                          : t('dental.teethPanel.treatAsOne')}
                       </button>
                     </li>
                   );
@@ -1966,11 +1991,11 @@ export default function ProgressiveViewerPage({
                     setMergedPairs(splits.map(({ a, b }) => [a.id, b.id]))
                   }
                 >
-                  Treat all as one tooth
+                  {t('dental.teethPanel.treatAll')}
                 </button>
               ) : null}
               <p className="mt-1 text-amber-100/80">
-                Saved on this device and carried in share links.
+                {t('dental.teethPanel.splitsSaved')}
               </p>
             </div>
           ) : null}
@@ -1986,7 +2011,7 @@ export default function ProgressiveViewerPage({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              aria-label="Previous tooth"
+              aria-label={t('dental.review.previous')}
               className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
               onClick={() => stepTooth(-1)}
             >
@@ -1997,14 +2022,16 @@ export default function ProgressiveViewerPage({
               aria-live="polite"
             >
               {selectedTeeth.length > 1
-                ? `${selectedTeeth.length} teeth selected`
+                ? t('dental.teethPanel.nSelected', {
+                    count: selectedTeeth.length,
+                  })
                 : focus
-                  ? `${nameOf(focus)} · ${focus.review}`
-                  : 'Tap a tooth or a slice'}
+                  ? `${nameOf(focus)} · ${reviewWord(focus)}`
+                  : t('dental.teethPanel.tapHint')}
             </span>
             <button
               type="button"
-              aria-label="Next tooth"
+              aria-label={t('dental.review.next')}
               className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
               onClick={() => stepTooth(1)}
             >
@@ -2018,7 +2045,7 @@ export default function ProgressiveViewerPage({
               className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25"
             >
               <Focus className="h-3.5 w-3.5" aria-hidden="true" />
-              Focus on {nameOf(focus)}
+              {t('dental.teethPanel.focusOn', { name: nameOf(focus) })}
             </button>
           ) : null}
           <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
@@ -2028,7 +2055,7 @@ export default function ProgressiveViewerPage({
               checked={multi}
               onChange={(e) => setMulti(e.target.checked)}
             />
-            Select several (or Ctrl/⌘-click)
+            {t('dental.review.multi')}
           </label>
           <ToothGroupChips
             available={(group) =>
@@ -2045,14 +2072,16 @@ export default function ProgressiveViewerPage({
             onClick={() => void loadFull()}
             className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
           >
-            {fullLoading ? t('streaming.loadingFull') : 'Review and edit teeth'}
+            {fullLoading
+              ? t('streaming.loadingFull')
+              : t('dental.teethPanel.reviewEdit')}
           </button>
         </>,
       )}
       {addToothSection()}
       {compareSection()}
       {section(
-        'Show',
+        t('dental.review.show'),
         <>
           <ToothShowControl
             mode={showMode}
@@ -2066,16 +2095,15 @@ export default function ProgressiveViewerPage({
               checked={bone}
               onChange={(e) => setBone(e.target.checked)}
             />
-            Show surrounding bone
+            {t('dental.review.showBone')}
           </label>
           <p className="text-[11px] text-slate-400">
-            “Only selected” shows those teeth alone in the slices and builds a
-            full-resolution 3D view of them.
+            {t('dental.teethPanel.showHint')}
           </p>
         </>,
       )}
       {section(
-        'Export model (STL)',
+        t('dental.review.exportTitle'),
         <ToothModelExportForm
           count={selectedTeeth.length}
           busy={exportBusy}
@@ -2084,15 +2112,19 @@ export default function ProgressiveViewerPage({
         />,
       )}
       {section(
-        'Intraoral scan',
+        t('dental.teethPanel.iosTitle'),
         <div className="space-y-1.5 text-xs text-slate-300">
           <label className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 hover:bg-slate-700">
             {iosBusy
-              ? 'Aligning…'
-              : `Import STL / PLY / OBJ and align to ${selectedTeeth.length ? `${selectedTeeth.length} selected` : 'all'} teeth`}
+              ? t('dental.teethPanel.iosBusy')
+              : selectedTeeth.length
+                ? t('dental.teethPanel.iosImportSelected', {
+                    count: selectedTeeth.length,
+                  })
+                : t('dental.teethPanel.iosImportAll')}
             <input
               type="file"
-              aria-label="Import intraoral scan"
+              aria-label={t('dental.teethPanel.iosInput')}
               accept=".stl,.ply,.obj"
               className="sr-only"
               disabled={iosBusy}
@@ -2107,15 +2139,17 @@ export default function ProgressiveViewerPage({
           {iosFit ? (
             <div className="space-y-1 rounded border border-cyan-500/40 bg-cyan-950/30 p-2 text-cyan-50">
               <p>
-                {iosName}: aligned with RMS {iosFit.rms.toFixed(2)} mm;{' '}
-                {Math.round(iosFit.inlierRatio * 100)}% of its points sit on the
-                CBCT. CBCT crowns are {iosFit.deviation.mean.toFixed(2)} mm from
-                it on average (95% within {iosFit.deviation.p95.toFixed(2)} mm).
+                {t('dental.teethPanel.iosFit', {
+                  name: iosName,
+                  rms: iosFit.rms.toFixed(2),
+                  inliers: Math.round(iosFit.inlierRatio * 100),
+                  mean: iosFit.deviation.mean.toFixed(2),
+                  p95: iosFit.deviation.p95.toFixed(2),
+                })}
               </p>
               {iosFit.rms > 0.3 || iosFit.inlierRatio < 0.3 ? (
                 <p className="text-amber-200">
-                  The fit looks poor: check that the scan covers the selected
-                  teeth and the same jaw.
+                  {t('dental.teethPanel.iosPoor')}
                 </p>
               ) : null}
               <label className="flex items-center gap-2">
@@ -2125,7 +2159,7 @@ export default function ProgressiveViewerPage({
                   checked={iosShow}
                   onChange={(e) => setIosShow(e.target.checked)}
                 />
-                Show its outline on the slices (cyan)
+                {t('dental.teethPanel.iosShow')}
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -2134,20 +2168,17 @@ export default function ProgressiveViewerPage({
                   checked={iosUse}
                   onChange={(e) => setIosUse(e.target.checked)}
                 />
-                Add its crowns to the STL export
+                {t('dental.teethPanel.iosUse')}
               </label>
             </div>
           ) : null}
           <p className="text-[10px] leading-snug text-slate-400">
-            An intraoral scan from a dentist or orthodontist is about five times
-            more exact on the crowns than CBCT. Aligning it to the CBCT lets the
-            exported model use scanned crowns on CBCT roots. Select the teeth
-            the scan covers first.
+            {t('dental.teethPanel.iosHint')}
           </p>
         </div>,
       )}
       {section(
-        'Check teeth',
+        t('dental.teethPanel.checkTitle'),
         <div className="space-y-1.5 text-xs text-slate-300">
           <button
             type="button"
@@ -2156,8 +2187,11 @@ export default function ProgressiveViewerPage({
             className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
           >
             {darkCheck && darkCheck.done < darkCheck.total
-              ? `Checking tooth ${darkCheck.done + 1} of ${darkCheck.total}…`
-              : 'Look for dark areas in every tooth'}
+              ? t('dental.teethPanel.checking', {
+                  n: darkCheck.done + 1,
+                  total: darkCheck.total,
+                })
+              : t('dental.teethPanel.checkAll')}
           </button>
           {darkCheck && darkCheck.done === darkCheck.total ? (
             darkCheck.results.length ? (
@@ -2170,17 +2204,21 @@ export default function ProgressiveViewerPage({
                     <strong>{nameOf(tooth)}</strong>
                     {focal.map((area, index) => (
                       <span key={index} className="block">
-                        Dark area {area.volumeMm3.toFixed(1)} mm³{' '}
-                        {area.alongTooth < 0.25
-                          ? 'in the crown'
-                          : area.alongTooth < 0.5
-                            ? 'at the neck'
-                            : 'on the root'}
-                        , reaching the surface.
+                        {t('dental.teethPanel.darkArea', {
+                          volume: area.volumeMm3.toFixed(1),
+                          where:
+                            area.alongTooth < 0.25
+                              ? t('dental.teethPanel.where.crown')
+                              : area.alongTooth < 0.5
+                                ? t('dental.teethPanel.where.neck')
+                                : t('dental.teethPanel.where.root'),
+                        })}
                       </span>
                     ))}
                     {pulp ? null : (
-                      <span className="block">No pulp canal visible.</span>
+                      <span className="block">
+                        {t('dental.teethPanel.noPulp')}
+                      </span>
                     )}
                     <button
                       type="button"
@@ -2190,27 +2228,25 @@ export default function ProgressiveViewerPage({
                         setFocusTooth(tooth);
                       }}
                     >
-                      Focus on it
+                      {t('dental.teethPanel.focusIt')}
                     </button>
                   </li>
                 ))}
               </ul>
             ) : (
               <p>
-                No compact dark areas found; every tooth shows a pulp canal.
+                {t('dental.teethPanel.allClear')}
               </p>
             )
           ) : null}
           <p className="text-[10px] leading-snug text-slate-400">
-            Flags compact dark areas reaching a tooth surface (possible decay,
-            resorption or a low-density filling) and teeth with no visible pulp
-            canal. Automatic and unvalidated; a dentist needs an X-ray to tell.
+            {t('dental.teethPanel.checkHint')}
           </p>
         </div>,
       )}
       <details className="border-b border-slate-800 px-3 py-2">
         <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-          Layers
+          {t('dental.teethPanel.layers')}
         </summary>
         <div className="pt-2">
           <LayerList
@@ -2247,7 +2283,7 @@ export default function ProgressiveViewerPage({
         </div>
       </details>
       {section(
-        'Nerve canal',
+        t('dental.teethPanel.canalTitle'),
         <CanalPanel
           traced={{
             right: canals.right?.lengthMm ?? null,
@@ -2276,10 +2312,9 @@ export default function ProgressiveViewerPage({
   ) : (
     <>
       {section(
-        'Teeth',
+        t('dental.teethPanel.teeth'),
         <p className="text-xs text-slate-400">
-          This scan has no tooth outlines yet. Add teeth one by one below, or
-          open the full editor to propose them with a model.
+          {t('dental.teethPanel.noTeeth')}
         </p>,
       )}
       {addToothSection()}
@@ -2287,7 +2322,7 @@ export default function ProgressiveViewerPage({
   );
 
   const contrastPanel = section(
-    'Contrast',
+    t('dental.toolbar.contrast'),
     <>
       <RangeField
         label={t('streaming.window')}
@@ -2310,13 +2345,13 @@ export default function ProgressiveViewerPage({
         onChange={(level) => setWl((v) => ({ ...v, level }))}
       />
       <p className="text-[11px] text-slate-400">
-        Presets: keys 1–6. Drag on a slice with the Contrast tool (W).
+        {t('dental.teethPanel.contrastHint')}
       </p>
     </>,
   );
 
   const sharePanel = section(
-    'Share',
+    t('dental.teethPanel.share'),
     shareLink ? (
       <>
         <button
@@ -2325,11 +2360,11 @@ export default function ProgressiveViewerPage({
           className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700"
         >
           <Copy className="h-4 w-4" aria-hidden="true" />
-          Copy share link
+          {t('dental.teethPanel.copyLink')}
         </button>
         <input
           readOnly
-          aria-label="Share link"
+          aria-label={t('dental.teethPanel.shareLink')}
           value={shareLink}
           onFocus={(e) => e.currentTarget.select()}
           className="min-h-9 w-full rounded border border-slate-700 bg-slate-950 px-2 font-mono text-[11px] text-slate-300"
@@ -2340,19 +2375,14 @@ export default function ProgressiveViewerPage({
           </p>
         ) : null}
         <p className="text-[11px] text-slate-400">
-          Anyone with the link can open this scan. The link opens the file where
-          it is hosted{focus ? ` and selects ${nameOf(focus)}` : ''}. Scan names
-          can contain the scan date.
+          {focus
+            ? t('dental.teethPanel.shareHintTooth', { name: nameOf(focus) })
+            : t('dental.teethPanel.shareHint')}
         </p>
       </>
     ) : (
       <p className="text-xs text-slate-400">
-        This scan is only on this device. To send it, share the .cbct.zip file
-        itself; the recipient drops it on the CBCTer start page. For a link that
-        opens straight into this view, host the file where other websites may
-        read it (Hugging Face, GitHub raw files under 100 MB, or an S3/R2 bucket
-        with CORS) and open it once from that link. Google Drive and Dropbox
-        links can't be opened by other sites.
+        {t('dental.teethPanel.shareLocal')}
       </p>
     ),
   );
@@ -2370,10 +2400,13 @@ export default function ProgressiveViewerPage({
   );
 
   const scanPanel = section(
-    'Scan',
+    t('dental.teethPanel.scan'),
     <>
       <p className="text-xs text-slate-300">
-        {dimensions.join(' × ')} voxels · {formatSpacing(spacing)}
+        {t('dental.teethPanel.scanInfo', {
+          dims: dimensions.join(' × '),
+          spacing: formatSpacing(spacing),
+        })}
       </p>
       {fullEditorButton}
       <p className="text-[11px] text-slate-400">
@@ -2457,7 +2490,7 @@ export default function ProgressiveViewerPage({
           {grid(false)}
           {sidebar ? (
             <aside
-              aria-label="Case panel"
+              aria-label={t('dental.teethPanel.casePanel')}
               className="w-80 shrink-0 overflow-y-auto border-l border-slate-800 bg-slate-950 xl:w-96"
             >
               <ErrorBoundary area="side panel" inline>
@@ -2510,7 +2543,7 @@ export default function ProgressiveViewerPage({
           {focus ? (
             <span className="rounded-full border border-yellow-400/50 bg-slate-950/80 px-2.5 py-1 text-[11px] text-yellow-100">
               {selectedTeeth.length > 1
-                ? `${selectedTeeth.length} teeth`
+                ? t('dental.teethPanel.nTeeth', { count: selectedTeeth.length })
                 : nameOf(focus)}
             </span>
           ) : null}
@@ -2524,7 +2557,7 @@ export default function ProgressiveViewerPage({
                 onClick={() => setTool('crosshair')}
                 className="h-8 rounded-full bg-sky-500 px-3 font-semibold text-slate-950"
               >
-                OK
+                {t('dental.teethPanel.ok')}
               </button>
             </div>
           </div>
@@ -2536,7 +2569,7 @@ export default function ProgressiveViewerPage({
         measureActive={measureMode !== 'off'}
         contrastActive={tool === 'window-level'}
         chartCount={selectedIds.length}
-        chartLabel="Teeth"
+        chartLabel={t('dental.teethPanel.teeth')}
         onNavigate={() => {
           setTool('crosshair');
           setSheet(null);
@@ -2574,8 +2607,9 @@ export default function ProgressiveViewerPage({
             ))}
           </div>
           <p className="mt-2 text-[11px] text-slate-400">
-            {measurements.length} measurement
-            {measurements.length === 1 ? '' : 's'} on this scan.
+            {t('dental.teethPanel.measurementCount', {
+              count: measurements.length,
+            })}
           </p>
         </BottomSheet>
       ) : null}
@@ -2646,7 +2680,9 @@ export default function ProgressiveViewerPage({
         </BottomSheet>
       ) : null}
       {sheet === 'chart' ? (
-        <BottomSheet title="Teeth" onClose={() => setSheet(null)} tall>
+        <BottomSheet
+          title={t('dental.teethPanel.teeth')}
+          onClose={() => setSheet(null)} tall>
           <ErrorBoundary area="teeth panel" inline>
             <div className="-mx-3">{teethPanel}</div>
           </ErrorBoundary>

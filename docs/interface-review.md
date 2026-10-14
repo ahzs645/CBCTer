@@ -175,9 +175,10 @@ On this case:
 - real contacts are at most 4 mm².
 
 So there is one upper premolar per side, consistent with orthodontic
-premolar extraction, which the patient can confirm. Phones offer **Treat as
-one**, which applies to the view, isolation, 3D and STL export. The full
-editor offers **Merge**, which is saved.
+premolar extraction, which the patient can confirm. The streamed viewer
+offers **Treat as one**, which applies to the view, isolation, 3D and STL
+export, is saved on the device and travels in share links. The full editor
+offers **Merge**, which writes the label volume.
 
 ### Printable arch model
 
@@ -323,26 +324,169 @@ Prioritised gaps for CBCTer:
 12. **Two-scan superimposition:** compare scans over time, for example to
     show retention relapse.
 
-## Consistency work still open
+## Third round: performance, corrections and consistency
 
-From the four design reviews, not done in this change:
+All measured on the same case (512 × 512 × 511 voxels at 0.16 mm) in headless
+Chromium with software rendering, so real devices with a GPU are faster.
 
-- **One mounted shell:** lift a single viewer shell into `ViewerPage`, so
-  loading the full volume becomes a quiet upgrade (a "Streaming → Full
-  volume" chip) instead of a screen swap.
-- **Teeth as a panel tab:** dock **Review teeth** as a tab in the side panel
-  rather than an overlay. Link the findings chart to tooth outlines, so the
-  chart shows outlined teeth and "Go to" falls back to the outline centroid.
-- **One button style:** about 20 ad-hoc button styles and 13 raw `<select>`s
-  remain. Standardise on `Button` (sky primary, quiet, danger, pressed, icon
-  sizes), `Select`, and design tokens in `styles.css`. Add a visible focus
-  ring and a `touch:` variant instead of `touch` props.
-- **Accessible sheets:** sheets now close with Escape and are `aria-modal`.
-  Still missing: focus trap and return, and `aria-expanded` on dock buttons.
-- **Robustness:**
-  - restart a crashed decoding worker;
-  - retry range reads on network errors;
-  - warn before closing with unsaved edits;
-  - add a recent-cases list;
-  - give the service worker a versioned cache with pruning.
-- **Translations:** new strings are English only (Ukrainian falls back).
+### Nothing heavy on the main thread
+
+Canal tracing, the dark-area check, split detection, tooth meshing, the
+printable model and the focus view's check run in one shared worker
+(`src/workers/dentalCompute.worker.ts`, called through
+`lib/dental/computeClient.ts`). Scan comparison and intraoral alignment have
+their own workers. Longest main-thread pause measured:
+
+| Action | Before | After |
+| --- | --- | --- |
+| Opening the scan | 2.7 s | 0.55 s |
+| Tracing one canal | about 5 s, blocking | 2.7–3.2 s, 74 ms longest pause |
+| Dark-area check of every tooth | blocking per tooth | 25 s, no pause over 50 ms |
+| Whole upper arch STL export | about 100 s | 66–72 s, 0.5 s longest pause |
+
+Opening got faster because the 3D preview's quantisation and the scan
+histogram now go through a 65,536-entry lookup table instead of per-voxel
+arithmetic (634 ms → 112 ms and 435 ms → 46 ms).
+
+### Export memory
+
+The old mesher kept every triangle as a JavaScript array and welded vertices
+through string keys. A whole arch on a base (2.3 M triangles) needed about
+2.3 GB for meshing alone, and the tab peaked at 3.2–3.9 GB. Exports now use
+`lib/surface/maskSurface.ts`: the same marching-tetrahedra surface and
+smoothing with typed arrays, which a unit test checks triangle for triangle
+against the old mesher. Orientation (`orientMesh`) also works on the indexed
+mesh. The ZIP is written as it goes (fflate's streaming, off-thread deflate),
+so it is never held twice.
+
+| Whole upper arch with printable model | Before | After |
+| --- | --- | --- |
+| Tab memory (OS-level, includes workers) | 3.2–3.9 GB | about 1.0 GB (0.4 GB at rest) |
+| Page heap | 819 MB | 167–235 MB |
+
+Phones get a memory plan (`lib/case/exportBudget.ts`, calibrated on these
+runs). In phone emulation, a whole-arch export drops the printable model with
+a note saying why, and the tab grows by about 70 MB. Canine to canine keeps
+the model and grows by about 210 MB.
+
+### Smaller files
+
+**Smaller files** (on by default) simplifies each closed surface to about a
+tenth of its triangles with a quadric edge-collapse that refuses any collapse
+that would break the 2-manifold, flip a face or exceed 0.3 voxel of error
+(`lib/surface/simplifyClosed.ts`).
+
+| | Triangles | File | Volume |
+| --- | --- | --- | --- |
+| Arch model, full | 2,286,084 | 114 MB | 17,304.6 mm³ |
+| Arch model, smaller | 228,608 | 11.4 MB | 17,303.8 mm³ |
+
+Every output stays watertight: no open or over-used edges, and one shell per
+input shell. The ZIP for the whole arch went from 78 MB to 12 MB. The largest
+deviation from the unsimplified surface was 0.015 mm, a tenth of a voxel.
+
+### Corrections that stick
+
+Streamed cases are read-only packages, so corrections are kept on the device
+per scan (IndexedDB, keyed by the scan's hash): the numbering swap, split
+teeth treated as one, layer colours and visibility, and hand-added teeth.
+The swap and merges also travel in share links (`&swap=1&merge=a~b`), so a
+recipient sees the same numbering. **Review and edit teeth** (the full
+editor) bakes them into the label volume (`lib/case/applyCorrections.ts`), so
+they can be saved with the case.
+
+### Add a missing tooth
+
+Pick the tooth number, click its crown on a slice, then **Keep**, **Looser**,
+**Tighter** or **Discard** (`lib/dental/growTooth.ts`):
+- **Threshold:** between soft tissue and the clicked tooth's density.
+- **Opening:** cuts thin bridges to bone.
+- **Tracking:** the outline follows the tooth slice by slice from the click.
+  Each slice may only reach a voxel past the previous one. Towards the root,
+  once past the crown's widest point, a slice may not grow at all, which is
+  what stops it spreading into fused bone.
+- **Pulp:** filled in.
+- **Other teeth:** their voxels are off limits.
+- **Click height:** a second seed 4 mm towards the root is also tried, and
+  the fuller outline wins, so clicking near the biting edge works too.
+
+Checked against the model's own outlines on this scan, hiding one tooth at a
+time:
+- **Overlap:** clicking the middle of the tooth gives median overlap
+  (Dice) 0.86, worst 0.71. Clicking the crown gives 0.81–0.88.
+- **Speed:** about 0.5 s per tooth.
+- **Root tip:** the last few millimetres are rough.
+
+A walkthrough removed tooth 13 from a copy of the case and added it back by
+clicking:
+- it came back at 24.7 mm long (the model's is 24.8 mm);
+- it survived reopening the scan and opening the full editor.
+
+No tooth is actually missing from this scan. The lower front has three
+incisors (the gap is closed, consistent with an extraction), and the dense
+blob behind 47 is the jaw's ramus, not a wisdom tooth.
+
+### Compare with another scan
+
+**Compare with another scan** opens a second package of the same person
+(`lib/dental/compareScans.ts`):
+1. The jaws are aligned on the teeth that did not move. Teeth that moved are
+   dropped from the alignment and it is repeated.
+2. Each tooth's own motion relative to the jaw is reported in millimetres,
+   split into along the arch, towards the cheek and vertical, plus its
+   rotation in degrees and any shape change.
+3. Changes under the noise floor (0.1 mm or 1°, raised for coarse scans) are
+   reported as no change.
+
+Mirrored numbering in one scan is detected.
+
+Synthetic tests:
+- a tooth moved 1.0 mm measured 1.001 mm;
+- a tooth turned 5° measured 4.99°.
+
+Comparing this scan with a copy missing tooth 13 took 7 s. Every tooth showed
+no measurable change, and 13 was listed as present in one scan only.
+
+### Robustness
+
+- **Decoder worker:** restarts after a crash or a missed heartbeat and
+  replays what it was doing. Three crashes in a minute stop it with a clear
+  message.
+- **Remote reads:** range reads retry on network errors, 5xx, 429 and short
+  bodies (0.5 s, 1 s and 2 s apart).
+- **Full editor:** warns before the tab closes with unsaved edits.
+- **Start page:** shows recent cases (links and the sample reopen; files
+  must be chosen again).
+- **Service worker cache:** versioned per build, old caches deleted, runtime
+  cache capped at 80 entries. Scan packages and anything over 40 MB are
+  never cached.
+
+### Consistency
+
+- **One `Button`:** the primary, secondary, ghost, quiet and danger variants,
+  plus pressed, with a visible focus ring. It is compact by default and 36 px
+  on touch screens through the coarse-pointer media query, not a `touch`
+  prop. Design tokens live in `styles.css`.
+- **Focus handling:** phone sheets and dialogs trap focus and return it to
+  the button that opened them, and dock buttons report `aria-expanded`.
+- **Tooth review:** in the full editor it is now a side-panel tab (**Scan
+  tools** / **Tooth review**) on desktop instead of a floating overlay. Its
+  header buttons are compact.
+- **Ukrainian:** every catalogue string has a Ukrainian translation, including
+  all the dental panels. The arch grid's accessible labels keep the review
+  state in English because tests match it. Sentences generated inside the
+  comparison and the export memory plan are still English.
+
+### Still open
+
+- **One mounted viewer:** the streamed and full viewers are still two
+  components (about 2,200 and 5,100 lines). Opening the full editor keeps the
+  view, measurements, selection and all streamed corrections, and the
+  streamed view stays usable while the full volume loads, but the screen is
+  still swapped at the end. Merging the two is a larger refactor.
+- **Chart and outlines:** the findings chart is not yet linked to the tooth
+  outlines.
+- **Root tips:** hand-added teeth trace them roughly, and molars are flagged
+  "may have touched bone" more often than needed.
+- **Recent files:** browsers don't let a page reopen a local file without
+  asking, so recent local files only show their name.

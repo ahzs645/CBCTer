@@ -3375,18 +3375,22 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       const saving = studyState;
       await persistLocalProject();
       setSavedState(saving);
-      setCaseStatus('Case saved on this device.');
+      setCaseStatus(t('dental.viewer.caseSaved'));
     } catch (e) {
-      setCaseStatus(e instanceof Error ? e.message : 'Local saving failed.');
+      setCaseStatus(
+        e instanceof Error ? e.message : t('dental.viewer.saveFailed'),
+      );
     }
   };
   const restoreLocalProject = async () => {
     try {
       const archive = await loadLatestProject();
-      if (!archive) throw new Error('No local project has been saved yet.');
+      if (!archive) throw new Error(t('dental.viewer.nothingSaved'));
       await applyProjectArchive(archive);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Local restore failed.');
+      window.alert(
+        error instanceof Error ? error.message : t('dental.viewer.restoreFailed'),
+      );
     }
   };
 
@@ -3981,7 +3985,9 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
           ),
         }),
         onProgress: (done, total) =>
-          setModelExportStatus(`Meshing tooth ${done} of ${total}…`),
+          setModelExportStatus(
+            t('dental.toothExport.meshing', { done, total }),
+          ),
         compute: {
           part: (input) => compute('toothPart', input),
           arch: (options) => compute('archModel', options),
@@ -3994,7 +4000,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
       setModelExportStatus(
-        `Saved ${reports.length} ${reports.length === 1 ? 'tooth' : 'teeth'}.`,
+        t('dental.toothExport.saved', { count: reports.length }),
       );
     } catch (error) {
       setModelExportStatus(
@@ -4774,10 +4780,16 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
     />
   );
 
+  const caseSummary = selectedInstance
+    ? `${selectedInstance.fdi ? t('dental.review.fdi', { fdi: selectedInstance.fdi }) : t('dental.viewer.unassignedTooth')} · ${t(`dental.reviewState.${selectedInstance.review}`)}`
+    : t('dental.viewer.instances', {
+        count: studyState.toothInstances?.length ?? 0,
+      });
+
   const manualToothBanner = manualToothTarget ? (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-800 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
       <span className="font-medium">
-        Manual tooth target: FDI {manualToothTarget.fdi}
+        {t('dental.viewer.manualTarget', { fdi: manualToothTarget.fdi })}
       </span>
       <span className="text-amber-200/80">{manualToothTarget.fdiName}</span>
       <button
@@ -4785,21 +4797,21 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
         onClick={exportManualToothTarget}
         className="ml-auto rounded border border-sky-300/50 bg-sky-500/10 px-2 py-1 text-sky-100 hover:bg-sky-500/20"
       >
-        Export tooth
+        {t('dental.viewer.exportTooth')}
       </button>
       <button
         type="button"
         onClick={openTeeth}
         className="rounded border border-amber-300/40 px-2 py-1 text-amber-100 hover:bg-amber-300/10"
       >
-        Teeth
+        {t('dental.viewer.teeth')}
       </button>
       <button
         type="button"
         onClick={clearManualToothTarget}
         className="rounded border border-slate-600 px-2 py-1 text-slate-200 hover:bg-slate-800"
       >
-        Clear
+        {t('dental.viewer.clear')}
       </button>
     </div>
   ) : null;
@@ -4861,7 +4873,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
                 pressed={reviewOpen}
                 onClick={() => setReviewOpen((v) => !v)}
               >
-                Review teeth
+                {t('dental.review.title')}
               </Button>
               <Button
                 variant="quiet"
@@ -4869,7 +4881,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
                 className="my-1 shrink-0 text-sky-200"
                 onClick={() => void saveLocalProject()}
               >
-                Save case locally
+                {t('dental.viewer.saveCase')}
               </Button>
               {caseStatus && (
                 <span role="status" className="text-xs text-slate-300">
@@ -4877,9 +4889,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
                 </span>
               )}
               <span className="truncate text-xs text-slate-400">
-                {selectedInstance
-                  ? `${selectedInstance.fdi ? `FDI ${selectedInstance.fdi}` : 'Unassigned tooth'} · ${selectedInstance.review}`
-                  : `${studyState.toothInstances?.length ?? 0} tooth instances`}
+                {caseSummary}
               </span>
             </div>
             {manualToothBanner}
@@ -4892,7 +4902,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
             <div className="flex min-h-0 flex-col bg-slate-950">
               <div
                 className="flex shrink-0 gap-1 border-b border-slate-800 px-2 py-1"
-                aria-label="Side panel"
+                aria-label={t('dental.viewer.sidePanel')}
                 role="group"
               >
                 <Button
@@ -4904,7 +4914,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
                     app.setSidebarVisible(true);
                   }}
                 >
-                  Study tools
+                  {t('dental.viewer.studyTools')}
                 </Button>
                 <Button
                   variant="quiet"
@@ -4912,10 +4922,11 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
                   pressed={reviewOpen}
                   onClick={() => setReviewOpen(true)}
                 >
-                  Tooth review
+                  {t('dental.review.region')}
                 </Button>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden">
+              {/* A one-cell grid so the sidebar fills the height, as before. */}
+              <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden">
                 {reviewOpen ? dockedReviewPanel : sidebar}
               </div>
             </div>
@@ -4978,7 +4989,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
           pressed={reviewOpen}
           onClick={() => setReviewOpen((v) => !v)}
         >
-          Review teeth
+          {t('dental.review.title')}
         </Button>
         <Button
           variant="quiet"
@@ -4986,7 +4997,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
           className="my-1 shrink-0 text-sky-200"
           onClick={() => void saveLocalProject()}
         >
-          Save case locally
+          {t('dental.viewer.saveCase')}
         </Button>
         {caseStatus && (
           <span role="status" className="text-xs text-slate-300">
@@ -4994,9 +5005,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
           </span>
         )}
         <span className="truncate text-xs text-slate-400">
-          {selectedInstance
-            ? `${selectedInstance.fdi ? `FDI ${selectedInstance.fdi}` : 'Unassigned tooth'} · ${selectedInstance.review}`
-            : `${studyState.toothInstances?.length ?? 0} tooth instances`}
+          {caseSummary}
         </span>
       </div>
       {manualToothBanner}
