@@ -76,6 +76,8 @@ interface VolumeViewport3DProps {
   className?: string;
   surfaces?: SurfaceMeshPreview[];
   cropBounds?: CropBounds;
+  /** Place the controls at the top edge (no pane header drawn over it). */
+  flushTop?: boolean;
 }
 
 export interface VolumeViewport3DHandle {
@@ -104,6 +106,7 @@ export const VolumeViewport3D = memo(
         className,
         surfaces = [],
         cropBounds,
+        flushTop = false,
       },
       ref,
     ) {
@@ -346,7 +349,12 @@ export const VolumeViewport3D = memo(
             Crop {cropBounds.min.join(',')} to {cropBounds.max.join(',')}
           </div>
         ) : null}
-        <div className="pointer-events-auto absolute left-2 top-14 flex flex-col gap-1.5">
+        <div
+          className={cn(
+            'pointer-events-auto absolute left-2 flex flex-col gap-1.5',
+            flushTop ? 'top-2' : 'top-14',
+          )}
+        >
           <div className="flex items-center gap-0.5 rounded-lg bg-slate-950/70 p-1 ring-1 ring-white/10">
             {VIEW_PRESETS.map((view) => (
               <button
@@ -466,7 +474,8 @@ export const VolumeViewport3D = memo(
         </div>
         <div
           className={cn(
-            'absolute right-2 top-14 hidden max-w-[min(24rem,calc(100%-1rem))] rounded xl:block bg-slate-950/75 px-2 py-1 text-right font-mono text-[11px] leading-4 text-slate-300 ring-1 ring-white/10',
+            flushTop ? 'top-2' : 'top-14',
+            'absolute right-2 hidden max-w-[min(24rem,calc(100%-1rem))] rounded xl:block bg-slate-950/75 px-2 py-1 text-right font-mono text-[11px] leading-4 text-slate-300 ring-1 ring-white/10',
             contextStatus === 'lost' ? 'text-rose-200 ring-rose-400/30' : null,
             contextStatus === 'restored' ? 'text-sky-200 ring-sky-400/30' : null,
           )}

@@ -3,6 +3,7 @@ import type { StudyMeasurement } from '../../domain/types';
 import {
   buildDentalReportHtml,
   escapeHtml,
+  type DentalReportInput,
   measurementSliceNumber,
   measurementsToCsv,
 } from './report';
@@ -144,5 +145,55 @@ describe('dental report', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('Notes &amp; plans');
     expect(html).toContain('<td colspan="4" class="empty">None</td>');
+  });
+
+  const reportInput = (shareUrl?: string): DentalReportInput => ({
+    title: 'Report',
+    generatedAt: new Date(0),
+    scan: { id: 'scan', format: 'CT', dimensions: '1', voxelSize: '1' },
+    snapshots: [],
+    measurements: [],
+    findings: [],
+    caseNotes: '',
+    disclaimer: 'Reference only',
+    shareUrl,
+    labels: {
+      scan: 'Scan', format: 'Format', dimensions: 'Dimensions', voxelSize: 'Voxel',
+      generated: 'Generated', views: 'Views', measurements: 'Measurements',
+      measurementName: 'Name', measurementValue: 'Value', measurementPlane: 'Plane',
+      measurementSlice: 'Slice', noMeasurements: 'None', toothChart: 'Chart',
+      tooth: 'Tooth', findings: 'Findings', note: 'Note', noFindings: 'None',
+      caseNotes: 'Case notes', print: 'Print',
+    },
+  });
+
+  it('adds an escaped share QR block when a share URL is given', () => {
+    const url = 'https://ahzs645.github.io/CBCTer/#url=a"b\'c&tooth=33<script>alert(1)</script>';
+    const html = buildDentalReportHtml(reportInput(url));
+    expect(html).toContain('<section class="share">');
+    expect(html).toMatch(/<div class="share-qr"><svg [^>]*role="img"/);
+    expect(html).toContain('<title>Scan with a phone to open this case in CBCTer</title>');
+    expect(html).toContain('Scan with a phone to open this case in CBCTer</p>');
+    const escaped =
+      'https://ahzs645.github.io/CBCTer/#url=a&quot;b&#39;c&amp;tooth=33&lt;script&gt;alert(1)&lt;/script&gt;';
+    expect(html).toContain(`<a href="${escaped}">${escaped}</a>`);
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('a"b');
+  });
+
+  it('does not link non-http share URLs', () => {
+    const html = buildDentalReportHtml(reportInput('javascript:alert(1)'));
+    expect(html).toContain('<p class="share-link">javascript:alert(1)</p>');
+    expect(html).not.toContain('href="javascript');
+  });
+
+  it('omits the share block without a share URL', () => {
+    for (const html of [
+      buildDentalReportHtml(reportInput()),
+      buildDentalReportHtml(reportInput('   ')),
+    ]) {
+      expect(html).not.toContain('class="share"');
+      expect(html).not.toContain('<svg');
+    }
   });
 });

@@ -57,14 +57,18 @@ interface Props {
   mirrored: boolean;
   onSwapSides: () => void;
   overlaps: Array<[ToothInstance, ToothInstance]>;
+  /** Pairs that share a large surface: one tooth the model cut in two. */
+  splits?: Array<{ a: ToothInstance; b: ToothInstance; sharedMm2: number }>;
+  onMergePair?: (keepId: string, mergeId: string) => void;
+  onFocus?: (id: string) => void;
   exportBusy: boolean;
   exportStatus: string;
   onExportModel: (request: ToothModelRequest) => void;
 }
 const field =
-  'min-h-11 w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm';
+  'min-h-8 [@media(pointer:coarse)]:min-h-9 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs';
 const button =
-  'min-h-11 rounded border border-slate-600 bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:opacity-40';
+  'inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 items-center justify-center gap-1 rounded border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs hover:bg-slate-700 disabled:opacity-40';
 const heading =
   'text-[11px] font-semibold uppercase tracking-wide text-slate-400';
 
@@ -108,7 +112,7 @@ export function ToothReviewPanel(p: Props) {
     <aside
       role="region"
       aria-label="Tooth review"
-      className="absolute inset-x-0 bottom-0 z-40 max-h-[60dvh] space-y-3 overflow-y-auto rounded-t-2xl border border-slate-700 bg-slate-900 p-3 shadow-xl md:inset-x-auto md:bottom-8 md:right-2 md:top-14 md:max-h-none md:w-96 md:rounded-xl"
+      className="absolute inset-x-0 bottom-0 z-40 max-h-[60dvh] space-y-2.5 overflow-y-auto rounded-t-2xl border border-slate-700 bg-slate-900 p-3 shadow-xl md:inset-x-auto md:bottom-8 md:right-2 md:top-14 md:max-h-none md:w-96 md:rounded-xl"
     >
       <div className="flex items-center justify-between gap-2">
         <div>
@@ -150,6 +154,34 @@ export function ToothReviewPanel(p: Props) {
           <button className={`${button} mt-2 block`} onClick={p.onSwapSides}>
             Swap left and right numbers
           </button>
+        </div>
+      ) : null}
+      {p.splits?.length ? (
+        <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
+          <p>Cut in two by the model (the parts share a large surface):</p>
+          <ul className="mt-1 space-y-0.5">
+            {p.splits.map(({ a, b, sharedMm2 }) => (
+              <li key={`${a.id}-${b.id}`} className="flex items-center gap-2">
+                <span className="flex-1">
+                  {toothLabel(a)} + {toothLabel(b)} · {Math.round(sharedMm2)}{' '}
+                  mm²
+                </span>
+                {p.onMergePair ? (
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() =>
+                      (a.fdi ?? 99) <= (b.fdi ?? 99)
+                        ? p.onMergePair!(a.id, b.id)
+                        : p.onMergePair!(b.id, a.id)
+                    }
+                  >
+                    Merge
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {p.overlaps.length ? (
@@ -206,7 +238,7 @@ export function ToothReviewPanel(p: Props) {
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
-          <label className="flex min-h-9 items-center gap-2 text-xs text-slate-300">
+          <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
             <input
               type="checkbox"
               className="h-4 w-4 accent-sky-400"
@@ -223,9 +255,20 @@ export function ToothReviewPanel(p: Props) {
       ) : null}
       {selected && (
         <section className="grid gap-2">
-          <h3 className={heading}>
-            {toothLabel(selected)} · {selected.review}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className={`${heading} flex-1`}>
+              {toothLabel(selected)} · {selected.review}
+            </h3>
+            {p.onFocus ? (
+              <button
+                type="button"
+                className={`${button} border-sky-500/60`}
+                onClick={() => p.onFocus!(selected.id)}
+              >
+                Focus on this tooth
+              </button>
+            ) : null}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <button
               className={`${button} border-emerald-500/50`}
@@ -268,7 +311,7 @@ export function ToothReviewPanel(p: Props) {
             </label>
           </div>
           <details>
-            <summary className="min-h-11 cursor-pointer py-2 text-sm">
+            <summary className="cursor-pointer py-1.5 text-xs">
               Fix the outline
             </summary>
             <div className="grid gap-2">
@@ -364,7 +407,7 @@ export function ToothReviewPanel(p: Props) {
             p.onVisibility(mode, p.state.showSurroundingBone ?? false)
           }
         />
-        <label className="flex min-h-9 items-center gap-2 text-sm">
+        <label className="flex min-h-8 items-center gap-2 text-xs">
           <input
             type="checkbox"
             className="h-4 w-4 accent-sky-400"
@@ -391,7 +434,7 @@ export function ToothReviewPanel(p: Props) {
         open={!teeth.length}
         className="rounded border border-slate-800 p-2"
       >
-        <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+        <summary className="cursor-pointer py-1.5 text-xs font-medium">
           Add or propose outlines
         </summary>
         <div className="space-y-2">
@@ -419,7 +462,7 @@ export function ToothReviewPanel(p: Props) {
           </p>
           {(p.state.analysisModels ?? []).length > 0 && (
             <details>
-              <summary className="min-h-11 cursor-pointer py-2 text-sm">
+              <summary className="cursor-pointer py-1.5 text-xs">
                 Loaded model results ({p.state.analysisModels!.length})
               </summary>
               <ul className="text-xs text-slate-300">
@@ -437,7 +480,7 @@ export function ToothReviewPanel(p: Props) {
             </details>
           )}
           <details>
-            <summary className="min-h-11 cursor-pointer py-2 text-sm">
+            <summary className="cursor-pointer py-1.5 text-xs">
               Propose outlines with a model
             </summary>
             <label className="text-xs">
@@ -488,7 +531,7 @@ export function ToothReviewPanel(p: Props) {
             </p>
           </details>
           <details open={!teeth.length}>
-            <summary className="min-h-11 cursor-pointer py-2 text-sm">
+            <summary className="cursor-pointer py-1.5 text-xs">
               Separate individual teeth
             </summary>
             <div className="grid gap-2">

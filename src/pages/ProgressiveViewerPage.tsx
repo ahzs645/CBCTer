@@ -3,11 +3,20 @@ import {
   ChevronRight,
   Copy,
   Expand,
+  FileText,
+  Focus,
   LogOut,
   SlidersHorizontal,
   SunMoon,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { ViewerApp } from '../app/useViewerApp';
 import { useCompactViewerLayout } from '../app/viewer-layout';
 import { useAxisViewportLabels, appViewerTheme } from '../app/viewer-i18n';
@@ -42,18 +51,48 @@ import {
 import { createStudyMeasurement } from '../domain/studyState';
 import type { StudyMeasurement, StudyTool } from '../domain/types';
 import { useTranslation } from '../i18n';
-import { buildToothModelZip } from '../lib/case/toothExport';
+import {
+  buildToothModelZip,
+  type ToothCropReader,
+} from '../lib/case/toothExport';
 import {
   archOrder,
   buildIsolatedVolume,
+  crownDirectionFor,
   mirrorFdi,
   numberingLooksMirrored,
-  overlappingTeeth,
+  findSplitTeeth,
+  mergeTeethView,
+  toothValues,
   selectionBounds,
   teethInGroup,
   toothLabel,
 } from '../lib/case/toothSelection';
 import type { ToothInstance } from '../lib/case/types';
+import {
+  canalCenterline,
+  canalSliceMarks,
+  snapToCanal,
+  toothCanalDistances,
+  traceCanalPath,
+  voxelToAxisPoint,
+  type CanalVolumeRead,
+} from '../lib/dental/canal';
+import {
+  drawCanalMarks,
+  drawDots,
+  overlaySize,
+} from '../lib/dental/overlayDraw';
+import {
+  findDarkAreas,
+  toothAxes,
+  type DarkArea,
+} from '../lib/dental/toothFocus';
+import { buildDentalReportHtml } from '../lib/dental/report';
+import { downloadText } from '../lib/dental/snapshot';
+import { CanalPanel, type CanalSide } from '../components/dental/CanalPanel';
+import { LayerList } from '../components/dental/LayerList';
+import { ToothFocusView } from '../components/dental/ToothFocusView';
 import {
   computeDentalWindowPresets,
   type DentalWindowPresetId,
@@ -126,10 +165,58 @@ export default function ProgressiveViewerPage({
     dimensions = m.volume.dimensions,
     spacing = m.volume.spacing;
   const caseState = session.caseMetadata?.state;
-  const teeth = useMemo(
+  const rawTeeth = useMemo(
     () => caseState?.toothInstances ?? [],
     [caseState?.toothInstances],
   );
+  // Teeth the model cut in two (found below) can be shown as one tooth.
+  const [splits, setSplits] = useState<
+    Array<{ a: ToothInstance; b: ToothInstance; sharedMm2: number }>
+  >([]);
+  const [mergedPairs, setMergedPairs] = useState<Array<[string, string]>>([]);
+  const teeth = useMemo(
+    () => mergeTeethView(rawTeeth, mergedPairs),
+    [rawTeeth, mergedPairs],
+  );
+  /** Scan (display values) and labels of one tooth group in a box. */
+  const readCrop = useCallback<ToothCropReader>(
+    async (groupId, start, shape) => ({
+      scan: displayVoxels(await session.region(start, shape), m.volume),
+      labels: (await session.analysisRegion(
+        groupId,
+        start,
+        shape,
+      )) as Uint16Array,
+    }),
+    [session, m.volume],
+  );
+  useEffect(() => {
+    if (rawTeeth.length < 2) return;
+    let cancelled = false;
+    // Wait for the first slices; the decoder works one request at a time.
+    const timer = window.setTimeout(() => {
+      findSplitTeeth(
+        rawTeeth,
+        dimensions,
+        spacing,
+        async (groupId, start, shape) =>
+          (await session.analysisRegion(groupId, start, shape)) as Uint16Array,
+      ).then(
+        (found) => {
+          if (!cancelled) setSplits(found);
+        },
+        () => undefined,
+      );
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [rawTeeth, dimensions, spacing, session]);
+  // Layers: per-tooth visibility and colour, one opacity for all outlines.
+  const [hiddenTeeth, setHiddenTeeth] = useState<Set<string>>(new Set());
+  const [toothColors, setToothColors] = useState<Record<string, string>>({});
+  const [outlineOpacity, setOutlineOpacity] = useState(1);
   const leftSign: 1 | -1 =
     (m.orientation.patientAxes?.left?.[0] ?? 1) < 0 ? -1 : 1;
   const superiorSign: 1 | -1 =
@@ -195,7 +282,6 @@ export default function ProgressiveViewerPage({
     [teeth, leftSign],
   );
   const [swapSides, setSwapSides] = useState(false);
-  const overlaps = useMemo(() => overlappingTeeth(teeth), [teeth]);
   const [iso3D, setIso3D] = useState<PreparedVolumeFor3D | null>(null);
   const [isoStatus, setIsoStatus] = useState('');
   const [exportBusy, setExportBusy] = useState(false);
@@ -283,7 +369,8 @@ export default function ProgressiveViewerPage({
   } | null>(null);
   const currentKey = `${cursor.x}|${cursor.y}|${cursor.z}|${wl.window}|${wl.level}|${compact ? axis : 'all'}`;
   const selectionKey = [...selectedIds].sort().join(',');
-  const analysisKey = `${cursor.x}|${cursor.y}|${cursor.z}|${compact ? axis : 'all'}|${selectionKey}|${focusId}|${showMode}|${bone}`;
+  const layersKey = `${[...hiddenTeeth].sort().join(',')}|${JSON.stringify(toothColors)}|${outlineOpacity}|${mergedPairs.length}`;
+  const analysisKey = `${cursor.x}|${cursor.y}|${cursor.z}|${compact ? axis : 'all'}|${selectionKey}|${focusId}|${showMode}|${bone}|${layersKey}`;
   const pending = result?.key !== currentKey;
   const preview = useMemo<ViewerSlices>(
     () => ({
@@ -408,7 +495,8 @@ export default function ProgressiveViewerPage({
                   (role === 'anatomy' && /teeth|tooth/i.test(segment.name));
                 const instance = teeth.find(
                   (item) =>
-                    item.groupId === l.id && item.value === segment.value,
+                    item.groupId === l.id &&
+                    toothValues(item).includes(segment.value),
                 );
                 const permitted =
                   showMode === 'selected'
@@ -418,13 +506,21 @@ export default function ProgressiveViewerPage({
                     : showMode === 'hide-teeth'
                       ? !tooth
                       : true;
+                const ownColor =
+                  (instance && toothColors[instance.id]) ??
+                  (instance && instance.value !== segment.value
+                    ? group.segments.find((s) => s.value === instance.value)
+                        ?.color
+                    : undefined) ??
+                  segment.color;
                 return {
                   value: segment.value,
-                  color: instance?.id === focusId ? '#facc15' : segment.color,
-                  opacity: segment.opacity,
+                  color: instance?.id === focusId ? '#facc15' : ownColor,
+                  opacity: Math.min(1, segment.opacity * outlineOpacity),
                   visible:
                     segment.visible &&
                     permitted &&
+                    !(instance && hiddenTeeth.has(instance.id)) &&
                     !rejected.has(`${l.id}|${segment.value}`),
                 };
               }),
@@ -558,14 +654,23 @@ export default function ProgressiveViewerPage({
     return (point[2] * shape[1] + point[1]) * shape[0] + point[0];
   };
   const select = (a: VolumeAxis) => (p: { xRatio: number; yRatio: number }) => {
+    if (canalPick) {
+      const voxel = axisPointToVoxel(a, p, cursor, dimensions) as Vec3;
+      const points = [...canalPick.points, voxel];
+      if (points.length >= 2) {
+        setCanalPick(null);
+        void traceCanal(canalPick.side, points[0], points[1]);
+      } else setCanalPick({ side: canalPick.side, points });
+    }
     const index = planeVoxel(a, p);
     const layers = analysisPlanes.current.get(a)?.layers;
     const tooth = teeth.find((item) =>
       layers?.some(
-        (l) => l.id === item.groupId && l.words[index] === item.value,
+        (l) =>
+          l.id === item.groupId && toothValues(item).includes(l.words[index]),
       ),
     );
-    if (tooth) selectTooth(tooth.id, multi, false);
+    if (tooth && !canalPick) selectTooth(tooth.id, multi, false);
     setCursor((c) =>
       a === VolumeAxis.Axial
         ? {
@@ -752,6 +857,259 @@ export default function ProgressiveViewerPage({
     }
   };
 
+  // Tooth focus and the dark-area check --------------------------------------
+  const [focusTooth, setFocusTooth] = useState<ToothInstance | null>(null);
+  const [darkCheck, setDarkCheck] = useState<{
+    done: number;
+    total: number;
+    results: Array<{ tooth: ToothInstance; focal: DarkArea[]; pulp: boolean }>;
+  } | null>(null);
+  const checkAllTeeth = async () => {
+    const list = archOrder(
+      teeth.filter((tooth) => tooth.review !== 'rejected'),
+    );
+    const results: Array<{
+      tooth: ToothInstance;
+      focal: DarkArea[];
+      pulp: boolean;
+    }> = [];
+    setDarkCheck({ done: 0, total: list.length, results: [] });
+    for (const [index, tooth] of list.entries()) {
+      try {
+        const box = selectionBounds(
+          [tooth],
+          dimensions,
+          Math.round(3 / spacing[0]),
+        )!;
+        const crop = await readCrop(tooth.groupId, box.start, box.shape);
+        const values = toothValues(tooth);
+        const axes = toothAxes(
+          crop.labels,
+          box.shape,
+          values,
+          spacing,
+          crownDirectionFor(tooth, teeth, superiorSign),
+        );
+        if (axes) {
+          const areas = findDarkAreas({
+            scan: crop.scan,
+            labels: crop.labels,
+            shape: box.shape,
+            spacing,
+            values,
+            axes,
+          });
+          const focal = areas.filter((area) => area.kind === 'focal');
+          const pulp = areas.some((area) => area.kind === 'pulp-like');
+          if (focal.length || !pulp) results.push({ tooth, focal, pulp });
+        }
+      } catch {
+        // A tooth that cannot be read is skipped; the rest still run.
+      }
+      setDarkCheck({
+        done: index + 1,
+        total: list.length,
+        results: [...results],
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+  };
+
+  // Nerve canal tracing ------------------------------------------------------
+  const [canals, setCanals] = useState<
+    Partial<Record<CanalSide, { centerline: Vec3[]; lengthMm: number }>>
+  >({});
+  const [canalPick, setCanalPick] = useState<{
+    side: CanalSide;
+    points: Vec3[];
+  } | null>(null);
+  const [canalBusy, setCanalBusy] = useState(false);
+  const [canalStatus, setCanalStatus] = useState('');
+  const [canalDistances, setCanalDistances] = useState<
+    Array<{ name: string; distanceMm: number; side: CanalSide }>
+  >([]);
+  const readBox = async (
+    points: Vec3[],
+    padMm: number,
+  ): Promise<CanalVolumeRead> => {
+    const start = [0, 1, 2].map((k) =>
+      Math.max(
+        0,
+        Math.floor(Math.min(...points.map((p) => p[k])) - padMm / spacing[k]),
+      ),
+    ) as Vec3;
+    const end = [0, 1, 2].map((k) =>
+      Math.min(
+        dimensions[k] - 1,
+        Math.ceil(Math.max(...points.map((p) => p[k])) + padMm / spacing[k]),
+      ),
+    );
+    const shape = [0, 1, 2].map((k) => end[k] - start[k] + 1) as Vec3;
+    return {
+      scan: displayVoxels(await session.region(start, shape), m.volume),
+      start,
+      shape,
+    };
+  };
+  const traceCanal = async (side: CanalSide, a: Vec3, b: Vec3) => {
+    setCanalBusy(true);
+    setCanalStatus('Finding the canal…');
+    try {
+      const snap = async (p: Vec3) =>
+        snapToCanal(await readBox([p], 4), p, spacing, 2);
+      const from = await snap(a),
+        to = await snap(b);
+      setCanalStatus('Following the canal…');
+      const path = traceCanalPath(
+        await readBox([from, to], 10),
+        from,
+        to,
+        spacing,
+      );
+      const centerline = canalCenterline(path, spacing);
+      let lengthMm = 0;
+      for (let i = 1; i < centerline.length; i++)
+        lengthMm += Math.hypot(
+          ...[0, 1, 2].map(
+            (k) => (centerline[i][k] - centerline[i - 1][k]) * spacing[k],
+          ),
+        );
+      setCanals((current) => ({
+        ...current,
+        [side]: { centerline, lengthMm },
+      }));
+      setCanalStatus('Measuring distances to the lower teeth…');
+      // Lower-arch teeth: crowns point superiorly.
+      const lower = teeth.filter(
+        (tooth) =>
+          tooth.review !== 'rejected' &&
+          crownDirectionFor(tooth, teeth, superiorSign) === superiorSign,
+      );
+      const labelled = await Promise.all(
+        lower.map(async (tooth) => {
+          const box = selectionBounds([tooth], dimensions, 1)!;
+          return {
+            id: tooth.id,
+            labels: (await session.analysisRegion(
+              tooth.groupId,
+              box.start,
+              box.shape,
+            )) as Uint16Array,
+            start: box.start,
+            shape: box.shape,
+            value: tooth.value,
+          };
+        }),
+      );
+      const rows = toothCanalDistances(centerline, 1.25, spacing, labelled)
+        .sort((x, y) => x.distanceMm - y.distanceMm)
+        .slice(0, 4)
+        .map((row) => ({
+          name: nameOf(teeth.find((tooth) => tooth.id === row.id)!),
+          distanceMm: row.distanceMm,
+          side,
+        }));
+      setCanalDistances((current) =>
+        [...current.filter((row) => row.side !== side), ...rows].sort(
+          (x, y) => x.distanceMm - y.distanceMm,
+        ),
+      );
+      setCanalStatus('');
+    } catch (e) {
+      setCanalStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCanalBusy(false);
+    }
+  };
+
+  // Case report (with a QR code for the share link) ----------------------------
+  const openReport = () => {
+    const reportWindow = window.open('', '_blank');
+    const snapshots = Object.values(VolumeAxis).flatMap((a) => {
+      const base = document.querySelector<HTMLCanvasElement>(
+        `canvas[data-slice-canvas="${a}"]`,
+      );
+      if (!base || !base.width) return [];
+      const canvas = document.createElement('canvas');
+      canvas.width = base.width;
+      canvas.height = base.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return [];
+      ctx.drawImage(base, 0, 0);
+      const overlay = document.querySelector<HTMLCanvasElement>(
+        `canvas[data-slice-overlay="${a}"]`,
+      );
+      if (overlay?.width)
+        ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+      return [
+        {
+          label: t(`dental.views.${a}`),
+          dataUrl: canvas.toDataURL('image/png'),
+        },
+      ];
+    });
+    const html = buildDentalReportHtml({
+      title: `${t('dental.report.title')} — ${m.name}`,
+      generatedAt: new Date(),
+      scan: {
+        id: m.name,
+        format: m.source.formatLabel,
+        dimensions: `${dimensions.join(' × ')} voxels`,
+        voxelSize: formatSpacing(spacing),
+      },
+      snapshots,
+      measurements: measurements.map((item) => ({
+        name: item.record.name,
+        value: item.shape.label ?? '',
+        plane: t(`dental.views.${item.axis}`),
+        slice: String(item.index + 1),
+      })),
+      findings: (darkCheck?.results ?? []).map(({ tooth, focal, pulp }) => ({
+        fdi: shownFdi(tooth) ?? 0,
+        tooth: nameOf(tooth),
+        conditions: [
+          ...focal.map(
+            (area) =>
+              `Dark area ${area.volumeMm3.toFixed(1)} mm³ reaching the surface (automatic check)`,
+          ),
+          ...(pulp ? [] : ['No pulp canal visible (automatic check)']),
+        ].join('; '),
+        note: 'Unvalidated automatic finding — confirm with a dental X-ray.',
+        bookmarked: false,
+      })),
+      caseNotes: caseState?.caseNotes ?? '',
+      disclaimer: t('dental.report.disclaimer'),
+      shareUrl: shareLink ?? undefined,
+      labels: {
+        scan: t('dental.report.scan'),
+        format: t('dental.report.format'),
+        dimensions: t('dental.report.dimensions'),
+        voxelSize: t('dental.report.voxelSize'),
+        generated: t('dental.report.generated'),
+        views: t('dental.report.views'),
+        measurements: t('dental.report.measurements'),
+        measurementName: t('dental.report.name'),
+        measurementValue: t('dental.report.value'),
+        measurementPlane: t('dental.report.plane'),
+        measurementSlice: t('dental.report.slice'),
+        noMeasurements: t('dental.report.noMeasurements'),
+        toothChart: t('dental.report.toothChart'),
+        tooth: t('dental.report.tooth'),
+        findings: t('dental.report.findings'),
+        note: t('dental.report.note'),
+        noFindings: t('dental.report.noFindings'),
+        caseNotes: t('dental.report.caseNotes'),
+        print: t('dental.report.print'),
+      },
+    });
+    const blob = new Blob([html], { type: 'text/html' });
+    if (reportWindow) {
+      reportWindow.location.href = URL.createObjectURL(blob);
+      return;
+    }
+    downloadText(html, `${m.name}-report.html`, 'text/html');
+  };
+
   const shapes = Object.fromEntries(
     Object.values(VolumeAxis).map((a) => [
       a,
@@ -788,6 +1146,55 @@ export default function ProgressiveViewerPage({
     </span>
   );
 
+  const baseOverlays =
+    pending || analysisResult?.key !== analysisKey
+      ? undefined
+      : analysisResult.overlays;
+  const shownOverlays = useMemo(() => {
+    const out: Partial<Record<VolumeAxis, SliceImage | null>> = {
+      ...(baseOverlays ?? {}),
+    };
+    const lines = Object.values(canals).filter(
+      (line): line is { centerline: Vec3[]; lengthMm: number } => Boolean(line),
+    );
+    for (const a of Object.values(VolumeAxis)) {
+      const size = overlaySize(a, dimensions);
+      const index = cursor[indexKey(a)];
+      let image = out[a];
+      for (const line of lines)
+        image = drawCanalMarks(
+          image,
+          size,
+          canalSliceMarks(line.centerline, 1.25, a, index, dimensions, spacing),
+        );
+      const picked = (canalPick?.points ?? []).filter(
+        (p) =>
+          Math.abs(
+            p[a === VolumeAxis.Axial ? 2 : a === VolumeAxis.Coronal ? 1 : 0] -
+              index,
+          ) <= 2,
+      );
+      if (picked.length)
+        image = drawDots(
+          image,
+          size,
+          picked.flatMap((p) => {
+            const c = voxelToAxisPoint(a, p, dimensions);
+            const d = 3 / Math.max(size.width, size.height);
+            return [-1, 0, 1].flatMap((dx) =>
+              [-1, 0, 1].map((dy) => ({
+                xRatio: c.xRatio + dx * d,
+                yRatio: c.yRatio + dy * d,
+              })),
+            );
+          }),
+          '#f472b6',
+        );
+      if (image) out[a] = image;
+    }
+    return out;
+  }, [baseOverlays, canals, canalPick, cursor, dimensions, spacing]);
+
   const frame3D = (
     <div className="relative flex h-full flex-col">
       <p className="px-3 py-1 text-xs text-slate-400">
@@ -804,6 +1211,7 @@ export default function ProgressiveViewerPage({
         <VolumeViewport3D
           className="min-h-0 flex-1"
           volume={iso3D ?? app.prepared3D}
+          flushTop
         />
       </ErrorBoundary>
     </div>
@@ -819,11 +1227,7 @@ export default function ProgressiveViewerPage({
       onZoomChange={setZoom}
       selectedAxis={axis}
       onSelectedAxisChange={setAxis}
-      overlays={
-        pending || analysisResult?.key !== analysisKey
-          ? {}
-          : analysisResult.overlays
-      }
+      overlays={shownOverlays}
       slices={pending ? preview : result!.slices}
       hasVolume
       compact={phone}
@@ -872,7 +1276,7 @@ export default function ProgressiveViewerPage({
   );
 
   const section = (title: string, children: ReactNode) => (
-    <section className="space-y-2 border-b border-slate-800 p-3">
+    <section className="space-y-2 border-b border-slate-800 px-3 py-2.5">
       <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
         {title}
       </h2>
@@ -914,28 +1318,73 @@ export default function ProgressiveViewerPage({
               </button>
             </p>
           ) : null}
-          {overlaps.length ? (
+          {splits.length ? (
             <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
-              {overlaps.map(([a, b]) => (
-                <p key={`${a.id}-${b.id}`}>
-                  {nameOf(a)} and {nameOf(b)} overlap: probably one tooth split
-                  in two.{' '}
-                  <button
-                    type="button"
-                    className="underline"
-                    onClick={() => {
-                      setSelectedIds([a.id, b.id]);
-                      setFocusId(a.id);
-                      setShowMode('selected');
-                      centerOn([a, b]);
-                    }}
-                  >
-                    Show both
-                  </button>
-                </p>
-              ))}
+              <p>
+                {splits.length === 1
+                  ? 'One tooth looks'
+                  : `${splits.length} teeth look`}{' '}
+                cut in two by the model (the parts share a large surface):
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {splits.map(({ a, b, sharedMm2 }) => {
+                  const merged = mergedPairs.some(
+                    ([x, y]) =>
+                      (x === a.id && y === b.id) || (x === b.id && y === a.id),
+                  );
+                  return (
+                    <li
+                      key={`${a.id}-${b.id}`}
+                      className="flex items-center gap-2"
+                    >
+                      <span className="flex-1">
+                        {toothLabel({ ...a, fdi: shownFdi(a) })} +{' '}
+                        {toothLabel({ ...b, fdi: shownFdi(b) })} ·{' '}
+                        {Math.round(sharedMm2)} mm² shared
+                      </span>
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() =>
+                          setMergedPairs((current) =>
+                            merged
+                              ? current.filter(
+                                  ([x, y]) =>
+                                    !(
+                                      (x === a.id && y === b.id) ||
+                                      (x === b.id && y === a.id)
+                                    ),
+                                )
+                              : [...current, [a.id, b.id]],
+                          )
+                        }
+                      >
+                        {merged ? 'Keep apart' : 'Treat as one'}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {splits.some(
+                ({ a, b }) =>
+                  !mergedPairs.some(
+                    ([x, y]) =>
+                      (x === a.id && y === b.id) || (x === b.id && y === a.id),
+                  ),
+              ) ? (
+                <button
+                  type="button"
+                  className="mt-1 underline"
+                  onClick={() =>
+                    setMergedPairs(splits.map(({ a, b }) => [a.id, b.id]))
+                  }
+                >
+                  Treat all as one tooth
+                </button>
+              ) : null}
               <p className="mt-1 text-amber-100/80">
-                Merge them in the full editor (Review teeth → Merge).
+                Only changes this view and exports; merge them in the full
+                editor to save it.
               </p>
             </div>
           ) : null}
@@ -952,7 +1401,7 @@ export default function ProgressiveViewerPage({
             <button
               type="button"
               aria-label="Previous tooth"
-              className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
+              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
               onClick={() => stepTooth(-1)}
             >
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -970,13 +1419,23 @@ export default function ProgressiveViewerPage({
             <button
               type="button"
               aria-label="Next tooth"
-              className="inline-flex h-9 w-9 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
+              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
               onClick={() => stepTooth(1)}
             >
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
-          <label className="flex min-h-9 items-center gap-2 text-xs text-slate-300">
+          {focus ? (
+            <button
+              type="button"
+              onClick={() => setFocusTooth(focus)}
+              className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25"
+            >
+              <Focus className="h-3.5 w-3.5" aria-hidden="true" />
+              Focus on {nameOf(focus)}
+            </button>
+          ) : null}
+          <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
             <input
               type="checkbox"
               className="h-4 w-4 accent-sky-400"
@@ -998,7 +1457,7 @@ export default function ProgressiveViewerPage({
             type="button"
             disabled={fullLoading}
             onClick={() => void loadFull()}
-            className="inline-flex min-h-10 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-3 text-sm hover:bg-slate-700 disabled:opacity-50"
+            className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
           >
             {fullLoading ? t('streaming.loadingFull') : 'Review and edit teeth'}
           </button>
@@ -1012,7 +1471,7 @@ export default function ProgressiveViewerPage({
             hasSelection={selectedIds.length > 0}
             onChange={setShowMode}
           />
-          <label className="flex min-h-9 items-center gap-2 text-xs text-slate-300">
+          <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
             <input
               type="checkbox"
               className="h-4 w-4 accent-sky-400"
@@ -1034,6 +1493,132 @@ export default function ProgressiveViewerPage({
           busy={exportBusy}
           status={exportStatus}
           onExport={(request) => void exportTeeth(request)}
+        />,
+      )}
+      {section(
+        'Check teeth',
+        <div className="space-y-1.5 text-xs text-slate-300">
+          <button
+            type="button"
+            disabled={Boolean(darkCheck && darkCheck.done < darkCheck.total)}
+            onClick={() => void checkAllTeeth()}
+            className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
+          >
+            {darkCheck && darkCheck.done < darkCheck.total
+              ? `Checking tooth ${darkCheck.done + 1} of ${darkCheck.total}…`
+              : 'Look for dark areas in every tooth'}
+          </button>
+          {darkCheck && darkCheck.done === darkCheck.total ? (
+            darkCheck.results.length ? (
+              <ul className="space-y-1">
+                {darkCheck.results.map(({ tooth, focal, pulp }) => (
+                  <li
+                    key={tooth.id}
+                    className="rounded border border-amber-400/40 bg-amber-950/30 p-1.5 text-amber-100"
+                  >
+                    <strong>{nameOf(tooth)}</strong>
+                    {focal.map((area, index) => (
+                      <span key={index} className="block">
+                        Dark area {area.volumeMm3.toFixed(1)} mm³{' '}
+                        {area.alongTooth < 0.25
+                          ? 'in the crown'
+                          : area.alongTooth < 0.5
+                            ? 'at the neck'
+                            : 'on the root'}
+                        , reaching the surface.
+                      </span>
+                    ))}
+                    {pulp ? null : (
+                      <span className="block">No pulp canal visible.</span>
+                    )}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        selectTooth(tooth.id, false);
+                        setFocusTooth(tooth);
+                      }}
+                    >
+                      Focus on it
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>
+                No compact dark areas found; every tooth shows a pulp canal.
+              </p>
+            )
+          ) : null}
+          <p className="text-[10px] leading-snug text-slate-400">
+            Flags compact dark areas reaching a tooth surface (possible decay,
+            resorption or a low-density filling) and teeth with no visible pulp
+            canal. Automatic and unvalidated; a dentist needs an X-ray to tell.
+          </p>
+        </div>,
+      )}
+      <details className="border-b border-slate-800 px-3 py-2">
+        <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          Layers
+        </summary>
+        <div className="pt-2">
+          <LayerList
+            rows={teeth.map((tooth) => ({
+              tooth,
+              name: nameOf(tooth),
+              color:
+                toothColors[tooth.id] ??
+                caseState?.segmentGroups
+                  .find((g) => g.id === tooth.groupId)
+                  ?.segments.find((seg) => seg.value === tooth.value)?.color ??
+                '#94a3b8',
+            }))}
+            hidden={hiddenTeeth}
+            opacity={outlineOpacity}
+            onToggle={(id) =>
+              setHiddenTeeth((current) => {
+                const next = new Set(current);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+            onShowAll={(visible) =>
+              setHiddenTeeth(
+                visible ? new Set() : new Set(teeth.map((tooth) => tooth.id)),
+              )
+            }
+            onColor={(id, color) =>
+              setToothColors((current) => ({ ...current, [id]: color }))
+            }
+            onOpacity={setOutlineOpacity}
+          />
+        </div>
+      </details>
+      {section(
+        'Nerve canal',
+        <CanalPanel
+          traced={{
+            right: canals.right?.lengthMm ?? null,
+            left: canals.left?.lengthMm ?? null,
+          }}
+          picking={canalPick?.side ?? null}
+          pickedPoints={canalPick?.points.length ?? 0}
+          busy={canalBusy}
+          status={canalStatus}
+          distances={canalDistances}
+          onPick={(side) => {
+            setCanalPick({ side, points: [] });
+            setTool('crosshair');
+            if (compact) setSheet(null);
+          }}
+          onCancel={() => setCanalPick(null)}
+          onClear={(side) => {
+            setCanals((current) => ({ ...current, [side]: undefined }));
+            setCanalDistances((current) =>
+              current.filter((row) => row.side !== side),
+            );
+          }}
         />,
       )}
     </>
@@ -1083,7 +1668,7 @@ export default function ProgressiveViewerPage({
         <button
           type="button"
           onClick={() => void copyShareLink()}
-          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-3 text-sm hover:bg-slate-700"
+          className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700"
         >
           <Copy className="h-4 w-4" aria-hidden="true" />
           Copy share link
@@ -1123,7 +1708,7 @@ export default function ProgressiveViewerPage({
       type="button"
       disabled={fullLoading}
       onClick={() => void loadFull()}
-      className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-3 text-sm hover:bg-slate-700 disabled:opacity-50"
+      className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
     >
       <Expand className="h-4 w-4" aria-hidden="true" />
       {fullLoading ? t('streaming.loadingFull') : t('streaming.advanced')}
@@ -1144,7 +1729,7 @@ export default function ProgressiveViewerPage({
         type="button"
         disabled={fullLoading}
         onClick={() => app.resetViewer()}
-        className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-slate-700 px-3 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+        className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-700 px-2.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
       >
         <LogOut className="h-4 w-4" aria-hidden="true" />
         {t('streaming.close')}
@@ -1159,6 +1744,24 @@ export default function ProgressiveViewerPage({
     >
       {error}
     </p>
+  ) : null;
+
+  const focusModal = focusTooth ? (
+    <ErrorBoundary area="tooth focus" inline>
+      <ToothFocusView
+        key={focusTooth.id}
+        tooth={teeth.find((tooth) => tooth.id === focusTooth.id) ?? focusTooth}
+        name={nameOf(focusTooth)}
+        allTeeth={teeth}
+        dims={dimensions}
+        spacing={spacing}
+        superiorSign={superiorSign}
+        read={readCrop}
+        windowLevel={wl}
+        onClose={() => setFocusTooth(null)}
+        onJump={(voxel) => setCursor({ x: voxel[0], y: voxel[1], z: voxel[2] })}
+      />
+    </ErrorBoundary>
   ) : null;
 
   const dataAttributes = {
@@ -1192,6 +1795,7 @@ export default function ProgressiveViewerPage({
           onZoomChange={setZoom}
           onLayoutChange={setLayout}
           onOpenTeeth={teeth.length ? () => setSidebar(true) : undefined}
+          onReport={openReport}
           onSidebarVisibleChange={setSidebar}
         />
         {errorBanner}
@@ -1220,6 +1824,7 @@ export default function ProgressiveViewerPage({
           probe={probe}
           toolHint={outlinesLoading ? statusText : toolHint}
         />
+        {focusModal}
       </main>
     );
 
@@ -1400,11 +2005,19 @@ export default function ProgressiveViewerPage({
           tall
         >
           <div className="-mx-3">
+            <div className="px-3 pb-2">
+              <MobileActionButton
+                icon={<FileText className="h-5 w-5" aria-hidden="true" />}
+                label={t('dental.toolbar.report')}
+                onClick={openReport}
+              />
+            </div>
             {sharePanel}
             {scanPanel}
           </div>
         </BottomSheet>
       ) : null}
+      {focusModal}
     </main>
   );
 }

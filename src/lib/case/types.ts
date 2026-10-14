@@ -54,6 +54,12 @@ export interface ToothInstance {
   source: 'model' | 'manual' | 'separation';
   parentIds?: string[];
   confidence?: number;
+  /**
+   * Further label values shown as part of this tooth, e.g. when the viewer
+   * treats a crown and root the model split apart as one tooth. View-only:
+   * never written to label volumes.
+   */
+  extraValues?: number[];
 }
 export interface AnalysisRevision {
   id: string;

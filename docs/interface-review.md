@@ -116,6 +116,134 @@ the selected teeth.
   replacement. If a bonded retainer breaks, see them quickly: teeth start to
   relapse within days to weeks.
 
+## Second round: the roadmap items, built and tested
+
+Every item below was run in the browser against the same Sirona case. The
+streamed viewer (what phones and shared links get) has all of them; the full
+editor has focus, split detection and merge, export and the report QR code.
+
+### Focus on one tooth and the dark-area check
+
+**Focus on this tooth** opens three views of the selected tooth, resampled
+along its own long axis:
+- two long-axis slices, like a periapical film;
+- a cross-section that moves from crown to root.
+
+Controls:
+- sliders to turn around the tooth, shift the slice depth, and set contrast;
+- the tooth's length;
+- an automatic **dark-area check**.
+
+How the check works:
+- It builds an envelope of the tooth outline, with about 1.5 mm closing
+  so cavities that open onto the surface still count as inside.
+- It looks for regions below 60% of the tooth's dentine density.
+- **Pulp-like:** long along the tooth, or enclosed at least 0.6 mm inside.
+- **Focal:** compact, reaching the surface, at least 3 mm³ and below 42%
+  of dentine density.
+- **Minor:** small specks in the biting fifth of the tooth, which are
+  fissures or bite gaps.
+
+**Look for dark areas in every tooth** runs the check over the whole arch:
+28 teeth in about 40 s with software rendering.
+
+On this case only the tooth labelled 23 is flagged:
+- a 17.7 mm³ dark area at the neck of the tooth, about 3 × 3 × 5 mm;
+- it reaches within 0.3 mm of the labial surface;
+- it is 34% of dentine density;
+- this tooth also has no visible pulp canal;
+- with the mirrored numbering, this is probably the patient's upper *right*
+  canine.
+
+Every other tooth shows a normal pulp. Tooth lengths, measured along each
+tooth's axis, are average or longer, so there is no sign of apical root
+shortening.
+
+A compact cervical radiolucency can be external cervical resorption (linked
+to orthodontic treatment), cervical caries, a radiolucent filling or an
+artifact. This is not a diagnosis; it needs a dentist and a periapical
+radiograph.
+
+### Teeth the model cut in two
+
+Two outlines that share a large surface are one tooth. Neighbouring teeth
+only touch at contact points.
+
+On this case:
+- 41 + 42 share 69 mm², the two upper premolar crown/root pairs 14 + 15
+  share 53 mm² and 24 + 25 share 73 mm²;
+- real contacts are at most 4 mm².
+
+So there is one upper premolar per side, consistent with orthodontic
+premolar extraction, which the patient can confirm. Phones offer **Treat as
+one**, which applies to the view, isolation, 3D and STL export. The full
+editor offers **Merge**, which is saved.
+
+### Printable arch model
+
+**Printable model on a base** adds `arch-model.stl` to the export:
+- the crowns above the estimated gumline;
+- a horseshoe base 5–15 mm high with a flat bottom, joined into one closed,
+  outward-facing piece.
+
+The lower 33–43 model was 648k triangles, 31.7 × 13.3 × 18.1 mm, with every
+edge shared by exactly two triangles and one shell.
+
+The mesher used for exports produced inconsistently wound triangles. All
+exported STLs are now re-oriented, and decimation is off because it opened
+holes.
+
+### Splitting upper from lower (bite check)
+
+Every export reports which upper and lower teeth lie within 1 mm of each
+other. In this scan the closest pair is 2.1 mm apart (a bite block was
+probably used), so biting edges are not fused and no occlusion split is
+needed. When teeth do touch, the per-tooth labels already keep upper and
+lower crowns apart. The README then warns that those edges may be merged or
+clipped.
+
+### Structure layer list
+
+**Layers** in the Teeth panel:
+- shows or hides each tooth outline;
+- sets its colour;
+- sets one opacity (0–200%) for all outlines.
+
+### Nerve canal tracing
+
+**Nerve canal → Trace right / left**, then click both ends of the canal on
+any slice. The app:
+1. snaps each click to the centre of the nearby dark tube;
+2. follows the canal between them along a least-cost path that prefers dark
+   voxels wrapped in bone;
+3. draws it on every slice;
+4. lists how close the lower teeth come to it (surface to canal wall,
+   assuming a 2.5 mm canal).
+
+In this scan the canal is visible at the back of the mandible on both sides
+and runs out of the 82 mm field of view behind. Tracing took about 5 s per
+side. The lower first molars are the closest teeth, about 6.6–6.8 mm away.
+
+This is not for implant or surgical planning.
+
+### QR code on the case report
+
+The case report (desktop toolbar, or More on phones) prints a QR code and
+the link when the scan was opened from a share link.
+
+The encoder is built in and needs no dependencies:
+- byte mode, ECC M, versions 1–40;
+- 173 test codes decoded exactly with OpenCV;
+- bit-identical to the `segno` reference encoder.
+
+On phones the report includes the dark-area findings.
+
+### Smaller controls and the phone 3D view
+
+Buttons in the review and teeth panels are now 32 px (36 px on touch
+screens) with 12 px text. The 3D controls sit at the top of the 3D pane in
+the streamed viewer instead of 56 px down.
+
 ## What other tools offer (survey summary)
 
 The tools surveyed:
@@ -135,7 +263,7 @@ Prioritised gaps for CBCTer:
 4. **Scan-fitness report:** voxel size, coverage of the incisors, metal
    streaks near lingual surfaces, closed bite, with an "approximate, verify
    fit" badge.
-5. **Intraoral scan import and fusion:** register an STL/PLY to the CBCT and
+5. **Intraoral scan import and fusion** (in progress, see below): register an STL/PLY to the CBCT and
    replace CBCT crowns with scanned ones (Romexis, Relu, CephX). This cuts
    crown error from about 0.07–0.24 mm to 0.04–0.09 mm.
 6. **Structure layer panel:** visibility, opacity and colour per structure,

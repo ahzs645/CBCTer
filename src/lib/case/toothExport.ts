@@ -1,6 +1,7 @@
 import { zipSync } from 'fflate';
 import type { Vec3 } from '../../types';
 import { maskToBinaryStl } from '../segmentation/maskMesh';
+import { archModelStl, biteContacts, orientStl } from './archModel';
 import {
   concatBinaryStl,
   crownDirectionFor,
@@ -8,6 +9,7 @@ import {
   selectionBounds,
   toothLabel,
   toothMask,
+  toothValues,
   type GumlineEstimate,
 } from './toothSelection';
 import type { ToothInstance } from './types';
@@ -26,6 +28,10 @@ export interface ToothModelOptions {
   gumOffsetMm: number;
   /** Which way "superior" runs along the axial index (+1 = increasing). */
   superiorSign?: 1 | -1;
+  /** Also write one printable model: the crowns joined on a horseshoe base. */
+  archModel?: boolean;
+  /** Base height of the printable model, mm. */
+  baseHeightMm?: number;
 }
 
 export interface ToothModelReport {
@@ -64,6 +70,11 @@ export async function buildToothModelZip(options: {
   const { teeth, dims, spacing, model } = options;
   if (!teeth.length) throw new Error('Choose at least one tooth to export.');
   const files: Record<string, Uint8Array> = {};
+  const crownCuts = new Map<
+    string,
+    { gumline: number; crownDirection: 1 | -1 }
+  >();
+  const boxes = new Map<string, { start: Vec3; shape: Vec3 }>();
   const parts: Uint8Array[] = [];
   const reports: ToothModelReport[] = [];
   for (const [index, tooth] of teeth.entries()) {
@@ -76,7 +87,7 @@ export async function buildToothModelZip(options: {
         labels: crop.labels,
         shape: box.shape,
         spacing,
-        value: tooth.value,
+        value: toothValues(tooth),
         crownDirection: crownDirectionFor(
           tooth,
           options.allTeeth,
@@ -85,23 +96,33 @@ export async function buildToothModelZip(options: {
         gumOffsetMm: model.gumOffsetMm,
       });
     }
+    if (estimate) {
+      crownCuts.set(tooth.id, {
+        gumline: estimate.gumline + box.start[2],
+        crownDirection: estimate.crownDirection,
+      });
+      boxes.set(tooth.id, box);
+    }
     const { mask, voxels } = toothMask(
       crop.labels,
       box.shape,
-      tooth.value,
+      toothValues(tooth),
       estimate ?? undefined,
     );
     options.onProgress?.(index + 1, teeth.length);
     if (!voxels) continue;
-    const stl = new Uint8Array(
-      await maskToBinaryStl(
-        mask,
-        [box.shape[2], box.shape[1], box.shape[0]],
-        spacing,
-        box.start,
-        1,
-        { extraction: 'iso', smoothIterations: 8, decimateReduction: 0.2 },
-      ).arrayBuffer(),
+    const stl = orientStl(
+      new Uint8Array(
+        await maskToBinaryStl(
+          mask,
+          [box.shape[2], box.shape[1], box.shape[0]],
+          spacing,
+          box.start,
+          1,
+          // No decimation: the mesher's decimation drops triangles (holes).
+          { extraction: 'iso', smoothIterations: 8, decimateReduction: 0 },
+        ).arrayBuffer(),
+      ),
     );
     const name = toothLabel(tooth, index).toLowerCase().replace(/\s+/g, '-');
     const file = `teeth/${name}${model.crownOnly ? '-crown' : ''}.stl`;
@@ -129,12 +150,58 @@ export async function buildToothModelZip(options: {
     });
   }
   if (!parts.length) throw new Error('The chosen teeth have no voxels.');
+  const extra: string[] = [];
+  // One crop over all chosen teeth for the bite check and the printable model.
+  const union = selectionBounds(teeth, dims, 40)!;
+  const groupIds = [...new Set(teeth.map((t) => t.groupId))];
+  const unionLabels = await Promise.all(
+    groupIds.map(async (groupId) => ({
+      groupId,
+      words: (await options.read(groupId, union.start, union.shape)).labels,
+    })),
+  );
+  const contacts = biteContacts({
+    labels: unionLabels,
+    shape: union.shape,
+    spacing,
+    teeth,
+    superiorSign: model.superiorSign ?? 1,
+  });
+  extra.push(
+    contacts.length
+      ? `Bite: ${contacts.length} upper/lower pair(s) within 1 mm — the scan was taken with teeth close or touching; biting edges may be merged or clipped there.`
+      : 'Bite: no upper and lower teeth within 1 mm of each other in this selection.',
+  );
+  if (model.archModel && model.crownOnly) {
+    const crowns = new Map(
+      [...crownCuts].map(([id, cut]) => [
+        id,
+        {
+          gumline: cut.gumline - union.start[2],
+          crownDirection: cut.crownDirection,
+        },
+      ]),
+    );
+    const stl = await archModelStl({
+      labels: unionLabels,
+      shape: union.shape,
+      start: union.start,
+      spacing,
+      teeth: teeth.filter((t) => crowns.has(t.id)),
+      crowns,
+      baseHeightMm: model.baseHeightMm ?? 8,
+    });
+    files['arch-model.stl'] = stl;
+    extra.push(
+      `arch-model.stl: the crowns joined on a ${model.baseHeightMm ?? 8} mm horseshoe base, one closed printable piece. The base top follows each tooth's estimated gumline in flat steps; it is not a gum contour.`,
+    );
+  }
   const combined = model.crownOnly
     ? 'crowns-combined.stl'
     : 'teeth-combined.stl';
   files[combined] = concatBinaryStl(parts);
   files['README.txt'] = new TextEncoder().encode(
-    readme(options.scanName, model, spacing, reports, combined),
+    readme(options.scanName, model, spacing, reports, combined, extra),
   );
   return { zip: zipSync(files, { level: 6 }), reports };
 }
@@ -145,6 +212,7 @@ function readme(
   spacing: Vec3,
   reports: ToothModelReport[],
   combined: string,
+  extra: string[] = [],
 ) {
   const lines = [
     `CBCTer tooth model export — ${scanName}`,
@@ -165,6 +233,7 @@ function readme(
           ? `, crown ${r.crownHeightMm} mm${r.gumlineMeasured ? '' : ' (gumline guessed: no bone contact found)'}`
           : ''),
     ),
+    ...(extra.length ? ['', ...extra] : []),
     '',
     'READ BEFORE USING FOR AN APPLIANCE',
     '- Reference only. Tooth outlines come from an AI proposal and are not a clinical record.',

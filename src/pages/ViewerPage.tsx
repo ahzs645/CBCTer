@@ -14,13 +14,20 @@ import {
   hideTeethInPreview,
   mirrorFdi,
   numberingLooksMirrored,
+  findSplitTeeth,
   overlappingTeeth,
   selectionBounds,
   selectionIds,
   teethInGroup,
   type ToothGroupId,
 } from '../lib/case/toothSelection';
-import { buildToothModelZip } from '../lib/case/toothExport';
+import {
+  buildToothModelZip,
+  type ToothCropReader,
+} from '../lib/case/toothExport';
+import { ToothFocusView } from '../components/dental/ToothFocusView';
+import { ErrorBoundary } from '../app/ErrorBoundary';
+import { buildShareLink } from '../app/shareLink';
 import type { ToothModelRequest } from '../components/dental/ToothPicker';
 import { bindVolume, assertProjectBinding } from '../lib/case/binding';
 import type { CaseWorkspace } from '../lib/case/types';
@@ -43,7 +50,7 @@ import {
   SlidersHorizontal,
   SunMoon,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import { useCompactViewerLayout } from '../app/viewer-layout';
@@ -3661,6 +3668,9 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       })),
       caseNotes: studyState.caseNotes,
       disclaimer: t('dental.report.disclaimer'),
+      shareUrl: app.sourceUrl
+        ? buildShareLink(window.location.href, { url: app.sourceUrl })
+        : undefined,
       labels: {
         scan: t('dental.report.scan'),
         format: t('dental.report.format'),
@@ -3927,6 +3937,41 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       setModelExportBusy(false);
     }
   };
+  // One tooth the model cut in two shares a large surface with its other part.
+  const [toothSplits, setToothSplits] = useState<
+    Array<{ a: ToothInstance; b: ToothInstance; sharedMm2: number }>
+  >([]);
+  const [focusToothId, setFocusToothId] = useState<string | null>(null);
+  useEffect(() => {
+    const volume = app.volume;
+    const teeth = studyState.toothInstances ?? [];
+    if (!volume || teeth.length < 2) return;
+    let cancelled = false;
+    const dims = volume.meta.dimensions;
+    void findSplitTeeth(teeth, dims, volume.meta.spacing, async (groupId, start, shape) =>
+      labelmapBuffers[groupId]
+        ? cropVolume(bytesToUint16Array(labelmapBuffers[groupId]), dims, start, shape)
+        : new Uint16Array(shape[0] * shape[1] * shape[2]),
+    ).then((found) => {
+      if (!cancelled) setToothSplits(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [app.volume, studyState.toothInstances, labelmapBuffers]);
+  const readToothCrop = useCallback<ToothCropReader>(
+    async (groupId, start, shape) => {
+      const volume = app.volume!;
+      const dims = volume.meta.dimensions;
+      return {
+        scan: cropVolume(volume.voxels, dims, start, shape),
+        labels: labelmapBuffers[groupId]
+          ? cropVolume(bytesToUint16Array(labelmapBuffers[groupId]), dims, start, shape)
+          : new Uint16Array(shape[0] * shape[1] * shape[2]),
+      };
+    },
+    [app.volume, labelmapBuffers],
+  );
   const toothOverlaps = useMemo(
     () => overlappingTeeth(studyState.toothInstances ?? []),
     [studyState.toothInstances],
@@ -4026,24 +4071,22 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       setReviewError(e instanceof Error ? e.message : String(e));
     }
   };
-  const mergeInstance = (id: string) => {
+  const mergeInstance = (id: string, keepId?: string) => {
     setReviewError('');
     try {
       const other = studyState.toothInstances?.find((t) => t.id === id);
-      if (
-        !selectedInstance ||
-        !other ||
-        other.groupId !== selectedInstance.groupId
-      )
-        return;
+      const keep = keepId
+        ? studyState.toothInstances?.find((t) => t.id === keepId)
+        : selectedInstance;
+      if (!keep || !other || other.groupId !== keep.groupId) return;
       replaceToothLabels(
         mergeTeeth(
-          bytesToUint16Array(labelmapBuffers[selectedInstance.groupId]),
-          selectedInstance.value,
+          bytesToUint16Array(labelmapBuffers[keep.groupId]),
+          keep.value,
           other.value,
         ),
         'merge teeth',
-        [selectedInstance.id, other.id],
+        [keep.id, other.id],
       );
     } catch (e) {
       setReviewError(e instanceof Error ? e.message : String(e));
@@ -4241,6 +4284,27 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
     studyState.toothSelection,
     studyState.selectedInstanceId,
   ]);
+  const focusInstance = studyState.toothInstances?.find(
+    (t) => t.id === focusToothId,
+  );
+  const focusModal =
+    focusInstance && app.volume ? (
+      <ErrorBoundary area="tooth focus" inline>
+        <ToothFocusView
+          key={focusInstance.id}
+          tooth={focusInstance}
+          name={focusInstance.fdi ? `Tooth ${focusInstance.fdi}` : 'Unnumbered tooth'}
+          allTeeth={studyState.toothInstances ?? []}
+          dims={app.volume.meta.dimensions}
+          spacing={app.volume.meta.spacing}
+          superiorSign={(app.volume.meta.patientAxes?.superior?.[2] ?? 1) < 0 ? -1 : 1}
+          read={readToothCrop}
+          windowLevel={app.windowLevel}
+          onClose={() => setFocusToothId(null)}
+          onJump={(voxel) => app.setCursor({ x: voxel[0], y: voxel[1], z: voxel[2] })}
+        />
+      </ErrorBoundary>
+    ) : null;
   const reviewPanel = reviewOpen ? (
     <ToothReviewPanel
       state={studyState}
@@ -4252,6 +4316,12 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       mirrored={toothNumbersMirrored}
       onSwapSides={swapToothSides}
       overlaps={toothOverlaps}
+      splits={toothSplits}
+      onMergePair={(keepId, mergeId) => {
+        selectInstance(keepId, false);
+        mergeInstance(mergeId, keepId);
+      }}
+      onFocus={(id) => setFocusToothId(id)}
       exportBusy={modelExportBusy}
       exportStatus={modelExportStatus}
       onExportModel={(request) => void exportToothModel(request)}
@@ -4266,7 +4336,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       onSurface={() => void createSurfaceFromActiveMask()}
       surfaceBusy={Boolean(surfaceStatus)}
       onSplit={splitInstance}
-      onMerge={mergeInstance}
+      onMerge={(id) => mergeInstance(id)}
       onVisibility={(toothVisibility, showSurroundingBone) =>
         setStudyState((c) => ({ ...c, toothVisibility, showSurroundingBone }))
       }
@@ -4714,6 +4784,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
           toolHint={toolHint}
         />
         {reviewPanel}
+        {focusModal}
         {shortcutsOpen ? (
           <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
         ) : null}
@@ -5022,6 +5093,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
         </div>
       ) : null}
       {reviewPanel}
+        {focusModal}
       {packageDialogOpen ? (
         <ExportPackageDialog
           touch

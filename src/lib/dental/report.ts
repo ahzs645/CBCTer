@@ -2,6 +2,7 @@ import type {
   StudyMeasurement,
   ToothFinding,
 } from '../../domain/types';
+import { encodeQr, qrToSvg } from '../share/qr';
 
 /**
  * Plain-data builders for the dentist-facing exports: a measurement CSV and a
@@ -44,6 +45,8 @@ export interface DentalReportInput {
   findings: ReportFindingRow[];
   caseNotes: string;
   disclaimer: string;
+  /** Public CBCTer link to this case; adds a scannable QR block when set. */
+  shareUrl?: string;
   labels: {
     scan: string;
     format: string;
@@ -64,6 +67,8 @@ export interface DentalReportInput {
     noFindings: string;
     caseNotes: string;
     print: string;
+    /** Caption under the share QR code (defaults to English). */
+    shareQr?: string;
   };
 }
 
@@ -148,6 +153,33 @@ export function toothFindingsToCsv(
     .join('\n');
 }
 
+const DEFAULT_SHARE_CAPTION = 'Scan with a phone to open this case in CBCTer';
+
+/** QR code + caption + link block, or '' when there is no share URL. */
+function shareBlockHtml(shareUrl: string | undefined, caption: string): string {
+  const url = shareUrl?.trim();
+  if (!url) return '';
+  const e = escapeHtml;
+  let qr = '';
+  try {
+    qr = `<div class="share-qr">${qrToSvg(encodeQr(url, 'M'), { moduleSize: 4, margin: 4, title: caption })}</div>`;
+  } catch {
+    // Too long for a QR code: still print the link itself.
+  }
+  // Only http(s) links become clickable; anything else is shown as text.
+  const link = /^https?:\/\//i.test(url)
+    ? `<a href="${e(url)}">${e(url)}</a>`
+    : e(url);
+  return `
+  <section class="share">
+    ${qr}
+    <div class="share-text">
+      <p class="share-caption">${e(caption)}</p>
+      <p class="share-link">${link}</p>
+    </div>
+  </section>`;
+}
+
 export function buildDentalReportHtml(input: DentalReportInput): string {
   const { labels } = input;
   const e = escapeHtml;
@@ -186,6 +218,7 @@ export function buildDentalReportHtml(input: DentalReportInput): string {
         )
         .join('')
     : `<tr><td colspan="4" class="empty">${e(labels.noFindings)}</td></tr>`;
+  const share = shareBlockHtml(input.shareUrl, labels.shareQr ?? DEFAULT_SHARE_CAPTION);
   const notes = input.caseNotes.trim()
     ? `<section><h2>${e(labels.caseNotes)}</h2><p class="notes">${e(input.caseNotes.trim())}</p></section>`
     : '';
@@ -224,6 +257,17 @@ export function buildDentalReportHtml(input: DentalReportInput): string {
   .print { border: 1px solid #0f172a; background: #0f172a; color: #fff; border-radius: 4px;
     padding: 8px 14px; font: inherit; cursor: pointer; min-height: 40px; }
   .table-wrap { overflow-x: auto; }
+  .share { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 16px;
+    padding: 8px; border: 1px solid #e2e8f0; border-radius: 4px; }
+  .share-text { flex: 1 1 200px; min-width: 0; }
+  .share-qr { flex: 0 0 auto; line-height: 0; }
+  .share-qr svg { display: block; width: 32mm; height: 32mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .share p { margin: 0 0 4px; }
+  .share-caption { font-weight: 600; }
+  .share-link { font-family: ui-monospace, monospace; font-size: 11px; color: #334155;
+    word-break: break-all; overflow-wrap: anywhere; }
+  .share-link a { color: inherit; }
   @media print {
     body { padding: 0; } .print { display: none; }
     section, figure, tr { break-inside: avoid; }
@@ -244,7 +288,7 @@ export function buildDentalReportHtml(input: DentalReportInput): string {
       </dl>
     </div>
     <div><button class="print" type="button" onclick="window.print()">${e(labels.print)}</button></div>
-  </header>
+  </header>${share}
   ${snapshots ? `<section><h2>${e(labels.views)}</h2><div class="views">${snapshots}</div></section>` : ''}
   <section>
     <h2>${e(labels.measurements)}</h2>

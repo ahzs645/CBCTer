@@ -11,6 +11,11 @@ export const TOOTH_GROUPS = [
 ] as const;
 export type ToothGroupId = (typeof TOOTH_GROUPS)[number]['id'];
 
+/** Every label value that belongs to a tooth (itself plus merged parts). */
+export function toothValues(tooth: ToothInstance): number[] {
+  return [tooth.value, ...(tooth.extraValues ?? [])];
+}
+
 /** Upper arch for permanent quadrants 1–2 and primary quadrants 5–6. */
 export function fdiArch(fdi: number | null): 'upper' | 'lower' | null {
   if (!fdi) return null;
@@ -103,7 +108,7 @@ export function buildIsolatedVolume(options: {
   const wanted = new Map<string, Set<number>>();
   for (const t of teeth) {
     if (!wanted.has(t.groupId)) wanted.set(t.groupId, new Set());
-    wanted.get(t.groupId)!.add(t.value);
+    for (const value of toothValues(t)) wanted.get(t.groupId)!.add(value);
   }
   const layers = labels
     .filter((l) => wanted.has(l.groupId))
@@ -258,11 +263,15 @@ export function estimateGumline(options: {
   labels: Uint16Array;
   shape: Vec3;
   spacing: Vec3;
-  value: number;
+  /** The tooth's label value, or all values of a merged tooth. */
+  value: number | number[];
   crownDirection: 1 | -1;
   gumOffsetMm?: number;
 }): GumlineEstimate | null {
-  const { scan, labels, shape, spacing, value, crownDirection } = options;
+  const { scan, labels, shape, spacing, crownDirection } = options;
+  const wanted = new Set(
+    Array.isArray(options.value) ? options.value : [options.value],
+  );
   const [w, h, d] = shape,
     plane = w * h;
   const rings: Array<{ z: number; values: number[] } | null> = [];
@@ -273,7 +282,7 @@ export function estimateGumline(options: {
     const me = new Uint8Array(plane);
     let count = 0;
     for (let i = 0; i < plane; i++)
-      if (labels[z * plane + i] === value) {
+      if (wanted.has(labels[z * plane + i])) {
         me[i] = 1;
         count++;
         if (i % 7 === 0) toothValues.push(scan[z * plane + i]);
@@ -289,7 +298,7 @@ export function estimateGumline(options: {
     const values: number[] = [];
     for (let i = 0; i < plane; i++) {
       const label = labels[z * plane + i];
-      if (outer[i] && !inner[i] && (label === 0 || label === value))
+      if (outer[i] && !inner[i] && (label === 0 || wanted.has(label)))
         values.push(scan[z * plane + i]);
     }
     rings.push({ z, values });
@@ -362,14 +371,15 @@ export function crownDirectionFor(
 export function toothMask(
   labels: Uint16Array,
   shape: Vec3,
-  value: number,
+  value: number | number[],
   crown?: Pick<GumlineEstimate, 'gumline' | 'crownDirection'>,
 ): { mask: Uint8Array; voxels: number } {
   const plane = shape[0] * shape[1];
+  const values = new Set(Array.isArray(value) ? value : [value]);
   const mask = new Uint8Array(labels.length);
   let voxels = 0;
   for (let i = 0; i < labels.length; i++) {
-    if (labels[i] !== value) continue;
+    if (!values.has(labels[i])) continue;
     if (crown) {
       const z = Math.floor(i / plane);
       if ((z - crown.gumline) * crown.crownDirection < 0) continue;
@@ -517,4 +527,127 @@ export function selectionIds(state: {
     : state.selectedInstanceId
       ? [state.selectedInstanceId]
       : [];
+}
+
+/** Area (mm²) of the faces shared by voxels of labels `a` and `b` in a crop. */
+export function sharedSurfaceMm2(
+  labels: Uint16Array,
+  shape: Vec3,
+  spacing: Vec3,
+  a: number,
+  b: number,
+): number {
+  const [w, h, d] = shape,
+    plane = w * h;
+  const faces: Vec3 = [0, 0, 0];
+  for (let z = 0; z < d; z++)
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = z * plane + y * w + x,
+          v = labels[i];
+        if (v !== a && v !== b) continue;
+        const other = v === a ? b : a;
+        if (x < w - 1 && labels[i + 1] === other) faces[0]++;
+        if (y < h - 1 && labels[i + w] === other) faces[1]++;
+        if (z < d - 1 && labels[i + plane] === other) faces[2]++;
+      }
+  return (
+    faces[0] * spacing[1] * spacing[2] +
+    faces[1] * spacing[0] * spacing[2] +
+    faces[2] * spacing[0] * spacing[1]
+  );
+}
+
+/**
+ * Outlines that share a large surface are one tooth the model cut in two
+ * (a crown and its root, or two halves of an incisor). Neighbouring teeth
+ * only touch at small contact points: on a 0.16 mm Sirona case real contacts
+ * were ≤ 4 mm² and the three split teeth shared 52–73 mm².
+ */
+export async function findSplitTeeth(
+  teeth: ToothInstance[],
+  dims: Vec3,
+  spacing: Vec3,
+  read: (groupId: string, start: Vec3, shape: Vec3) => Promise<Uint16Array>,
+  minSharedMm2 = 15,
+): Promise<Array<{ a: ToothInstance; b: ToothInstance; sharedMm2: number }>> {
+  const live = teeth.filter((t) => t.review !== 'rejected');
+  const found: Array<{
+    a: ToothInstance;
+    b: ToothInstance;
+    sharedMm2: number;
+  }> = [];
+  for (let i = 0; i < live.length; i++)
+    for (let j = i + 1; j < live.length; j++) {
+      const a = live[i],
+        b = live[j];
+      if (a.groupId !== b.groupId) continue;
+      const touching = [0, 1, 2].every(
+        (k) =>
+          a.bounds.min[k] <= b.bounds.max[k] + 1 &&
+          b.bounds.min[k] <= a.bounds.max[k] + 1,
+      );
+      if (!touching) continue;
+      // Only the overlap of the two boxes (plus a voxel) can hold shared faces.
+      const start = [0, 1, 2].map((k) =>
+        Math.max(0, Math.max(a.bounds.min[k], b.bounds.min[k]) - 1),
+      ) as Vec3;
+      const end = [0, 1, 2].map((k) =>
+        Math.min(dims[k] - 1, Math.min(a.bounds.max[k], b.bounds.max[k]) + 1),
+      );
+      const shape = [0, 1, 2].map((k) =>
+        Math.max(1, end[k] - start[k] + 1),
+      ) as Vec3;
+      const labels = await read(a.groupId, start, shape);
+      const sharedMm2 = sharedSurfaceMm2(
+        labels,
+        shape,
+        spacing,
+        a.value,
+        b.value,
+      );
+      if (sharedMm2 >= minSharedMm2) found.push({ a, b, sharedMm2 });
+    }
+  return found;
+}
+
+/**
+ * Show split pairs as single teeth: the part with the lower FDI number keeps
+ * its identity and absorbs the other part's label value and bounds.
+ */
+export function mergeTeethView(
+  teeth: ToothInstance[],
+  pairs: Array<[string, string]>,
+): ToothInstance[] {
+  const byId = new Map(teeth.map((t) => [t.id, { ...t }]));
+  const absorbedInto = new Map<string, string>();
+  const root = (id: string): string => {
+    let current = id;
+    while (absorbedInto.has(current)) current = absorbedInto.get(current)!;
+    return current;
+  };
+  for (const [x, y] of pairs) {
+    const a = byId.get(root(x)),
+      b = byId.get(root(y));
+    if (!a || !b || a.id === b.id || a.groupId !== b.groupId) continue;
+    const [keep, drop] = (a.fdi ?? 99) <= (b.fdi ?? 99) ? [a, b] : [b, a];
+    const total = keep.voxelCount + drop.voxelCount || 1;
+    keep.extraValues = [...toothValues(keep).slice(1), ...toothValues(drop)];
+    keep.centroid = keep.centroid.map(
+      (c, k) =>
+        (c * keep.voxelCount + drop.centroid[k] * drop.voxelCount) / total,
+    ) as Vec3;
+    keep.voxelCount += drop.voxelCount;
+    keep.bounds = {
+      min: keep.bounds.min.map((v, k) =>
+        Math.min(v, drop.bounds.min[k]),
+      ) as Vec3,
+      max: keep.bounds.max.map((v, k) =>
+        Math.max(v, drop.bounds.max[k]),
+      ) as Vec3,
+    };
+    absorbedInto.set(drop.id, keep.id);
+    byId.delete(drop.id);
+  }
+  return teeth.filter((t) => byId.has(t.id)).map((t) => byId.get(t.id)!);
 }

@@ -71,7 +71,7 @@ export function ToothArchGrid({
           title={fdi ? `${fdi} ${toothName(fdi)}: no outline` : undefined}
           className={cn(
             'flex min-w-0 items-center justify-center rounded border border-dashed border-slate-800 font-mono text-slate-600',
-            touch ? 'h-10 text-[11px]' : 'h-8 text-[10px]',
+            touch ? 'h-9 text-[11px]' : 'h-7 text-[10px]',
           )}
         >
           {fdi}
@@ -93,7 +93,7 @@ export function ToothArchGrid({
         }
         className={cn(
           'relative flex min-w-0 items-center justify-center rounded border font-mono tabular-nums transition hover:brightness-125',
-          touch ? 'h-10 text-[11px]' : 'h-8 text-[10px] tracking-tighter',
+          touch ? 'h-9 text-[11px]' : 'h-7 text-[10px] tracking-tighter',
           REVIEW_STYLE[t.review],
           isSelected &&
             'ring-2 ring-sky-400 ring-offset-1 ring-offset-slate-950',
@@ -159,7 +159,7 @@ export function ToothArchGrid({
 }
 
 const chip =
-  'min-h-9 rounded-full border border-slate-700 bg-slate-900 px-3 text-xs text-slate-200 hover:border-sky-500/60 hover:bg-slate-800 disabled:opacity-40';
+  'min-h-7 [@media(pointer:coarse)]:min-h-9 rounded-full border border-slate-700 bg-slate-900 px-2.5 text-[11px] text-slate-200 hover:border-sky-500/60 hover:bg-slate-800 disabled:opacity-40';
 
 export function ToothGroupChips({
   onPick,
@@ -193,7 +193,7 @@ export function ToothGroupChips({
 }
 
 const segment =
-  'min-h-9 flex-1 rounded px-2 text-xs transition aria-pressed:bg-sky-500/20 aria-pressed:text-sky-50 text-slate-300 hover:bg-slate-800 disabled:opacity-40';
+  'min-h-7 [@media(pointer:coarse)]:min-h-9 flex-1 rounded px-2 text-[11px] transition aria-pressed:bg-sky-500/20 aria-pressed:text-sky-50 text-slate-300 hover:bg-slate-800 disabled:opacity-40';
 
 export function ToothShowControl({
   mode,
@@ -234,6 +234,9 @@ export function ToothShowControl({
 export interface ToothModelRequest {
   crownOnly: boolean;
   gumOffsetMm: number;
+  /** Add one printable piece: the crowns joined on a horseshoe base. */
+  archModel: boolean;
+  baseHeightMm: number;
 }
 
 /**
@@ -253,6 +256,8 @@ export function ToothModelExportForm({
 }) {
   const [crownOnly, setCrownOnly] = useState(true);
   const [gumOffsetMm, setGumOffsetMm] = useState(2);
+  const [archModel, setArchModel] = useState(true);
+  const [baseHeightMm, setBaseHeightMm] = useState(8);
   return (
     <div className="space-y-2 text-xs text-slate-300">
       <div
@@ -291,17 +296,49 @@ export function ToothModelExportForm({
             value={gumOffsetMm}
             aria-label="Gumline above bone crest (mm)"
             onChange={(e) => setGumOffsetMm(Number(e.target.value))}
-            className="h-9 w-full accent-sky-400"
+            className="h-6 w-full accent-sky-400"
           />
+        </label>
+      ) : null}
+      {crownOnly ? (
+        <label className="flex min-h-8 items-center gap-2">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-sky-400"
+            checked={archModel}
+            onChange={(e) => setArchModel(e.target.checked)}
+          />
+          <span className="flex-1">Printable model on a base</span>
+          {archModel ? (
+            <select
+              aria-label="Base height"
+              className="rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-xs"
+              value={baseHeightMm}
+              onChange={(e) => setBaseHeightMm(Number(e.target.value))}
+            >
+              {[5, 8, 12, 15].map((mm) => (
+                <option key={mm} value={mm}>
+                  {mm} mm base
+                </option>
+              ))}
+            </select>
+          ) : null}
         </label>
       ) : null}
       <button
         type="button"
         disabled={busy || !count}
-        onClick={() => onExport({ crownOnly, gumOffsetMm })}
-        className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded border border-sky-500/60 bg-sky-500/15 px-3 text-sm text-sky-50 hover:bg-sky-500/25 disabled:opacity-40"
+        onClick={() =>
+          onExport({
+            crownOnly,
+            gumOffsetMm,
+            archModel: crownOnly && archModel,
+            baseHeightMm,
+          })
+        }
+        className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25 disabled:opacity-40"
       >
-        <Download className="h-4 w-4" aria-hidden="true" />
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />
         {busy
           ? 'Building model…'
           : `Export ${count} ${count === 1 ? 'tooth' : 'teeth'} as STL`}
