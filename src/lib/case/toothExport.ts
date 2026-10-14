@@ -2,6 +2,7 @@ import { zipSync } from 'fflate';
 import type { Vec3 } from '../../types';
 import { maskToBinaryStl } from '../segmentation/maskMesh';
 import { archModelStl, biteContacts, orientStl } from './archModel';
+import { meshToBinaryStl, type TriMesh } from '../ios/meshIo';
 import {
   concatBinaryStl,
   crownDirectionFor,
@@ -32,6 +33,8 @@ export interface ToothModelOptions {
   archModel?: boolean;
   /** Base height of the printable model, mm. */
   baseHeightMm?: number;
+  /** An intraoral scan aligned to these crowns, to ship alongside them. */
+  intraoral?: { crowns: TriMesh; note: string };
 }
 
 export interface ToothModelReport {
@@ -152,27 +155,43 @@ export async function buildToothModelZip(options: {
   if (!parts.length) throw new Error('The chosen teeth have no voxels.');
   const extra: string[] = [];
   // One crop over all chosen teeth for the bite check and the printable model.
-  const union = selectionBounds(teeth, dims, 40)!;
+  // The arch model grows its own box for the base, so a small pad is enough.
+  // Very large selections can still exceed one read; those steps are then
+  // skipped with a note rather than failing the whole export.
+  const union = selectionBounds(teeth, dims, 8)!;
   const groupIds = [...new Set(teeth.map((t) => t.groupId))];
-  const unionLabels = await Promise.all(
-    groupIds.map(async (groupId) => ({
-      groupId,
-      words: (await options.read(groupId, union.start, union.shape)).labels,
-    })),
-  );
-  const contacts = biteContacts({
-    labels: unionLabels,
-    shape: union.shape,
-    spacing,
-    teeth,
-    superiorSign: model.superiorSign ?? 1,
-  });
-  extra.push(
-    contacts.length
-      ? `Bite: ${contacts.length} upper/lower pair(s) within 1 mm — the scan was taken with teeth close or touching; biting edges may be merged or clipped there.`
-      : 'Bite: no upper and lower teeth within 1 mm of each other in this selection.',
-  );
-  if (model.archModel && model.crownOnly) {
+  let unionLabels: { groupId: string; words: Uint16Array }[] | null = null;
+  try {
+    unionLabels = await Promise.all(
+      groupIds.map(async (groupId) => ({
+        groupId,
+        words: (await options.read(groupId, union.start, union.shape)).labels,
+      })),
+    );
+  } catch (error) {
+    extra.push(
+      `Bite check${model.archModel && model.crownOnly ? ' and printable model' : ''} skipped: ${errorText(error)} Choose fewer teeth to include them.`,
+    );
+  }
+  if (unionLabels) {
+    const contacts = biteContacts({
+      labels: unionLabels,
+      shape: union.shape,
+      spacing,
+      teeth,
+      superiorSign: model.superiorSign ?? 1,
+    });
+    extra.push(
+      contacts.length
+        ? `Bite: ${contacts.length} upper/lower pair(s) within 1 mm — the scan was taken with teeth close or touching; biting edges may be merged or clipped there.`
+        : 'Bite: no upper and lower teeth within 1 mm of each other in this selection.',
+    );
+  }
+  if (model.intraoral?.crowns.indices.length) {
+    files['intraoral-crowns.stl'] = meshToBinaryStl(model.intraoral.crowns);
+    extra.push(`intraoral-crowns.stl: ${model.intraoral.note}`);
+  }
+  if (unionLabels && model.archModel && model.crownOnly) {
     const crowns = new Map(
       [...crownCuts].map(([id, cut]) => [
         id,
@@ -182,19 +201,22 @@ export async function buildToothModelZip(options: {
         },
       ]),
     );
-    const stl = await archModelStl({
-      labels: unionLabels,
-      shape: union.shape,
-      start: union.start,
-      spacing,
-      teeth: teeth.filter((t) => crowns.has(t.id)),
-      crowns,
-      baseHeightMm: model.baseHeightMm ?? 8,
-    });
-    files['arch-model.stl'] = stl;
-    extra.push(
-      `arch-model.stl: the crowns joined on a ${model.baseHeightMm ?? 8} mm horseshoe base, one closed printable piece. The base top follows each tooth's estimated gumline in flat steps; it is not a gum contour.`,
-    );
+    try {
+      files['arch-model.stl'] = await archModelStl({
+        labels: unionLabels,
+        shape: union.shape,
+        start: union.start,
+        spacing,
+        teeth: teeth.filter((t) => crowns.has(t.id)),
+        crowns,
+        baseHeightMm: model.baseHeightMm ?? 8,
+      });
+      extra.push(
+        `arch-model.stl: the crowns joined on a ${model.baseHeightMm ?? 8} mm horseshoe base, one closed printable piece. The base top follows each tooth's estimated gumline in flat steps; it is not a gum contour.`,
+      );
+    } catch (error) {
+      extra.push(`Printable model skipped: ${errorText(error)}`);
+    }
   }
   const combined = model.crownOnly
     ? 'crowns-combined.stl'
@@ -247,4 +269,9 @@ function readme(
     '  new intraoral scan. This model is a fallback to show them, not a substitute.',
   ];
   return lines.join('\n') + '\n';
+}
+
+function errorText(error: unknown) {
+  const text = error instanceof Error ? error.message : String(error);
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }

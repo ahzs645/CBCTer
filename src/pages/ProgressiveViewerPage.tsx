@@ -94,6 +94,12 @@ import { CanalPanel, type CanalSide } from '../components/dental/CanalPanel';
 import { LayerList } from '../components/dental/LayerList';
 import { ToothFocusView } from '../components/dental/ToothFocusView';
 import {
+  alignInWorker,
+  crownTargetPoints,
+  meshPointsNearSlice,
+  type IntraoralFit,
+} from '../lib/ios/fuseIntraoral';
+import {
   computeDentalWindowPresets,
   type DentalWindowPresetId,
 } from '../lib/dental/windowPresets';
@@ -764,7 +770,17 @@ export default function ProgressiveViewerPage({
         dims: dimensions,
         spacing,
         scanName: m.name,
-        model: { ...request, superiorSign },
+        model: {
+          ...request,
+          superiorSign,
+          intraoral:
+            iosUse && iosFit
+              ? {
+                  crowns: iosFit.crowns,
+                  note: `${iosName} aligned to the CBCT crowns (fit RMS ${iosFit.rms.toFixed(2)} mm; CBCT-to-scan surface distance mean ${iosFit.deviation.mean.toFixed(2)} mm, 95% within ${iosFit.deviation.p95.toFixed(2)} mm). Use these crowns instead of the CBCT crowns where they overlap.`,
+                }
+              : undefined,
+        },
         read: async (groupId, start, shape) => ({
           scan: displayVoxels(await session.region(start, shape), m.volume),
           labels: (await session.analysisRegion(
@@ -854,6 +870,64 @@ export default function ProgressiveViewerPage({
       setCopied('Link copied.');
     } catch {
       setCopied('Copy the link from the box below.');
+    }
+  };
+
+  // Intraoral scan: align it to the CBCT crowns and use its crown surfaces --
+  const [iosFit, setIosFit] = useState<IntraoralFit | null>(null);
+  const [iosName, setIosName] = useState('');
+  const [iosBusy, setIosBusy] = useState(false);
+  const [iosStatus, setIosStatus] = useState('');
+  const [iosShow, setIosShow] = useState(true);
+  const [iosUse, setIosUse] = useState(true);
+  const importIntraoral = async (file: File) => {
+    const target = (selectedTeeth.length ? selectedTeeth : teeth).filter(
+      (tooth) => tooth.review !== 'rejected',
+    );
+    setIosBusy(true);
+    setIosFit(null);
+    setIosStatus('Reading the scan…');
+    try {
+      // Align against every crown of the arch(es) involved, then keep the
+      // parts of the scan over the chosen teeth.
+      const arches = new Set(
+        target.map((tooth) => crownDirectionFor(tooth, teeth, superiorSign)),
+      );
+      const archTeeth = teeth.filter(
+        (tooth) =>
+          tooth.review !== 'rejected' &&
+          arches.has(crownDirectionFor(tooth, teeth, superiorSign)),
+      );
+      setIosStatus(`Finding the crowns of ${archTeeth.length} teeth…`);
+      const common = {
+        allTeeth: teeth,
+        dims: dimensions,
+        spacing,
+        read: readCrop,
+        superiorSign,
+      };
+      const archTarget = await crownTargetPoints({
+        ...common,
+        teeth: archTeeth,
+      });
+      const keepTarget =
+        archTeeth.length === target.length
+          ? archTarget
+          : await crownTargetPoints({ ...common, teeth: target });
+      setIosStatus('Reading and aligning the scan…');
+      const fit = await alignInWorker(
+        new Uint8Array(await file.arrayBuffer()),
+        file.name,
+        archTarget,
+        keepTarget,
+      );
+      setIosFit(fit);
+      setIosName(file.name);
+      setIosStatus('');
+    } catch (e) {
+      setIosStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIosBusy(false);
     }
   };
 
@@ -1190,10 +1264,30 @@ export default function ProgressiveViewerPage({
           }),
           '#f472b6',
         );
+      if (iosFit && iosShow) {
+        const k = a === VolumeAxis.Axial ? 2 : a === VolumeAxis.Coronal ? 1 : 0;
+        image = drawDots(
+          image,
+          size,
+          meshPointsNearSlice(iosFit.crowns.positions, spacing, k, index).map(
+            (v) => voxelToAxisPoint(a, v, dimensions),
+          ),
+          '#22d3ee',
+        );
+      }
       if (image) out[a] = image;
     }
     return out;
-  }, [baseOverlays, canals, canalPick, cursor, dimensions, spacing]);
+  }, [
+    baseOverlays,
+    canals,
+    canalPick,
+    cursor,
+    dimensions,
+    spacing,
+    iosFit,
+    iosShow,
+  ]);
 
   const frame3D = (
     <div className="relative flex h-full flex-col">
@@ -1494,6 +1588,69 @@ export default function ProgressiveViewerPage({
           status={exportStatus}
           onExport={(request) => void exportTeeth(request)}
         />,
+      )}
+      {section(
+        'Intraoral scan',
+        <div className="space-y-1.5 text-xs text-slate-300">
+          <label className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 hover:bg-slate-700">
+            {iosBusy
+              ? 'Aligning…'
+              : `Import STL / PLY / OBJ and align to ${selectedTeeth.length ? `${selectedTeeth.length} selected` : 'all'} teeth`}
+            <input
+              type="file"
+              aria-label="Import intraoral scan"
+              accept=".stl,.ply,.obj"
+              className="sr-only"
+              disabled={iosBusy}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importIntraoral(file);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {iosStatus ? <p role="status">{iosStatus}</p> : null}
+          {iosFit ? (
+            <div className="space-y-1 rounded border border-cyan-500/40 bg-cyan-950/30 p-2 text-cyan-50">
+              <p>
+                {iosName}: aligned with RMS {iosFit.rms.toFixed(2)} mm;{' '}
+                {Math.round(iosFit.inlierRatio * 100)}% of its points sit on the
+                CBCT. CBCT crowns are {iosFit.deviation.mean.toFixed(2)} mm from
+                it on average (95% within {iosFit.deviation.p95.toFixed(2)} mm).
+              </p>
+              {iosFit.rms > 0.3 || iosFit.inlierRatio < 0.3 ? (
+                <p className="text-amber-200">
+                  The fit looks poor: check that the scan covers the selected
+                  teeth and the same jaw.
+                </p>
+              ) : null}
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-cyan-400"
+                  checked={iosShow}
+                  onChange={(e) => setIosShow(e.target.checked)}
+                />
+                Show its outline on the slices (cyan)
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-cyan-400"
+                  checked={iosUse}
+                  onChange={(e) => setIosUse(e.target.checked)}
+                />
+                Add its crowns to the STL export
+              </label>
+            </div>
+          ) : null}
+          <p className="text-[10px] leading-snug text-slate-400">
+            An intraoral scan from a dentist or orthodontist is about five times
+            more exact on the crowns than CBCT. Aligning it to the CBCT lets the
+            exported model use scanned crowns on CBCT roots. Select the teeth
+            the scan covers first.
+          </p>
+        </div>,
       )}
       {section(
         'Check teeth',

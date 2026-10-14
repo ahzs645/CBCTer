@@ -187,11 +187,55 @@ editor offers **Merge**, which is saved.
   outward-facing piece.
 
 The lower 33–43 model was 648k triangles, 31.7 × 13.3 × 18.1 mm, with every
-edge shared by exactly two triangles and one shell.
+edge shared by exactly two triangles and one shell. The whole upper arch
+(12 teeth) was 2.29M triangles, 62.9 × 48.3 × 18.7 mm, also one closed shell;
+it took about 100 s to export.
+
+The first whole-arch export failed with "Region exceeds 64 MiB", because
+the box read for the bite check and the base was padded too generously. The
+pad is now small (the base grows its own box). If a selection is still too
+big for one read, the export goes ahead without those two extras and the
+README says why.
 
 The mesher used for exports produced inconsistently wound triangles. All
 exported STLs are now re-oriented, and decimation is off because it opened
 holes.
+
+### Intraoral scan import and fusion
+
+**Intraoral scan → Import STL / PLY / OBJ** aligns a scan from a dentist or
+orthodontist to the CBCT crowns of the selected teeth:
+- **target:** CBCT crown surface points above the estimated gumline. Roots
+  are left out because an intraoral scan only sees crowns and gums;
+- **start:** a coarse PCA start that tries every axis flip, so any starting
+  pose works;
+- **fit:** trimmed ICP, so the scan's gums and palate don't disturb it;
+- **two stages:** the scan is first fitted to the crowns of every tooth in
+  the same arch(es), then cut to that arch and refined. Fitting a full-arch
+  scan straight to a few front teeth failed once more than about 60% of the
+  scan lay off them.
+
+Results:
+- the aligned scan is drawn in cyan on the slices;
+- **Add its crowns to the STL export** writes `intraoral-crowns.stl`, the
+  scan cut to within 1 mm of the CBCT crowns, in the same frame as the CBCT
+  teeth;
+- the README records the fit.
+
+Parsing, alignment and cutting run in a Web Worker.
+
+Tested with a stand-in, because the patient's own intraoral scan wasn't
+available. The stand-in was the patient's own upper 13–23 crowns (436k
+triangles), rotated about 140° around one axis and 60° around another,
+shifted 60 mm, with 0.03 mm noise and a gum sheet added. Results:
+- it was recovered with a fit RMS of 0.09 mm;
+- 86% of its points sit on the CBCT;
+- CBCT crowns are 0.08 mm from it on average, 95% within 0.39 mm;
+- about 10 s in software-rendered Chromium;
+- the longest main-thread pause was 0.9 s.
+
+A real scan will fit less tightly, because CBCT crowns are 0.1–0.25 mm off.
+The panel warns when the RMS is above 0.3 mm or under 30% of points match.
 
 ### Splitting upper from lower (bite check)
 
@@ -263,7 +307,7 @@ Prioritised gaps for CBCTer:
 4. **Scan-fitness report:** voxel size, coverage of the incisors, metal
    streaks near lingual surfaces, closed bite, with an "approximate, verify
    fit" badge.
-5. **Intraoral scan import and fusion** (in progress, see below): register an STL/PLY to the CBCT and
+5. **Intraoral scan import and fusion** (done, see the second round): register an STL/PLY to the CBCT and
    replace CBCT crowns with scanned ones (Romexis, Relu, CephX). This cuts
    crown error from about 0.07–0.24 mm to 0.04–0.09 mm.
 6. **Structure layer panel:** visibility, opacity and colour per structure,
