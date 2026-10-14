@@ -117,7 +117,7 @@ export function AddToothPanel({
           <select
             aria-label={t('dental.addTooth.number')}
             className={cn(
-              'rounded border border-slate-700 bg-slate-950 px-1 py-1 text-xs',
+              'rounded border border-slate-700 bg-slate-950 px-1 py-1 text-xs [@media(pointer:coarse)]:min-h-11',
               FOCUS_RING,
             )}
             value={chosen}

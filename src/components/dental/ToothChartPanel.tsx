@@ -61,7 +61,7 @@ function ToothCell({
       aria-label={`${fdi} ${name}`}
       aria-pressed={selected}
       className={cn(
-        'relative flex min-w-0 flex-col items-center justify-center rounded border font-mono tabular-nums transition',
+        'touch-target flex w-full min-w-0 flex-col items-center justify-center rounded border font-mono tabular-nums transition',
         'h-9 text-[10px] tracking-tighter [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-[11px] [@media(pointer:coarse)]:tracking-normal',
         FOCUS_RING,
         selected
@@ -112,14 +112,23 @@ export function ToothChartPanel({
   const byFdi = new Map(findings.map((finding) => [finding.fdi, finding]));
   const selected = selectedFdi != null ? byFdi.get(selectedFdi) : undefined;
   const half = rows.upper.length / 2;
-  const columns = dentition === 'primary' ? 'grid-cols-10' : 'grid-cols-16';
+  // Touch screens wrap each arch into one row per side (8 or 5 teeth), so a
+  // tooth is a comfortable tap instead of a sixteenth of the panel.
+  const columns =
+    dentition === 'primary'
+      ? 'grid-cols-10 [@media(pointer:coarse)]:grid-cols-5 [@media(pointer:coarse)]:gap-1'
+      : 'grid-cols-16 [@media(pointer:coarse)]:grid-cols-8 [@media(pointer:coarse)]:gap-1';
 
   const renderRow = (teeth: number[]) => (
     <div className={cn('grid gap-px', columns)}>
       {teeth.map((fdi, index) => (
         <div
           key={fdi}
-          className={cn('min-w-0', index === half && 'border-l-2 border-slate-500 pl-px')}
+          className={cn(
+            'min-w-0',
+            index === half &&
+              'border-l-2 border-slate-500 pl-px [@media(pointer:coarse)]:border-l-0 [@media(pointer:coarse)]:pl-0',
+          )}
         >
           <ToothCell
             fdi={fdi}

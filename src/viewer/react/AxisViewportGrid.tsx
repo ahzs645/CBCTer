@@ -209,7 +209,7 @@ function SliceNavigator({
   onChange: (index: number) => void;
 }) {
   const buttonClass = cn(
-    'inline-flex shrink-0 items-center justify-center rounded text-slate-200 transition hover:bg-slate-800 active:bg-slate-700 disabled:opacity-40',
+    'touch-target inline-flex shrink-0 items-center justify-center rounded text-slate-200 transition hover:bg-slate-800 active:bg-slate-700 disabled:opacity-40',
     compact ? 'h-10 w-10' : 'h-7 w-7',
   );
   return (

@@ -79,7 +79,7 @@ export function ToothArchGrid({
           }
           className={cn(
             'flex min-w-0 items-center justify-center rounded border border-dashed border-slate-800 font-mono text-slate-600',
-            touch ? 'h-9 text-[11px]' : 'h-7 text-[10px]',
+            touch ? 'h-11 text-sm' : 'h-7 text-[10px]',
           )}
         >
           {fdi}
@@ -101,8 +101,8 @@ export function ToothArchGrid({
           )
         }
         className={cn(
-          'relative flex min-w-0 items-center justify-center rounded border font-mono tabular-nums transition hover:brightness-125',
-          touch ? 'h-9 text-[11px]' : 'h-7 text-[10px] tracking-tighter',
+          'touch-target flex w-full min-w-0 items-center justify-center rounded border font-mono tabular-nums transition hover:brightness-125',
+          touch ? 'h-11 text-sm' : 'h-7 text-[10px] tracking-tighter',
           REVIEW_STYLE[t.review],
           isSelected &&
             'ring-2 ring-sky-400 ring-offset-1 ring-offset-slate-950',
@@ -139,6 +139,52 @@ export function ToothArchGrid({
       ))}
     </div>
   );
+  const extrasRow = extras.length ? (
+        <div className="flex flex-wrap items-center gap-1 pt-1 text-[11px] text-slate-400">
+          <span>{tr('dental.picker.extras')}</span>
+          {extras.map((t, i) => (
+            <span key={t.id} className={touch ? 'w-11' : 'w-9'}>
+              {shown(t)
+                ? cell(
+                    shown(t),
+                    t,
+                    tr('dental.picker.duplicate', { fdi: shown(t) }),
+                  )
+                : cell(null, t, localToothLabel(tr, { ...t, fdi: null }, i))}
+            </span>
+          ))}
+        </div>
+      ) : null;
+  // Phones: one row of eight per quadrant, so each tooth is about 44 px
+  // wide instead of a sixteenth of the screen.
+  const quadrant = (key: string, numbers: number[]) => (
+    <div key={key}>
+      <div className="text-[10px] uppercase tracking-wide text-slate-400">
+        {tr(`dental.picker.quadrant.${key}`)}
+      </div>
+      <div className="grid grid-cols-8 gap-1">
+        {numbers.map((fdi) => (
+          <div key={fdi} className="min-w-0">
+            {cell(fdi, byFdi.get(fdi), tr('dental.toothNames.unknown', { fdi }))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  if (touch)
+    return (
+      <div
+        className="space-y-1.5"
+        role="group"
+        aria-label={tr('dental.picker.teeth')}
+      >
+        {quadrant('upperRight', PERMANENT_CHART_ROWS.upper.slice(0, 8))}
+        {quadrant('upperLeft', PERMANENT_CHART_ROWS.upper.slice(8))}
+        {quadrant('lowerRight', PERMANENT_CHART_ROWS.lower.slice(0, 8))}
+        {quadrant('lowerLeft', PERMANENT_CHART_ROWS.lower.slice(8))}
+        {extrasRow}
+      </div>
+    );
   return (
     <div
       className="space-y-1"
@@ -155,28 +201,13 @@ export function ToothArchGrid({
       <div className="text-center text-[10px] uppercase tracking-wide text-slate-400">
         {tr('dental.chart.lower')}
       </div>
-      {extras.length ? (
-        <div className="flex flex-wrap items-center gap-1 pt-1 text-[11px] text-slate-400">
-          <span>{tr('dental.picker.extras')}</span>
-          {extras.map((t, i) => (
-            <span key={t.id} className="w-9">
-              {shown(t)
-                ? cell(
-                    shown(t),
-                    t,
-                    tr('dental.picker.duplicate', { fdi: shown(t) }),
-                  )
-                : cell(null, t, localToothLabel(tr, { ...t, fdi: null }, i))}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      {extrasRow}
     </div>
   );
 }
 
 const chip =
-  'min-h-7 [@media(pointer:coarse)]:min-h-9 rounded-full border border-slate-700 bg-slate-900 px-2.5 text-[11px] text-slate-200 hover:border-sky-500/60 hover:bg-slate-800 disabled:opacity-40';
+  'min-h-7 touch-target rounded-full border border-slate-700 bg-slate-900 px-2.5 text-[11px] text-slate-200 hover:border-sky-500/60 hover:bg-slate-800 disabled:opacity-40';
 
 export function ToothGroupChips({
   onPick,
@@ -188,7 +219,7 @@ export function ToothGroupChips({
   const { t } = useTranslation();
   return (
     <div
-      className="flex flex-wrap gap-1.5"
+      className="flex flex-wrap gap-1.5 [@media(pointer:coarse)]:gap-3"
       aria-label={t('dental.picker.groupsLabel')}
     >
       {TOOTH_GROUPS.map((g) => {
@@ -212,7 +243,7 @@ export function ToothGroupChips({
 }
 
 const segment =
-  'min-h-7 [@media(pointer:coarse)]:min-h-9 flex-1 rounded px-2 text-[11px] transition aria-pressed:bg-sky-500/20 aria-pressed:text-sky-50 text-slate-300 hover:bg-slate-800 disabled:opacity-40';
+  'min-h-7 touch-target flex-1 rounded px-2 text-[11px] transition aria-pressed:bg-sky-500/20 aria-pressed:text-sky-50 text-slate-300 hover:bg-slate-800 disabled:opacity-40';
 
 export function ToothShowControl({
   mode,
@@ -327,7 +358,7 @@ export function ToothModelExportForm({
         </label>
       ) : null}
       {crownOnly ? (
-        <label className="flex min-h-8 items-center gap-2">
+        <label className="flex min-h-8 items-center gap-2 [@media(pointer:coarse)]:min-h-11">
           <input
             type="checkbox"
             className="h-4 w-4 accent-sky-400"
@@ -338,7 +369,7 @@ export function ToothModelExportForm({
           {archModel ? (
             <select
               aria-label={t('dental.picker.baseHeight')}
-              className="rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-xs"
+              className="rounded border border-slate-700 bg-slate-950 px-1 py-0.5 text-xs [@media(pointer:coarse)]:min-h-11"
               value={baseHeightMm}
               onChange={(e) => setBaseHeightMm(Number(e.target.value))}
             >
@@ -351,7 +382,7 @@ export function ToothModelExportForm({
           ) : null}
         </label>
       ) : null}
-      <label className="flex min-h-8 items-center gap-2">
+      <label className="flex min-h-8 items-center gap-2 [@media(pointer:coarse)]:min-h-11">
         <input
           type="checkbox"
           className="h-4 w-4 accent-sky-400"
@@ -377,7 +408,7 @@ export function ToothModelExportForm({
             smaller,
           })
         }
-        className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25 disabled:opacity-40"
+        className="inline-flex min-h-8 touch-target w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25 disabled:opacity-40"
       >
         <Download className="h-3.5 w-3.5" aria-hidden="true" />
         {busy

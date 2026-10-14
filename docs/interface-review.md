@@ -509,6 +509,49 @@ Rules applied:
 The caveats still exist: the full text is behind each ⓘ, in the case report
 and in every export's README.
 
+### Button and tap sizes
+
+A measurement of every control on this case showed that on phones almost
+everything was too small to tap reliably, and the controls used most were
+the smallest. The tooth grid squeezed 16 teeth into one row: 15 × 36 px per
+tooth. Text links such as "Treat as one" were 16 px tall, and checkboxes
+16 px. Meanwhile, one-off buttons like **Swap** looked bulky (36 px boxes
+around 11 px text).
+
+What changed:
+- **Look and tap area are separate.** `.touch-target` (in `styles.css`)
+  grows a control's invisible tap area to at least 44 × 44 px on touch
+  screens (Apple HIG) and 24 × 24 px with a mouse (WCAG 2.2), without
+  changing how it looks.
+- **One size scale by role, the same on every device** (`Button`):
+  - `xs` 24 px for actions inside a notice or a line of text;
+  - `sm` 28 px for normal panel actions;
+  - `md` 32 px for a panel's main action;
+  - `icon` 28 px.
+- **Tooth grid on phones:** one row of eight per quadrant, with a caption
+  ("Upper · patient right"), so each tooth is about 47 × 44 px. The findings
+  chart wraps the same way on touch screens. Desktop keeps the single-row
+  chart.
+- **Inline actions are buttons:** "Treat as one", "Focus on it" and "Undo"
+  were text links. "Treat all as one tooth" is now "Treat all as one".
+- **On touch screens only:**
+  - checkbox rows, layer rows and dropdowns are 44 px tall;
+  - colour swatches take their tap area from their label;
+  - panels get a little more vertical space, so neighbouring tap areas
+    barely overlap.
+
+| Measured on this case | Before | After |
+| --- | --- | --- |
+| Phone, Teeth sheet: controls under 44 px | 65 of 65 | 0 of 132 |
+| Phone, More sheet and view tabs | all | 0 |
+| Phone, full editor (test sample) | — | 0 |
+| Desktop side panel: controls under 24 px | 15 | 0 |
+| Desktop full editor: controls under 24 px | 37 | 0 |
+| Tooth width in the phone grid | 15 px | 47 px |
+
+The full editor on a phone was measured with the small test sample: phones
+refuse to open this 512³ case fully, on purpose, because of memory.
+
 ### Still open
 
 - **One mounted viewer:** the streamed and full viewers are still two

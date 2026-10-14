@@ -44,7 +44,7 @@ export function PanelSection({
   );
   if (!collapsible)
     return (
-      <section className="space-y-2 border-b border-slate-800 px-3 py-2.5">
+      <section className="space-y-2 border-b border-slate-800 px-3 py-2.5 [@media(pointer:coarse)]:space-y-4">
         <h2>{heading}</h2>
         {children}
       </section>
@@ -67,7 +67,7 @@ export function PanelSection({
           aria-expanded={open}
           onClick={toggle}
           className={cn(
-            'flex min-h-8 w-full items-center gap-1.5 rounded text-left [@media(pointer:coarse)]:min-h-10',
+            'touch-target flex min-h-8 w-full items-center gap-1.5 rounded text-left',
             FOCUS_RING,
           )}
         >
@@ -86,7 +86,11 @@ export function PanelSection({
           ) : null}
         </button>
       </h2>
-      {open ? <div className="space-y-2 pb-1 pt-1">{children}</div> : null}
+      {open ? (
+        <div className="space-y-2 pb-1 pt-1 [@media(pointer:coarse)]:space-y-4 [@media(pointer:coarse)]:pt-2">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -108,7 +112,12 @@ export function Hint({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
-    <div className={cn('text-[11px] leading-snug text-slate-400', className)}>
+    <div
+      className={cn(
+        'text-[11px] leading-snug text-slate-400 [@media(pointer:coarse)]:pt-2',
+        className,
+      )}
+    >
       <p>
         {children}
         {more ? (
@@ -119,7 +128,7 @@ export function Hint({
             title={open ? t('dental.hint.less') : t('dental.hint.more')}
             onClick={() => setOpen((value) => !value)}
             className={cn(
-              'ml-1 inline-flex h-4 w-4 translate-y-[3px] items-center justify-center rounded-full text-slate-500 hover:text-slate-200 [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6',
+              'touch-target ml-1 inline-flex h-4 w-4 translate-y-[3px] items-center justify-center rounded-full text-slate-500 hover:text-slate-200',
               FOCUS_RING,
             )}
           >

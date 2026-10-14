@@ -8,7 +8,7 @@ export const FOCUS_RING =
   'outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-0';
 
 /**
- * Compact on desktop, at least 36px tall on touch screens. Use this instead
- * of a `touch` prop.
+ * Looks the same everywhere; on touch screens the tap area grows to 44 px
+ * (see `.touch-target` in styles.css). Use this instead of a `touch` prop.
  */
-export const COARSE_TARGET = '[@media(pointer:coarse)]:min-h-9';
+export const COARSE_TARGET = 'touch-target';

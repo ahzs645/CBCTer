@@ -64,7 +64,7 @@ export function MobileTopBar({
               aria-selected={active}
               onClick={() => onViewChange(item.id)}
               className={cn(
-                'h-9 rounded border text-xs font-semibold transition',
+                'touch-target h-9 rounded border text-xs font-semibold transition',
                 FOCUS_RING,
                 active
                   ? 'bg-slate-800 text-slate-50'

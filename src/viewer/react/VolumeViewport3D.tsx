@@ -362,7 +362,7 @@ export const VolumeViewport3D = memo(
                 type="button"
                 title={view.id}
                 onClick={() => instanceRef.current?.setView(view.id)}
-                className="rounded px-1.5 py-1 text-[11px] font-medium text-slate-200 transition hover:bg-slate-800"
+                className="touch-target rounded px-1.5 py-1 text-[11px] font-medium text-slate-200 transition hover:bg-slate-800"
               >
                 {view.label}
               </button>
@@ -371,7 +371,7 @@ export const VolumeViewport3D = memo(
               type="button"
               title={labels.resetView}
               onClick={() => instanceRef.current?.resetView()}
-              className="rounded px-1.5 py-1 text-slate-300 transition hover:bg-slate-800"
+              className="touch-target rounded px-1.5 py-1 text-slate-300 transition hover:bg-slate-800"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

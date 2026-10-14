@@ -770,7 +770,13 @@
       "disclaimer": "CBCT shows gums poorly, so the gumline is estimated from the bone. CBCT crowns are less exact than an intraoral scan, and teeth can move after the scan. Use the model as a reference for your orthodontist or lab, not as a direct replacement for a new scan.",
       "patientRight": "Patient right",
       "patientLeft": "Patient left",
-      "disclaimerShort": "Gumline is estimated. Check fit with your orthodontist."
+      "disclaimerShort": "Gumline is estimated. Check fit with your orthodontist.",
+      "quadrant": {
+        "upperRight": "Upper · patient right",
+        "upperLeft": "Upper · patient left",
+        "lowerRight": "Lower · patient right",
+        "lowerLeft": "Lower · patient left"
+      }
     },
     "review": {
       "region": "Tooth review",
@@ -939,7 +945,7 @@
       "splitPair": "{{a}} + {{b}} · {{area}} mm² shared",
       "keepApart": "Keep apart",
       "treatAsOne": "Treat as one",
-      "treatAll": "Treat all as one tooth",
+      "treatAll": "Treat all as one",
       "splitsSaved": "Saved on this device and carried in share links.",
       "nSelected_one": "{{count}} teeth selected",
       "nSelected_other": "{{count}} teeth selected",

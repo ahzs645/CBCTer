@@ -71,9 +71,9 @@ interface Props {
   onExportModel: (request: ToothModelRequest) => void;
 }
 const field =
-  'min-h-8 [@media(pointer:coarse)]:min-h-9 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs';
+  'min-h-8 touch-target w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs';
 const button =
-  'inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 items-center justify-center gap-1 rounded border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs hover:bg-slate-700 disabled:opacity-40';
+  'inline-flex min-h-8 touch-target items-center justify-center gap-1 rounded border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs hover:bg-slate-700 disabled:opacity-40';
 const heading =
   'text-[11px] font-semibold uppercase tracking-wide text-slate-400';
 
@@ -212,7 +212,7 @@ export function ToothReviewPanel(p: Props) {
                 {p.onMergePair ? (
                   <button
                     type="button"
-                    className="underline"
+                    className="touch-target rounded underline"
                     onClick={() =>
                       (a.fdi ?? 99) <= (b.fdi ?? 99)
                         ? p.onMergePair!(a.id, b.id)
@@ -288,7 +288,7 @@ export function ToothReviewPanel(p: Props) {
             </button>
           </div>
           <label
-            className="flex min-h-8 items-center gap-2 text-xs text-slate-300"
+            className="flex min-h-8 items-center gap-2 [@media(pointer:coarse)]:min-h-11 text-xs text-slate-300"
             title={t('dental.review.multiTitle')}
           >
             <input
@@ -364,7 +364,7 @@ export function ToothReviewPanel(p: Props) {
             </label>
           </div>
           <details>
-            <summary className="cursor-pointer py-1.5 text-xs">
+            <summary className="touch-target cursor-pointer py-1.5 text-xs">
               {t('dental.review.fix')}
             </summary>
             <div className="grid gap-2">
@@ -460,7 +460,7 @@ export function ToothReviewPanel(p: Props) {
             p.onVisibility(mode, p.state.showSurroundingBone ?? false)
           }
         />
-        <label className="flex min-h-8 items-center gap-2 text-xs">
+        <label className="flex min-h-8 items-center gap-2 [@media(pointer:coarse)]:min-h-11 text-xs">
           <input
             type="checkbox"
             className="h-4 w-4 accent-sky-400"
@@ -487,7 +487,7 @@ export function ToothReviewPanel(p: Props) {
         open={!teeth.length}
         className="rounded border border-slate-800 p-2"
       >
-        <summary className="cursor-pointer py-1.5 text-xs font-medium">
+        <summary className="touch-target cursor-pointer py-1.5 text-xs font-medium">
           {t('dental.review.add')}
         </summary>
         <div className="space-y-2">
@@ -514,7 +514,7 @@ export function ToothReviewPanel(p: Props) {
           </p>
           {(p.state.analysisModels ?? []).length > 0 && (
             <details>
-              <summary className="cursor-pointer py-1.5 text-xs">
+              <summary className="touch-target cursor-pointer py-1.5 text-xs">
                 {t('dental.review.loaded', {
                   count: p.state.analysisModels!.length,
                 })}
@@ -543,7 +543,7 @@ export function ToothReviewPanel(p: Props) {
             </details>
           )}
           <details>
-            <summary className="cursor-pointer py-1.5 text-xs">
+            <summary className="touch-target cursor-pointer py-1.5 text-xs">
               {t('dental.review.propose')}
             </summary>
             <label className="text-xs">
@@ -592,7 +592,7 @@ export function ToothReviewPanel(p: Props) {
             </p>
           </details>
           <details open={!teeth.length}>
-            <summary className="cursor-pointer py-1.5 text-xs">
+            <summary className="touch-target cursor-pointer py-1.5 text-xs">
               {t('dental.review.separate')}
             </summary>
             <div className="grid gap-2">

@@ -1952,17 +1952,17 @@ export default function ProgressiveViewerPage({
       ) : swapSides ? (
         <p className="text-xs text-amber-100">
           {t('dental.teethPanel.swapped')}{' '}
-          <button
-            type="button"
-            className="underline"
+          <Button
+            variant="secondary"
+            size="xs"
             onClick={() => setSwapSides(false)}
           >
             {t('dental.teethPanel.undo')}
-          </button>
+          </Button>
         </p>
       ) : null}
       {splits.length ? (
-        <div className="space-y-1 rounded border border-amber-400/40 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-100">
+        <div className="space-y-1 rounded border border-amber-400/40 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-100 [@media(pointer:coarse)]:space-y-3">
           <div className="flex items-start gap-2">
             <Hint
               className="flex-1 text-xs text-amber-100"
@@ -1983,7 +1983,7 @@ export default function ProgressiveViewerPage({
               </Button>
             ) : null}
           </div>
-          <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+          <ul className="flex flex-wrap gap-x-3 gap-y-2 [@media(pointer:coarse)]:gap-y-3">
             {splits.map(({ a, b }) => {
               const merged = !unmergedSplits.some(
                 (pair) => pair.a === a && pair.b === b,
@@ -1996,9 +1996,9 @@ export default function ProgressiveViewerPage({
                       b: shownFdi(b) ?? '?',
                     })}
                   </span>
-                  <button
-                    type="button"
-                    className="underline"
+                  <Button
+                    variant="secondary"
+                    size="xs"
                     onClick={() =>
                       setMergedPairs((current) =>
                         merged
@@ -2016,7 +2016,7 @@ export default function ProgressiveViewerPage({
                     {merged
                       ? t('dental.teethPanel.keepApart')
                       : t('dental.teethPanel.treatAsOne')}
-                  </button>
+                  </Button>
                 </li>
               );
             })}
@@ -2046,7 +2046,7 @@ export default function ProgressiveViewerPage({
             <button
               type="button"
               aria-label={t('dental.review.previous')}
-              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
+              className="touch-target inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
               onClick={() => stepTooth(-1)}
             >
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -2066,7 +2066,7 @@ export default function ProgressiveViewerPage({
             <button
               type="button"
               aria-label={t('dental.review.next')}
-              className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
+              className="touch-target inline-flex h-8 w-8 items-center justify-center rounded border border-slate-700 hover:bg-slate-800"
               onClick={() => stepTooth(1)}
             >
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
@@ -2077,14 +2077,14 @@ export default function ProgressiveViewerPage({
             <button
               type="button"
               onClick={() => setFocusTooth(focus)}
-              className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25"
+              className="inline-flex min-h-8 touch-target w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25"
             >
               <Focus className="h-3.5 w-3.5" aria-hidden="true" />
               {t('dental.teethPanel.focusOn', { name: nameOf(focus) })}
             </button>
           ) : null}
           <label
-            className="flex min-h-8 items-center gap-2 text-xs text-slate-300"
+            className="flex min-h-8 items-center gap-2 [@media(pointer:coarse)]:min-h-11 text-xs text-slate-300"
             title={t('dental.review.multiTitle')}
           >
             <input
@@ -2108,7 +2108,7 @@ export default function ProgressiveViewerPage({
             type="button"
             disabled={fullLoading}
             onClick={() => void loadFull()}
-            className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
+            className="inline-flex min-h-8 touch-target w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
           >
             {fullLoading
               ? t('streaming.loadingFull')
@@ -2124,7 +2124,7 @@ export default function ProgressiveViewerPage({
             hasSelection={selectedIds.length > 0}
             onChange={setShowMode}
           />
-          <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
+          <label className="flex min-h-8 items-center gap-2 [@media(pointer:coarse)]:min-h-11 text-xs text-slate-300">
             <input
               type="checkbox"
               className="h-4 w-4 accent-sky-400"
@@ -2154,7 +2154,7 @@ export default function ProgressiveViewerPage({
             type="button"
             disabled={Boolean(darkCheck && darkCheck.done < darkCheck.total)}
             onClick={() => void checkAllTeeth()}
-            className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
+            className="inline-flex min-h-8 touch-target w-full items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
           >
             {darkCheck && darkCheck.done < darkCheck.total
               ? t('dental.teethPanel.checking', {
@@ -2190,16 +2190,17 @@ export default function ProgressiveViewerPage({
                         {t('dental.teethPanel.noPulp')}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      className="underline"
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      className="mt-1"
                       onClick={() => {
                         selectTooth(tooth.id, false);
                         setFocusTooth(tooth);
                       }}
                     >
                       {t('dental.teethPanel.focusIt')}
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -2301,7 +2302,7 @@ export default function ProgressiveViewerPage({
       {section(
         t('dental.teethPanel.iosTitle'),
         <div className="space-y-1.5 text-xs text-slate-300">
-          <label className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 hover:bg-slate-700">
+          <label className="inline-flex min-h-8 touch-target w-full cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 hover:bg-slate-700">
             {iosBusy
               ? t('dental.teethPanel.iosBusy')
               : selectedTeeth.length
@@ -2419,7 +2420,7 @@ export default function ProgressiveViewerPage({
         <button
           type="button"
           onClick={() => void copyShareLink()}
-          className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700"
+          className="inline-flex min-h-8 touch-target w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700"
         >
           <Copy className="h-4 w-4" aria-hidden="true" />
           {t('dental.teethPanel.copyLink')}
@@ -2458,7 +2459,7 @@ export default function ProgressiveViewerPage({
       type="button"
       disabled={fullLoading}
       onClick={() => void loadFull()}
-      className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
+      className="inline-flex min-h-8 touch-target w-full items-center justify-center gap-2 rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-50"
     >
       <Expand className="h-4 w-4" aria-hidden="true" />
       {fullLoading ? t('streaming.loadingFull') : t('streaming.advanced')}
@@ -2480,7 +2481,7 @@ export default function ProgressiveViewerPage({
         type="button"
         disabled={fullLoading}
         onClick={() => app.resetViewer()}
-        className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-2 rounded border border-slate-700 px-2.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+        className="inline-flex min-h-8 touch-target w-full items-center justify-center gap-2 rounded border border-slate-700 px-2.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
       >
         <LogOut className="h-4 w-4" aria-hidden="true" />
         {t('streaming.close')}

@@ -13,6 +13,34 @@
   --color-danger-fg: oklch(89.2% 0.058 10.001); /* rose-200 */
 }
 
+/*
+ * Touch targets: a control's tap area grows to at least 24 × 24 px with a
+ * mouse and 44 × 44 px on touch screens (Apple HIG) without changing how it
+ * looks, so compact buttons stay compact but easy to hit. In the
+ * components layer so a utility such as `absolute` still wins.
+ */
+@layer components {
+  .touch-target {
+    position: relative;
+  }
+  /* With a mouse, at least WCAG 2.2's 24 × 24 px. */
+  .touch-target::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 24px);
+    height: max(100%, 24px);
+    transform: translate(-50%, -50%);
+  }
+  @media (pointer: coarse) {
+    .touch-target::after {
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+    }
+  }
+}
+
 @layer base {
   html,
   body,

@@ -33,14 +33,18 @@ const PRESSED_CLASSES =
   'border-primary/70 bg-primary/15 text-sky-100 hover:bg-primary/20';
 
 /**
- * Compact on desktop; every size grows to a 36px target on coarse pointers
- * (touch screens) through the `[@media(pointer:coarse)]` variant.
+ * Sizes by role, the same on every device: `xs` 24 px for actions inside a
+ * line of text or a notice, `sm` 28 px for normal panel actions, `md` 32 px
+ * for a panel's main action, `icon` 28 px square. On touch screens the tap
+ * area (not the look) grows to 44 px through `.touch-target`.
  */
 const SIZE_CLASSES = {
-  xs: 'min-h-6 px-1.5 text-[11px]',
-  sm: 'px-2 py-1 text-[11px]',
-  md: 'px-3 py-1.5 text-sm',
-  icon: 'h-7 w-7 p-0 [@media(pointer:coarse)]:min-w-9',
+  // Inline actions sit close together, so on touch they look a little
+  // taller too and their 44 px tap areas barely overlap.
+  xs: 'min-h-6 px-2 text-[11px] [@media(pointer:coarse)]:min-h-7',
+  sm: 'min-h-7 px-2.5 text-xs',
+  md: 'min-h-8 px-3 text-sm',
+  icon: 'h-7 w-7 p-0',
 } as const;
 
 export type ButtonVariant = keyof typeof VARIANT_CLASSES;
