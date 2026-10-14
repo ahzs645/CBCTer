@@ -64,9 +64,13 @@ import {
   loadCaseEdits,
   saveCaseEdits,
   type AddedTooth,
+  type CaseEdits,
 } from '../lib/case/caseEdits';
 import { decodeMask, encodeMask } from '../lib/dental/growTooth';
 import { AddToothPanel } from '../components/dental/AddToothPanel';
+import { ScanComparePanel } from '../components/dental/ScanComparePanel';
+import { compareInWorker } from '../lib/dental/compareClient';
+import type { ScanComparison, ToothCloud } from '../lib/dental/compareScans';
 import {
   archOrder,
   buildIsolatedVolume,
@@ -109,7 +113,7 @@ import {
   computeDentalWindowPresets,
   type DentalWindowPresetId,
 } from '../lib/dental/windowPresets';
-import type { ChunkedSession } from '../lib/import/chunked/session';
+import { ChunkedSession } from '../lib/import/chunked/session';
 import { extractLabelmapOverlayImage } from '../lib/segmentation/maskOperations';
 import { axisPointToVoxel } from '../lib/segmentation/paintBrush';
 import { displaySample, displayVoxels } from '../lib/volume/native';
@@ -136,6 +140,8 @@ export interface StreamingViewState {
   windowLevel: SliceWindowLevel;
   zoom: number;
   axis: VolumeAxis;
+  /** Corrections made while streaming, baked in by the full editor. */
+  edits?: CaseEdits;
 }
 
 function downloadBlob(data: Uint8Array | Blob, name: string) {
@@ -940,7 +946,13 @@ export default function ProgressiveViewerPage({
     try {
       onLoadFullMeasurements(
         measurements.map((item) => item.record),
-        { cursor, windowLevel: wl, zoom, axis },
+        {
+          cursor,
+          windowLevel: wl,
+          zoom,
+          axis,
+          edits: { swapSides, mergedPairs, addedTeeth },
+        },
       );
       session.setPreferredInstance(focusId ?? '');
       await app.openPackageLevel('full');
@@ -1471,6 +1483,119 @@ export default function ProgressiveViewerPage({
     />,
   );
 
+  // Before/after comparison with another scan of the same person --------------
+  const [comparison, setComparison] = useState<ScanComparison | null>(null);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareStatus, setCompareStatus] = useState('');
+  const compareInput = useRef<HTMLInputElement>(null);
+  const compareWith = async (file: File) => {
+    setCompareBusy(true);
+    setComparison(null);
+    setCompareStatus('Opening the other scan…');
+    const other = new ChunkedSession({ blob: file });
+    try {
+      await other.initialize(32 * 1024 * 1024);
+      const otherTeeth = (other.caseMetadata?.state.toothInstances ?? []).filter(
+        (tooth) => tooth.review !== 'rejected',
+      );
+      if (!otherTeeth.length)
+        throw new Error(
+          'The other scan has no tooth outlines. Open it on its own first and propose them.',
+        );
+      const otherDims = other.manifest.volume.dimensions,
+        otherSpacing = other.manifest.volume.spacing;
+      const clouds = async (
+        list: ToothInstance[],
+        dims: Vec3,
+        grid: Vec3,
+        read: (groupId: string, start: Vec3, shape: Vec3) => Promise<Uint16Array>,
+        fdiOf: (tooth: ToothInstance) => number | null,
+        label: string,
+      ) => {
+        const out: ToothCloud[] = [];
+        for (const [index, tooth] of list.entries()) {
+          setCompareStatus(`Reading ${label}: tooth ${index + 1} of ${list.length}…`);
+          const box = selectionBounds([tooth], dims, 2)!;
+          const points = await compute('toothPoints', {
+            labels: await read(tooth.groupId, box.start, box.shape),
+            shape: box.shape,
+            start: box.start,
+            spacing: grid,
+            values: toothValues(tooth),
+          });
+          if (points.length >= 30)
+            out.push({ id: tooth.id, fdi: fdiOf(tooth), points });
+        }
+        return out;
+      };
+      const before = await clouds(
+        teeth.filter((tooth) => tooth.review !== 'rejected'),
+        dimensions,
+        spacing,
+        (groupId, start, shape) => labelRegion(groupId, start, shape),
+        shownFdi,
+        'this scan',
+      );
+      const after = await clouds(
+        otherTeeth,
+        otherDims,
+        otherSpacing,
+        async (groupId, start, shape) =>
+          (await other.analysisRegion(groupId, start, shape)) as Uint16Array,
+        (tooth) => tooth.fdi,
+        'the other scan',
+      );
+      setCompareStatus('Aligning the jaws and comparing teeth…');
+      const result = await compareInWorker(before, after, {
+        voxelSizeMm: Math.max(...spacing, ...otherSpacing),
+        superiorSign,
+      });
+      setComparison(result);
+      setCompareStatus(`Compared with ${file.name}.`);
+    } catch (e) {
+      setCompareStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      other.dispose();
+      setCompareBusy(false);
+    }
+  };
+  const compareSection = () =>
+    section(
+      'Compare with another scan',
+      <>
+        <input
+          ref={compareInput}
+          type="file"
+          accept=".zip,application/zip"
+          className="hidden"
+          aria-label="Choose another scan package to compare"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void compareWith(file);
+          }}
+        />
+        <ScanComparePanel
+          comparison={comparison}
+          busy={compareBusy}
+          status={compareStatus}
+          onOpenAfterScan={() => compareInput.current?.click()}
+          onGoToTooth={(fdi) => {
+            const tooth = teeth.find((item) => shownFdi(item) === fdi);
+            if (tooth) selectTooth(tooth.id, false);
+          }}
+          onClose={
+            comparison
+              ? () => {
+                  setComparison(null);
+                  setCompareStatus('');
+                }
+              : undefined
+          }
+        />
+      </>,
+    );
+
   // Case report (with a QR code for the share link) ----------------------------
   const openReport = () => {
     const reportWindow = window.open('', '_blank');
@@ -1925,6 +2050,7 @@ export default function ProgressiveViewerPage({
         </>,
       )}
       {addToothSection()}
+      {compareSection()}
       {section(
         'Show',
         <>

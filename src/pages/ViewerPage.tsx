@@ -129,6 +129,7 @@ import {
   toothFindingsToCsv,
 } from '../lib/dental/report';
 import { useUnsavedWarning } from '../app/useUnsavedWarning';
+import { applyStreamedCorrections } from '../lib/case/applyCorrections';
 import { compute } from '../lib/dental/computeClient';
 import {
   composeSnapshots,
@@ -518,6 +519,8 @@ export default function ViewerPage({ app }: ViewerPageProps) {
 function DenseViewerPage({ app, initialMeasurements = [], initialView }:
   ViewerPageProps & { initialMeasurements?: StudyMeasurement[]; initialView?: StreamingViewState }) {
   const measurementHandoff = useRef(initialMeasurements);
+  // Corrections made while streaming (swap, merges, added teeth).
+  const correctionsHandoff = useRef(initialView?.edits);
   const viewHandoff = useRef(initialView);
   useEffect(() => {
     const view = viewHandoff.current;
@@ -1335,7 +1338,62 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
 
     queueMicrotask(() => {
       if (controller.signal.aborted || !app.volume) return;
-      const restored = workspaceRef.current ?? app.volume.caseWorkspace;
+      let restored = workspaceRef.current ?? app.volume.caseWorkspace;
+      const corrections = correctionsHandoff.current;
+      correctionsHandoff.current = undefined;
+      if (restored && corrections) {
+        try {
+          const applied = applyStreamedCorrections({
+            instances: restored.state.toothInstances ?? [],
+            labels: Object.fromEntries(
+              (restored.labelmaps ?? []).map((m) => [
+                m.id,
+                bytesToUint16Array(m.data),
+              ]),
+            ),
+            dims: app.volume.meta.dimensions,
+            edits: corrections,
+          });
+          const changed = new Set(applied.changedGroups);
+          restored = {
+            ...restored,
+            state: {
+              ...restored.state,
+              toothInstances: applied.instances,
+              segmentGroups: restored.state.segmentGroups.map((group) => {
+                if (!changed.has(group.id)) return group;
+                const values = new Set(
+                  applied.instances
+                    .filter((t) => t.groupId === group.id)
+                    .map((t) => t.value),
+                );
+                return {
+                  ...group,
+                  segments: [
+                    ...group.segments.filter((seg) => values.has(seg.value)),
+                    ...applied.added
+                      .filter((a) => a.groupId === group.id)
+                      .map((a) =>
+                        createStudySegment({
+                          value: a.value,
+                          name: a.fdi ? `FDI ${a.fdi}` : 'Added tooth',
+                          color: '#34d399',
+                        }),
+                      ),
+                  ],
+                };
+              }),
+            },
+            labelmaps: (restored.labelmaps ?? []).map((m) =>
+              changed.has(m.id)
+                ? { ...m, data: uint16ArrayToBytes(applied.labels[m.id]) }
+                : m,
+            ),
+          };
+        } catch {
+          // Corrections that no longer fit the case are dropped.
+        }
+      }
       if (restored) {
         setStudyState({
           ...normalizeStudyState(restored.state),
@@ -4357,6 +4415,48 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       canRedo={redoStack.length > 0}
     />
   ) : null;
+  const dockedReviewPanel = reviewOpen ? (
+    <ToothReviewPanel
+      docked
+      state={studyState}
+      busy={separationBusy}
+      error={reviewError}
+      onClose={() => setReviewOpen(false)}
+      onSelect={(id, additive) => selectInstance(id, true, additive)}
+      onPickGroup={pickToothGroup}
+      mirrored={toothNumbersMirrored}
+      onSwapSides={swapToothSides}
+      overlaps={toothOverlaps}
+      splits={toothSplits}
+      onMergePair={(keepId, mergeId) => {
+        selectInstance(keepId, false);
+        mergeInstance(mergeId, keepId);
+      }}
+      onFocus={(id) => setFocusToothId(id)}
+      exportBusy={modelExportBusy}
+      exportStatus={modelExportStatus}
+      onExportModel={(request) => void exportToothModel(request)}
+      onSeparate={separateTeeth}
+      onChange={changeTooth}
+      onCorrect={editInstance}
+      onNewTooth={newManualTooth}
+      onImportModel={(file) => void importModelResult(file)}
+      onAnatomy={(variant) => void runFullAnatomy(variant)}
+      anatomyBusy={anatomyRunning}
+      onCancelAnatomy={cancelFullAnatomy}
+      onSurface={() => void createSurfaceFromActiveMask()}
+      surfaceBusy={Boolean(surfaceStatus)}
+      onSplit={splitInstance}
+      onMerge={(id) => mergeInstance(id)}
+      onVisibility={(toothVisibility, showSurroundingBone) =>
+        setStudyState((c) => ({ ...c, toothVisibility, showSurroundingBone }))
+      }
+      onUndo={undoMaskEdit}
+      onRedo={redoMaskEdit}
+      canUndo={undoStack.length > 0}
+      canRedo={redoStack.length > 0}
+    />
+  ) : null;
 
   // Keyboard shortcuts (desktop and tablets with keyboards) ---------------
 
@@ -4747,26 +4847,30 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
         <div
           className={cn(
             'grid min-h-0 flex-1 gap-px bg-slate-800',
-            app.sidebarVisible
+            app.sidebarVisible || reviewOpen
               ? 'grid-cols-[minmax(0,1fr)_minmax(300px,22vw)]'
               : 'grid-cols-1',
           )}
         >
           <section className="flex min-h-0 min-w-0 flex-col">
             <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-2">
-              <button
-                type="button"
-                className="min-h-11 rounded px-3 text-sm text-sky-200"
+              <Button
+                variant="quiet"
+                size="sm"
+                className="my-1 text-sky-200"
+                pressed={reviewOpen}
                 onClick={() => setReviewOpen((v) => !v)}
               >
                 Review teeth
-              </button>
-              <button
-                className="min-h-11 shrink-0 rounded px-2 text-xs text-sky-200"
+              </Button>
+              <Button
+                variant="quiet"
+                size="sm"
+                className="my-1 shrink-0 text-sky-200"
                 onClick={() => void saveLocalProject()}
               >
                 Save case locally
-              </button>
+              </Button>
               {caseStatus && (
                 <span role="status" className="text-xs text-slate-300">
                   {caseStatus}
@@ -4783,7 +4887,39 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
               {dentalLayout === '3d' ? frame3D : renderAxisGrid(false)}
             </div>
           </section>
-          {app.sidebarVisible ? sidebar : null}
+          {app.sidebarVisible || reviewOpen ? (
+            // Side panel: study tools, or tooth review docked as a tab.
+            <div className="flex min-h-0 flex-col bg-slate-950">
+              <div
+                className="flex shrink-0 gap-1 border-b border-slate-800 px-2 py-1"
+                aria-label="Side panel"
+                role="group"
+              >
+                <Button
+                  variant="quiet"
+                  size="xs"
+                  pressed={!reviewOpen}
+                  onClick={() => {
+                    setReviewOpen(false);
+                    app.setSidebarVisible(true);
+                  }}
+                >
+                  Study tools
+                </Button>
+                <Button
+                  variant="quiet"
+                  size="xs"
+                  pressed={reviewOpen}
+                  onClick={() => setReviewOpen(true)}
+                >
+                  Tooth review
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {reviewOpen ? dockedReviewPanel : sidebar}
+              </div>
+            </div>
+          ) : null}
         </div>
         <ViewerStatusBar
           cursor={app.cursor}
@@ -4794,7 +4930,6 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
           probe={sliceProbe}
           toolHint={toolHint}
         />
-        {reviewPanel}
         {focusModal}
         {shortcutsOpen ? (
           <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />
@@ -4836,19 +4971,23 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
         }}
       />
       <div className="flex shrink-0 items-center gap-2 border-b border-slate-800 px-2">
-        <button
-          type="button"
-          className="min-h-11 rounded px-3 text-sm text-sky-200"
+        <Button
+          variant="quiet"
+          size="sm"
+          className="my-1 text-sky-200"
+          pressed={reviewOpen}
           onClick={() => setReviewOpen((v) => !v)}
         >
           Review teeth
-        </button>
-        <button
-          className="min-h-11 shrink-0 rounded px-2 text-xs text-sky-200"
+        </Button>
+        <Button
+          variant="quiet"
+          size="sm"
+          className="my-1 shrink-0 text-sky-200"
           onClick={() => void saveLocalProject()}
         >
           Save case locally
-        </button>
+        </Button>
         {caseStatus && (
           <span role="status" className="text-xs text-slate-300">
             {caseStatus}

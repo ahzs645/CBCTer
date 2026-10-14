@@ -1,5 +1,6 @@
 import type { Vec3 } from '../../types';
 import { growToothFromClick } from './growTooth';
+import { toothSurfacePoints } from './compareScans';
 import { sharedSurfaceMm2 } from '../case/toothSelection';
 import { archModelPart, meshToothPart } from '../case/toothExport';
 import type { ArchModelOptions } from '../case/archModel';
@@ -106,6 +107,22 @@ export const computeApi = {
   },
   /** Outline a tooth the model missed, from a click. */
   growTooth: growToothFromClick,
+  /** Surface points (mm) of one tooth, for comparing scans. */
+  toothPoints(input: {
+    labels: Uint16Array;
+    shape: Vec3;
+    start: Vec3;
+    spacing: Vec3;
+    values: number[];
+  }): Float32Array {
+    return toothSurfacePoints(
+      input.labels,
+      input.shape,
+      input.start,
+      input.spacing,
+      new Set(input.values),
+    );
+  },
   toothPart: meshToothPart,
   archModel: (options: ArchModelOptions & { smaller?: boolean }) =>
     archModelPart(options),

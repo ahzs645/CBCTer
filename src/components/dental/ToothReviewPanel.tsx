@@ -26,6 +26,8 @@ interface Props {
   busy: boolean;
   error: string;
   onClose: () => void;
+  /** Shown as a side-panel tab (desktop) instead of a floating sheet. */
+  docked?: boolean;
   onSelect: (id: string, additive?: boolean) => void;
   onPickGroup: (group: ToothGroupId) => void;
   onSeparate: (
@@ -112,7 +114,11 @@ export function ToothReviewPanel(p: Props) {
     <aside
       role="region"
       aria-label="Tooth review"
-      className="absolute inset-x-0 bottom-0 z-40 max-h-[60dvh] space-y-2.5 overflow-y-auto rounded-t-2xl border border-slate-700 bg-slate-900 p-3 shadow-xl md:inset-x-auto md:bottom-8 md:right-2 md:top-14 md:max-h-none md:w-96 md:rounded-xl"
+      className={
+        p.docked
+          ? 'h-full space-y-2.5 overflow-y-auto bg-slate-900 p-3'
+          : 'absolute inset-x-0 bottom-0 z-40 max-h-[60dvh] space-y-2.5 overflow-y-auto rounded-t-2xl border border-slate-700 bg-slate-900 p-3 shadow-xl md:inset-x-auto md:bottom-8 md:right-2 md:top-14 md:max-h-none md:w-96 md:rounded-xl'
+      }
     >
       <div className="flex items-center justify-between gap-2">
         <div>
