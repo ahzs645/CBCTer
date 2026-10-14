@@ -16,25 +16,58 @@ export function blobSource(blob: Blob): ByteSource {
     },
   };
 }
+const RANGE_UNSUPPORTED =
+  'This server does not expose byte ranges. Download the package and open the ZIP file instead.';
+/**
+ * Total length of a ZIP served without a readable Content-Range header (hosts
+ * such as raw.githubusercontent.com send 206 responses but do not expose
+ * that header to other sites). The end-of-central-directory record at the tail gives the
+ * central directory's offset and size, and with them the file length.
+ */
+async function zipLengthFromTail(url: string): Promise<number> {
+  const response = await fetch(url, { headers: { Range: 'bytes=-65558' } });
+  if (response.status !== 206) {
+    await response.body?.cancel();
+    throw new Error(RANGE_UNSUPPORTED);
+  }
+  const tail = new Uint8Array(await response.arrayBuffer());
+  const view = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+  for (let i = tail.length - 22; i >= 0; i--) {
+    if (view.getUint32(i, true) !== 0x06054b50) continue;
+    const comment = view.getUint16(i + 20, true);
+    if (i + 22 + comment !== tail.length) continue;
+    const size =
+      view.getUint32(i + 12, true) +
+      view.getUint32(i + 16, true) +
+      22 +
+      comment;
+    if (size >= tail.length - i && Number.isSafeInteger(size)) return size;
+  }
+  throw new Error('This link does not point to a ZIP scan package.');
+}
 export async function httpSource(url: string): Promise<ByteSource> {
   // A 200 response is cancelled before its body is read: no hidden full download.
-  const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } });
-  const match = /^bytes 0-0\/(\d+)$/.exec(
-    probe.headers.get('content-range') ?? '',
-  );
-  if (probe.status !== 206 || !match) {
-    await probe.body?.cancel();
+  let probe: Response;
+  try {
+    probe = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+  } catch {
     throw new Error(
-      'This server does not expose byte ranges. Download the package and open the ZIP file instead.',
+      'The host blocked this site from reading the file (no CORS access). Download it and open the ZIP file instead, or host it somewhere that allows other sites to read it.',
     );
   }
-  const size = Number(match[1]);
-  if (!Number.isSafeInteger(size) || size < 22) {
+  const contentRange = probe.headers.get('content-range');
+  const match = /^bytes 0-0\/(\d+)$/.exec(contentRange ?? '');
+  if (probe.status !== 206 || (contentRange && !match)) {
     await probe.body?.cancel();
-    throw new Error('Invalid remote package length.');
+    throw new Error(RANGE_UNSUPPORTED);
   }
+  // The header is hidden from scripts: verify each range by its length instead.
+  const hiddenRange = !contentRange;
   if ((await probe.arrayBuffer()).byteLength !== 1)
     throw new Error('Invalid HTTP range response.');
+  const size = match ? Number(match[1]) : await zipLengthFromTail(url);
+  if (!Number.isSafeInteger(size) || size < 22)
+    throw new Error('Invalid remote package length.');
   const etag = probe.headers.get('etag');
   const source: ByteSource = {
     size,
@@ -57,7 +90,7 @@ export async function httpSource(url: string): Promise<ByteSource> {
       const expected = `bytes ${start}-${end - 1}/${size}`;
       if (
         response.status !== 206 ||
-        response.headers.get('content-range') !== expected ||
+        (!hiddenRange && response.headers.get('content-range') !== expected) ||
         (etag && response.headers.get('etag') !== etag)
       ) {
         await response.body?.cancel();

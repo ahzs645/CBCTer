@@ -6,5 +6,6 @@
 - [Importing data](./importing-data.md)
 - [Project archives](./project-archives.md)
 - [Viewer controls](./viewer-controls.md)
+- [Interface review: isolation, sharing, retainer models, roadmap](./interface-review.md)
 - [Architecture notes](./architecture.md)
 - [VolGL feasibility notes](./volgl-feasibility.md)

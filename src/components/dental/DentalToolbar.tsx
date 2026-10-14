@@ -39,13 +39,15 @@ interface DentalToolbarProps {
   onInvertChange: (invert: boolean) => void;
   onZoomChange: (zoom: number) => void;
   onLayoutChange: (layout: DentalLayout) => void;
-  onSnapshot: () => void;
-  onReport: () => void;
-  onExportPackage: () => void;
-  onOpenPanoramic: () => void;
-  onOpenTeeth: () => void;
-  onShowShortcuts: () => void;
+  onSnapshot?: () => void;
+  onReport?: () => void;
+  onExportPackage?: () => void;
+  onOpenPanoramic?: () => void;
+  onOpenTeeth?: () => void;
+  onShowShortcuts?: () => void;
   onSidebarVisibleChange: (visible: boolean) => void;
+  /** Shown after the scan name, e.g. the streaming status chip. */
+  status?: ReactNode;
 }
 
 function Divider() {
@@ -111,6 +113,7 @@ export function DentalToolbar({
   onOpenTeeth,
   onShowShortcuts,
   onSidebarVisibleChange,
+  status,
 }: DentalToolbarProps) {
   const { t } = useTranslation();
 
@@ -124,6 +127,7 @@ export function DentalToolbar({
           <div className="truncate text-[11px] text-slate-500">{formatLabel}</div>
         ) : null}
       </div>
+      {status ? <div className="shrink-0">{status}</div> : null}
       <Divider />
 
       <div
@@ -227,24 +231,36 @@ export function DentalToolbar({
 
       <Divider />
       <div className="flex shrink-0 items-center gap-0.5">
-        <IconButton label={t('dental.toolbar.panoramic')} showLabel onClick={onOpenPanoramic}>
+        {onOpenPanoramic ? (
+          <IconButton label={t('dental.toolbar.panoramic')} showLabel onClick={onOpenPanoramic}>
           <ScanLine className="h-4 w-4" aria-hidden="true" />
         </IconButton>
-        <IconButton label={t('dental.toolbar.teeth')} onClick={onOpenTeeth}>
+        ) : null}
+        {onOpenTeeth ? (
+          <IconButton label={t('dental.toolbar.teeth')} onClick={onOpenTeeth}>
           <Layers3 className="h-4 w-4" aria-hidden="true" />
         </IconButton>
-        <IconButton label={t('dental.toolbar.snapshot')} shortcut="S" onClick={onSnapshot}>
+        ) : null}
+        {onSnapshot ? (
+          <IconButton label={t('dental.toolbar.snapshot')} shortcut="S" onClick={onSnapshot}>
           <Camera className="h-4 w-4" aria-hidden="true" />
         </IconButton>
-        <IconButton label={t('dental.toolbar.report')} showLabel onClick={onReport}>
+        ) : null}
+        {onReport ? (
+          <IconButton label={t('dental.toolbar.report')} showLabel onClick={onReport}>
           <FileText className="h-4 w-4" aria-hidden="true" />
         </IconButton>
-        <IconButton label={t('dental.toolbar.exportPackage')} onClick={onExportPackage}>
+        ) : null}
+        {onExportPackage ? (
+          <IconButton label={t('dental.toolbar.exportPackage')} onClick={onExportPackage}>
           <FileArchive className="h-4 w-4" aria-hidden="true" />
         </IconButton>
-        <IconButton label={t('dental.toolbar.shortcuts')} shortcut="?" onClick={onShowShortcuts}>
+        ) : null}
+        {onShowShortcuts ? (
+          <IconButton label={t('dental.toolbar.shortcuts')} shortcut="?" onClick={onShowShortcuts}>
           <CircleHelp className="h-4 w-4" aria-hidden="true" />
         </IconButton>
+        ) : null}
         <IconButton
           label={sidebarVisible ? t('dental.toolbar.hidePanel') : t('dental.toolbar.showPanel')}
           active={sidebarVisible}

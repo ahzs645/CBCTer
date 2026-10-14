@@ -25,6 +25,9 @@ and 867 MB → 167 MB, and phones read only 5–19 MB of it.
 - [docs/scan-package.md](docs/scan-package.md): the `.cbct.zip` format.
 - [docs/viewer-controls.md](docs/viewer-controls.md): controls and keyboard
   shortcuts.
+- [docs/interface-review.md](docs/interface-review.md): interface review,
+  tooth isolation, share links, tooth/crown STL export for retainers, and the
+  feature roadmap.
 
 ## Segmentation results and cloud GPU runner
 

@@ -21,13 +21,13 @@
     "logoAlt": "CBCTer logo",
     "busyTitle": "Building viewer",
     "busySubtitle": "Source: {{sourceLabel}}",
-    "importErrorTitle": "Could not open this folder",
+    "importErrorTitle": "Could not open this scan",
     "selectedScanFolder": "Selected scan folder",
     "sampleTitle": "Try the bundled sample",
     "sampleDescription": "Load the bundled CBCT volume to explore the viewer and tooth extraction without importing a folder.",
     "loadSample": "Load sample CBCT",
     "openRemote": "Open URL",
-    "remoteUrlPlaceholder": "https://example.org/scan.zip or manifest.json",
+    "remoteUrlPlaceholder": "Link to a .cbct.zip (Hugging Face, GitHub raw, S3/R2…)",
     "openNifti": "Open NIfTI file",
     "openTeeth": "Open tooth extraction",
     "supportedFoldersTitle": "Supported folders and files",
@@ -54,7 +54,10 @@
       }
     },
     "referenceNote": "Any of these can also be zipped and opened with Open ZIP file. Vendor viewers, installers and <0>Series_01/</0> are ignored.",
-    "openZip": "Open ZIP file"
+    "openZip": "Open ZIP file",
+    "dropHint": "Drop a .cbct.zip, a zipped vendor export or a NIfTI file anywhere on this page.",
+    "dropHere": "Drop to open the scan",
+    "cancel": "Cancel"
   },
   "folderPicker": {
     "title": "Open a scan folder",

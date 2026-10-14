@@ -21,13 +21,13 @@
     "logoAlt": "Логотип CBCTer",
     "busyTitle": "Будується переглядач",
     "busySubtitle": "Джерело: {{sourceLabel}}",
-    "importErrorTitle": "Не вдалося відкрити цю папку",
+    "importErrorTitle": "Не вдалося відкрити цей знімок",
     "selectedScanFolder": "Вибрана папка скану",
     "sampleTitle": "Спробуйте вбудований зразок",
     "sampleDescription": "Завантажте вбудований CBCT-об'єм, щоб дослідити переглядач і виділення зубів без імпорту папки.",
     "loadSample": "Завантажити зразок CBCT",
     "openRemote": "Відкрити URL",
-    "remoteUrlPlaceholder": "https://example.org/scan.zip або manifest.json",
+    "remoteUrlPlaceholder": "Посилання на .cbct.zip (Hugging Face, GitHub raw, S3/R2…)",
     "openTeeth": "Відкрити виділення зубів",
     "supportedFoldersTitle": "Підтримувані папки",
     "supportedFolders": {
@@ -47,7 +47,10 @@
         "instruction": "Виберіть папку, що містить зрізи <0>.dcm</0>, зазвичай <1>DICOM/</1>."
       }
     },
-    "referenceNote": "<0>Series_01/</0> — лише довідковий матеріал і не імпортується."
+    "referenceNote": "<0>Series_01/</0> — лише довідковий матеріал і не імпортується.",
+    "dropHint": "Перетягніть .cbct.zip, ZIP-експорт або файл NIfTI на цю сторінку.",
+    "dropHere": "Відпустіть, щоб відкрити знімок",
+    "cancel": "Скасувати"
   },
   "folderPicker": {
     "title": "Відкрити папку скану",

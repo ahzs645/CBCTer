@@ -231,6 +231,8 @@ export type StudyState = {
   analysisModels?: AnalysisModel[];
   analysisRevisions?: AnalysisRevision[];
   selectedInstanceId?: string;
+  /** Teeth chosen together (a group such as 33–43); "selected" shows these. */
+  toothSelection?: string[];
   toothVisibility?: 'all' | 'selected' | 'hide-teeth';
   showSurroundingBone?: boolean;
   dentalArch?: DentalArchState;

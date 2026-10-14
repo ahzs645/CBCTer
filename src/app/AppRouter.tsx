@@ -1,9 +1,11 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { APP_ROUTES } from '../constants';
 import { useTranslation } from '../i18n';
 import { createDefaultScanFolderPicker } from '../lib/import/source-picker';
 import { useViewerApp } from './useViewerApp';
+import { ErrorBoundary } from './ErrorBoundary';
+import { clearChunkReloadMarker } from './chunkReload';
 
 const ImportPage = lazy(() => import('../pages/ImportPage'));
 const ViewerPage = lazy(() => import('../pages/ViewerPage'));
@@ -29,74 +31,84 @@ export function AppRouter() {
   const sourcePicker = useMemo(() => createDefaultScanFolderPicker(), []);
   const app = useViewerApp({ sourcePicker });
   const hasVolume = Boolean(app.volume);
+  // The app started, so a later chunk failure may reload once again.
+  useEffect(() => {
+    const timer = window.setTimeout(clearChunkReloadMarker, 10_000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
-        <Route
-          path={APP_ROUTES.import}
-          element={
-            hasVolume ? (
-              <Navigate to={APP_ROUTES.viewer} replace />
-            ) : (
-              <ImportPage app={app} />
-            )
-          }
-        />
-        <Route
-          path={APP_ROUTES.viewer}
-          element={
-            hasVolume ? (
-              <ViewerPage app={app} />
-            ) : (
-              <Navigate to={APP_ROUTES.import} replace />
-            )
-          }
-        />
-        <Route
-          path={APP_ROUTES.teeth}
-          element={
-            app.volume?.chunked ? (
-              <Navigate to={APP_ROUTES.viewer} replace />
-            ) : (
-              <ToothExtractionPage app={app} />
-            )
-          }
-        />
-        <Route
-          path={APP_ROUTES.anatomy}
-          element={
-            app.volume?.chunked ? (
-              <Navigate to={APP_ROUTES.viewer} replace />
-            ) : (
-              <AnatomySegmentationPage app={app} />
-            )
-          }
-        />
-        <Route
-          path={APP_ROUTES.panoramic}
-          element={
-            hasVolume ? (
+    <ErrorBoundary
+      onReset={app.resetViewer}
+      resetLabel={hasVolume ? 'Close scan' : 'Start over'}
+    >
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route
+            path={APP_ROUTES.import}
+            element={
+              hasVolume ? (
+                <Navigate to={APP_ROUTES.viewer} replace />
+              ) : (
+                <ImportPage app={app} />
+              )
+            }
+          />
+          <Route
+            path={APP_ROUTES.viewer}
+            element={
+              hasVolume ? (
+                <ViewerPage app={app} />
+              ) : (
+                <Navigate to={APP_ROUTES.import} replace />
+              )
+            }
+          />
+          <Route
+            path={APP_ROUTES.teeth}
+            element={
               app.volume?.chunked ? (
                 <Navigate to={APP_ROUTES.viewer} replace />
               ) : (
-                <PanoramicPage app={app} />
+                <ToothExtractionPage app={app} />
               )
-            ) : (
-              <Navigate to={APP_ROUTES.import} replace />
-            )
-          }
-        />
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to={hasVolume ? APP_ROUTES.viewer : APP_ROUTES.import}
-              replace
-            />
-          }
-        />
-      </Routes>
-    </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.anatomy}
+            element={
+              app.volume?.chunked ? (
+                <Navigate to={APP_ROUTES.viewer} replace />
+              ) : (
+                <AnatomySegmentationPage app={app} />
+              )
+            }
+          />
+          <Route
+            path={APP_ROUTES.panoramic}
+            element={
+              hasVolume ? (
+                app.volume?.chunked ? (
+                  <Navigate to={APP_ROUTES.viewer} replace />
+                ) : (
+                  <PanoramicPage app={app} />
+                )
+              ) : (
+                <Navigate to={APP_ROUTES.import} replace />
+              )
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to={hasVolume ? APP_ROUTES.viewer : APP_ROUTES.import}
+                replace
+              />
+            }
+          />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }

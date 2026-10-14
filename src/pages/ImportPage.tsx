@@ -1,5 +1,5 @@
 import { Activity, FileArchive, FileUp, Layers3 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import logoUrl from '../assets/voxel-viewer-logo.svg';
@@ -22,6 +22,64 @@ export default function ImportPage({ app }: ImportPageProps) {
   const niftiInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
   const [remoteUrl, setRemoteUrl] = useState('');
+  const [dragging, setDragging] = useState(false);
+  // Only offer the sample when this deployment ships one.
+  const [sampleAvailable, setSampleAvailable] = useState(false);
+  useEffect(() => {
+    const path =
+      new URLSearchParams(window.location.search).get('sample') ||
+      '/sample-cbct';
+    const abort = new AbortController();
+    fetch(`${path}/manifest.json`, { signal: abort.signal })
+      .then((r) => {
+        setSampleAvailable(
+          r.ok && (r.headers.get('content-type') ?? '').includes('json'),
+        );
+        return r.body?.cancel();
+      })
+      .catch(() => undefined);
+    return () => abort.abort();
+  }, []);
+  // Drop a file anywhere on the page: scan packages and zipped exports open as
+  // archives, NIfTI files through their own reader.
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (event: DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const enter = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      depth++;
+      setDragging(true);
+    };
+    const over = (event: DragEvent) => {
+      if (hasFiles(event)) event.preventDefault();
+    };
+    const leave = () => {
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDragging(false);
+    };
+    const drop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      depth = 0;
+      setDragging(false);
+      const file = event.dataTransfer?.files?.[0];
+      if (!file || app.busy) return;
+      if (/\.nii(\.gz)?$/i.test(file.name)) void app.openNifti(file);
+      else void app.openArchive(file);
+    };
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+    };
+  }, [app]);
   const codeClass =
     'rounded bg-slate-900 px-1 py-0.5 font-mono text-[0.9em] text-slate-200';
 
@@ -51,6 +109,9 @@ export default function ImportPage({ app }: ImportPageProps) {
               stage={ImportStatusStage.Import}
             />
             <Notice>{t('common.referenceOnly')}</Notice>
+            <Button variant="ghost" onClick={() => app.resetViewer()}>
+              {t('importPage.cancel')}
+            </Button>
           </div>
         </div>
       </main>
@@ -60,6 +121,14 @@ export default function ImportPage({ app }: ImportPageProps) {
   return (
     <main className="min-h-screen overflow-y-auto bg-slate-950 text-slate-100">
       <LanguageSelect />
+      {dragging ? (
+        <div
+          className="pointer-events-none fixed inset-3 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-sky-400 bg-slate-950/85 text-lg font-medium text-sky-100"
+          aria-hidden="true"
+        >
+          {t('importPage.dropHere')}
+        </div>
+      ) : null}
       <div className="mx-auto flex min-h-screen max-w-3xl items-start justify-center px-4 py-8">
         <div className="w-full space-y-3">
           <section className="rounded border border-slate-800 bg-slate-950/80 p-5">
@@ -99,17 +168,12 @@ export default function ImportPage({ app }: ImportPageProps) {
                     {t('importPage.openRemote')}
                   </Button>
                 </form>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <p className="mt-3 text-xs text-slate-400">
+                  {t('importPage.dropHint')}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
                   <Button
                     variant="primary"
-                    onClick={() => void app.openSample()}
-                    disabled={app.busy}
-                  >
-                    <Activity className="h-4 w-4" aria-hidden="true" />
-                    {t('importPage.loadSample')}
-                  </Button>
-                  <Button
-                    variant="ghost"
                     onClick={() => zipInputRef.current?.click()}
                     disabled={app.busy}
                   >
@@ -143,6 +207,16 @@ export default function ImportPage({ app }: ImportPageProps) {
                     <Layers3 className="h-4 w-4" aria-hidden="true" />
                     {t('importPage.openTeeth')}
                   </Button>
+                  {sampleAvailable ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => void app.openSample()}
+                      disabled={app.busy}
+                    >
+                      <Activity className="h-4 w-4" aria-hidden="true" />
+                      {t('importPage.loadSample')}
+                    </Button>
+                  ) : null}
                   <input
                     ref={niftiInputRef}
                     type="file"

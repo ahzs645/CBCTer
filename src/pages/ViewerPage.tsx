@@ -5,10 +5,23 @@ import {
   summarizeTeeth,
   splitTooth,
   mergeTeeth,
-  isolatePreview,
   FDI_NUMBERS,
 } from '../lib/case/teeth';
 import type { ToothInstance } from '../lib/case/types';
+import {
+  buildIsolatedVolume,
+  cropVolume,
+  hideTeethInPreview,
+  mirrorFdi,
+  numberingLooksMirrored,
+  overlappingTeeth,
+  selectionBounds,
+  selectionIds,
+  teethInGroup,
+  type ToothGroupId,
+} from '../lib/case/toothSelection';
+import { buildToothModelZip } from '../lib/case/toothExport';
+import type { ToothModelRequest } from '../components/dental/ToothPicker';
 import { bindVolume, assertProjectBinding } from '../lib/case/binding';
 import type { CaseWorkspace } from '../lib/case/types';
 import ProgressiveViewerPage, {
@@ -596,6 +609,8 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
   const [reviewOpen, setReviewOpen] = useState(false);
   const [separationBusy, setSeparationBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const [modelExportBusy, setModelExportBusy] = useState(false);
+  const [modelExportStatus, setModelExportStatus] = useState('');
   const separationWorker = useRef<Worker | null>(null);
   useEffect(() => () => separationWorker.current?.terminate(), []);
   const [packageDialogOpen, setPackageDialogOpen] = useState(false);
@@ -857,11 +872,19 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
             const isTooth = role === 'teeth',
               anatomyTooth =
                 role === 'anatomy' && /tooth|teeth/i.test(segment.name);
+            const chosen = selectionIds({
+              toothSelection: studyState.toothSelection,
+              selectedInstanceId: studyState.selectedInstanceId,
+            });
             const permitted =
               studyState.toothVisibility === 'selected'
                 ? isTooth
-                  ? selected?.groupId === group.id &&
-                    selected.value === segment.value
+                  ? studyState.toothInstances?.some(
+                      (t) =>
+                        chosen.includes(t.id) &&
+                        t.groupId === group.id &&
+                        t.value === segment.value,
+                    )
                   : studyState.showSurroundingBone && !anatomyTooth
                 : studyState.toothVisibility === 'hide-teeth'
                   ? !isTooth && !anatomyTooth
@@ -1020,6 +1043,7 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
     studyState.maskWorkflow.watershedSeeds,
     studyState.toothInstances,
     studyState.selectedInstanceId,
+    studyState.toothSelection,
     studyState.toothVisibility,
     studyState.showSurroundingBone,
     studyState.analysisLayers,
@@ -3730,20 +3754,25 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
     return { bytes: blob.size };
   };
 
-  const selectInstance = (id: string, move = true) => {
+  const selectInstance = (id: string, move = true, additive = false) => {
     const tooth = studyState.toothInstances?.find((t) => t.id === id);
     if (!tooth) return;
     setSelectedTooth(tooth.fdi);
     setStudyState((c) => ({
       ...c,
       selectedInstanceId: id,
+      toothSelection: additive
+        ? selectionIds(c).includes(id)
+          ? selectionIds(c).filter((item) => item !== id)
+          : [...selectionIds(c), id]
+        : [id],
       activeMaskId: undefined,
       activeSegmentGroupId: tooth.groupId,
       segmentGroups: c.segmentGroups.map((g) =>
         g.id === tooth.groupId ? { ...g, activeSegmentValue: tooth.value } : g,
       ),
     }));
-    if (move)
+    if (move && !additive)
       app.setCursor({
         x: Math.round(tooth.centroid[0]),
         y: Math.round(tooth.centroid[1]),
@@ -3811,6 +3840,105 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
     );
     if (changes.fdi !== undefined) setSelectedTooth(changes.fdi);
   };
+  const pickToothGroup = (group: ToothGroupId) => {
+    const list = teethInGroup(studyState.toothInstances ?? [], group);
+    if (!list.length) return;
+    setStudyState((c) => ({
+      ...c,
+      toothSelection: list.map((t) => t.id),
+      selectedInstanceId: list[0].id,
+      toothVisibility: 'selected',
+    }));
+    const box = selectionBounds(list, app.volume!.meta.dimensions, 0)!;
+    app.setCursor({
+      x: Math.round(box.start[0] + box.shape[0] / 2),
+      y: Math.round(box.start[1] + box.shape[1] / 2),
+      z: Math.round(box.start[2] + box.shape[2] / 2),
+    });
+  };
+  const swapToothSides = () =>
+    revise(
+      'swap left/right numbering',
+      (studyState.toothInstances ?? []).map((t) => t.id),
+      (c) => ({
+        ...c,
+        toothInstances: c.toothInstances?.map((t) => ({
+          ...t,
+          fdi: mirrorFdi(t.fdi),
+        })),
+        toothFindings: c.toothFindings.map((f) =>
+          f.instanceId ? { ...f, fdi: mirrorFdi(f.fdi) ?? f.fdi } : f,
+        ),
+      }),
+    );
+  const exportToothModel = async (request: ToothModelRequest) => {
+    const volume = app.volume;
+    if (!volume) return;
+    const chosen = selectionIds({
+      toothSelection: studyState.toothSelection,
+      selectedInstanceId: studyState.selectedInstanceId,
+    });
+    const teeth = (studyState.toothInstances ?? []).filter(
+      (t) => chosen.includes(t.id) && labelmapBuffers[t.groupId],
+    );
+    setModelExportBusy(true);
+    setModelExportStatus('');
+    try {
+      const dims = volume.meta.dimensions;
+      const { zip, reports } = await buildToothModelZip({
+        teeth,
+        allTeeth: studyState.toothInstances ?? [],
+        dims,
+        spacing: volume.meta.spacing,
+        scanName: volume.meta.scanId,
+        model: {
+          ...request,
+          superiorSign:
+            (volume.meta.patientAxes?.superior?.[2] ?? 1) < 0 ? -1 : 1,
+        },
+        read: async (groupId, start, shape) => ({
+          scan: cropVolume(volume.voxels, dims, start, shape),
+          labels: cropVolume(
+            bytesToUint16Array(labelmapBuffers[groupId]),
+            dims,
+            start,
+            shape,
+          ),
+        }),
+        onProgress: (done, total) =>
+          setModelExportStatus(`Meshing tooth ${done} of ${total}…`),
+      });
+      const url = URL.createObjectURL(
+        new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${volume.meta.scanId}-${request.crownOnly ? 'crowns' : 'teeth'}.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setModelExportStatus(
+        `Saved ${reports.length} ${reports.length === 1 ? 'tooth' : 'teeth'}.`,
+      );
+    } catch (error) {
+      setModelExportStatus(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setModelExportBusy(false);
+    }
+  };
+  const toothOverlaps = useMemo(
+    () => overlappingTeeth(studyState.toothInstances ?? []),
+    [studyState.toothInstances],
+  );
+  const toothNumbersMirrored = useMemo(
+    () =>
+      numberingLooksMirrored(
+        studyState.toothInstances ?? [],
+        (app.volume?.meta.patientAxes?.left?.[0] ?? 1) < 0 ? -1 : 1,
+      ),
+    [studyState.toothInstances, app.volume],
+  );
   const selectedInstance = studyState.toothInstances?.find(
     (t) => t.id === studyState.selectedInstanceId,
   );
@@ -4055,56 +4183,63 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       [mask.buffer],
     );
   };
+  // Isolation crops the 3D texture to the chosen teeth at full resolution, so
+  // the camera frames them; it never walks the whole volume on the main thread.
   const isolated3D = useMemo(() => {
     const mode = studyState.toothVisibility ?? 'all';
-    const toothLayers = (studyState.analysisLayers ?? [])
-      .filter((layer) => layer.role === 'teeth' && labelmapBuffers[layer.id])
-      .map((layer) => bytesToUint16Array(labelmapBuffers[layer.id]));
-    const selectedLabels = selectedInstance
-      ? labelmapBuffers[selectedInstance.groupId]
-      : undefined;
-    if (
-      !app.prepared3D ||
-      !app.volume ||
-      mode === 'all' ||
-      (mode === 'selected' && !selectedLabels) ||
-      (mode === 'hide-teeth' && !toothLayers.length)
-    )
-      return app.prepared3D;
-    const anatomy = studyState.analysisLayers?.find(
-      (l) => l.role === 'anatomy' && labelmapBuffers[l.id],
+    if (!app.prepared3D || !app.volume || mode === 'all') return app.prepared3D;
+    const dims = app.volume.meta.dimensions;
+    if (mode === 'hide-teeth') {
+      const toothLayers = (studyState.analysisLayers ?? [])
+        .filter((layer) => layer.role === 'teeth' && labelmapBuffers[layer.id])
+        .map((layer) => bytesToUint16Array(labelmapBuffers[layer.id]));
+      return toothLayers.length
+        ? hideTeethInPreview(app.prepared3D, toothLayers, dims)
+        : app.prepared3D;
+    }
+    const chosen = selectionIds({
+      toothSelection: studyState.toothSelection,
+      selectedInstanceId: studyState.selectedInstanceId,
+    });
+    const teeth = (studyState.toothInstances ?? []).filter(
+      (t) => chosen.includes(t.id) && labelmapBuffers[t.groupId],
     );
-    const boneGroup = studyState.segmentGroups.find(
-        (g) => g.id === anatomy?.id,
-      ),
-      boneValues = boneGroup?.segments
-        .filter(
-          (s) =>
-            /bone|skull|mandible|maxilla/i.test(s.name) &&
-            !/teeth|tooth/i.test(s.name),
-        )
-        .map((s) => s.value) ?? [1, 2];
-    return isolatePreview(
-      app.prepared3D,
-      selectedLabels ? bytesToUint16Array(selectedLabels) : toothLayers[0],
-      app.volume.meta.dimensions,
-      selectedInstance?.value ?? 0,
-      mode,
-      studyState.showSurroundingBone && anatomy
-        ? bytesToUint16Array(labelmapBuffers[anatomy.id])
-        : undefined,
-      boneValues,
-      toothLayers,
+    const box = selectionBounds(
+      teeth,
+      dims,
+      studyState.showSurroundingBone ? 24 : 6,
     );
+    if (!box) return app.prepared3D;
+    const groupIds = [...new Set(teeth.map((t) => t.groupId))];
+    return buildIsolatedVolume({
+      scan: cropVolume(app.volume.voxels, dims, box.start, box.shape),
+      labels: groupIds.map((groupId) => ({
+        groupId,
+        words: cropVolume(
+          bytesToUint16Array(labelmapBuffers[groupId]),
+          dims,
+          box.start,
+          box.shape,
+        ),
+      })),
+      start: box.start,
+      shape: box.shape,
+      spacing: app.volume.meta.spacing,
+      teeth,
+      scalarRange: app.prepared3D.scalarRange,
+      threshold: app.prepared3D.threshold,
+      context: studyState.showSurroundingBone,
+    });
   }, [
     app.prepared3D,
     app.volume,
-    selectedInstance,
     labelmapBuffers,
     studyState.toothVisibility,
     studyState.showSurroundingBone,
     studyState.analysisLayers,
-    studyState.segmentGroups,
+    studyState.toothInstances,
+    studyState.toothSelection,
+    studyState.selectedInstanceId,
   ]);
   const reviewPanel = reviewOpen ? (
     <ToothReviewPanel
@@ -4112,7 +4247,14 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       busy={separationBusy}
       error={reviewError}
       onClose={() => setReviewOpen(false)}
-      onSelect={selectInstance}
+      onSelect={(id, additive) => selectInstance(id, true, additive)}
+      onPickGroup={pickToothGroup}
+      mirrored={toothNumbersMirrored}
+      onSwapSides={swapToothSides}
+      overlaps={toothOverlaps}
+      exportBusy={modelExportBusy}
+      exportStatus={modelExportStatus}
+      onExportModel={(request) => void exportToothModel(request)}
       onSeparate={separateTeeth}
       onChange={changeTooth}
       onCorrect={editInstance}

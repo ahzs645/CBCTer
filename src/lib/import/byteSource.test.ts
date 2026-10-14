@@ -63,3 +63,43 @@ describe('HTTP byte sources', () => {
     await expect(source.read(10, 14)).rejects.toThrow(/changed/);
   });
 });
+describe('hosts that hide Content-Range', () => {
+  it('reads the ZIP length from its end record and checks range lengths', async () => {
+    // 100-byte "zip": central directory at 60 (18 bytes), EOCD at 78.
+    const file = new Uint8Array(100);
+    const view = new DataView(file.buffer);
+    view.setUint32(78, 0x06054b50, true);
+    view.setUint32(78 + 12, 18, true);
+    view.setUint32(78 + 16, 60, true);
+    const requests: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const range = init.headers.Range as string;
+        requests.push(range);
+        const suffix = /^bytes=-(\d+)$/.exec(range);
+        const [start, end] = suffix
+          ? [Math.max(0, file.length - Number(suffix[1])), file.length - 1]
+          : range.slice(6).split('-').map(Number);
+        return new Response(file.slice(start, end + 1), { status: 206 });
+      }),
+    );
+    const source = await httpSource(
+      'https://raw.githubusercontent.com/o/r/main/scan.cbct.zip',
+    );
+    expect(source.size).toBe(100);
+    expect(await source.read(10, 20)).toHaveLength(10);
+    expect(requests).toEqual(['bytes=0-0', 'bytes=-65558', 'bytes=10-19']);
+  });
+  it('explains a CORS failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+    await expect(httpSource('https://example.com/a.cbct.zip')).rejects.toThrow(
+      /CORS/,
+    );
+  });
+});

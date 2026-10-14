@@ -32,6 +32,7 @@ import type {
 } from '../types';
 import { useVolumeViewerState } from '../viewer';
 import { isAbortError, isBusy, makeImportIssue } from './helpers';
+import { readShareLink } from './shareLink';
 import { shouldShowSidebarByDefault } from './viewer-layout';
 
 export interface ViewerApp {
@@ -69,6 +70,10 @@ export interface ViewerApp {
   ) => void;
   openDirectory: () => Promise<void>;
   openRemote: (url: string) => Promise<void>;
+  /** Remote package URL the current scan streams from, for share links. */
+  sourceUrl: string | null;
+  /** FDI tooth a share link asked to select once the scan opens. */
+  sharedTooth: number | null;
   openSample: () => Promise<void>;
   openNifti: (file: File) => Promise<void>;
   /** Open a single ZIP: a vendor export zipped up, or a `.cbct.zip` package. */
@@ -113,6 +118,12 @@ export function useViewerApp({
     null,
   );
   const [sourceLabel, setSourceLabel] = useState('');
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [sharedTooth] = useState<number | null>(() =>
+    typeof window === 'undefined'
+      ? null
+      : (readShareLink(window.location)?.tooth ?? null),
+  );
   const [volume, setVolume] = useState<LoadedVolume | null>(null);
   const [downsampled3D, setDownsampled3D] = useState(false);
   const [prepared3D, setPrepared3D] = useState<PreparedVolumeFor3D | null>(
@@ -138,6 +149,7 @@ export function useViewerApp({
     setIssue(null);
     setCurrentSource(null);
     setSourceLabel('');
+    setSourceUrl(null);
     setVolume(null);
     setCaseWorkspace(null);
     setPrepared3D(null);
@@ -148,7 +160,11 @@ export function useViewerApp({
   }, []);
 
   const loadSource = useCallback(
-    async (source: ScanFolderSource, options?: ImportParseOptions) => {
+    async (
+      source: ScanFolderSource,
+      options?: ImportParseOptions,
+      shareUrl?: string,
+    ) => {
       resetViewer();
       setCurrentSource(source);
       setSourceLabel(source.label);
@@ -167,6 +183,7 @@ export function useViewerApp({
         activeSession.current = loaded.volume.chunked ?? null;
         setIssue(null);
         setVolume(loaded.volume);
+        setSourceUrl(shareUrl ?? null);
         setPrepared3D(loaded.prepared3D);
         setProgress({
           stage: ImportStage.Ready,
@@ -332,7 +349,7 @@ export function useViewerApp({
         await openNifti(remote.file);
         return;
       }
-      await loadSource(remote.source);
+      await loadSource(remote.source, undefined, url.trim());
     } catch (error) {
       if (remoteGeneration !== generation.current) return;
       setIssue(makeImportIssue(error));
@@ -368,6 +385,19 @@ export function useViewerApp({
       preferredSeriesId: seriesId,
     });
   };
+
+  // A share link (#url=… or ?url=…) opens its scan as soon as the app starts.
+  const openRemoteRef = useRef(openRemote);
+  useEffect(() => {
+    openRemoteRef.current = openRemote;
+  });
+  const shareLinkOpened = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || shareLinkOpened.current) return;
+    shareLinkOpened.current = true;
+    const link = readShareLink(window.location);
+    if (link) void openRemoteRef.current(link.url);
+  }, []);
 
   return {
     caseWorkspace,
@@ -409,6 +439,8 @@ export function useViewerApp({
     handleWindowLevelDrag: viewer.handleWindowLevelDrag,
     openDirectory,
     openRemote,
+    sourceUrl,
+    sharedTooth,
     openSample,
     openNifti,
     openArchive,

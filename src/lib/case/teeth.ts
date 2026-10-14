@@ -111,20 +111,26 @@ export function isolatePreview(
   if (mode === 'all') return preview;
   const voxels = new Uint8Array(preview.voxels.length),
     out = preview.dimensions;
+  // Per-axis index tables: no per-voxel allocation (this ran on 134M voxels).
+  const [mx, my, mz] = [0, 1, 2].map((a) =>
+    Int32Array.from({ length: out[a] }, (_, n) =>
+      out[a] <= 1 ? 0 : Math.round((n / (out[a] - 1)) * (dims[a] - 1)),
+    ),
+  );
   for (let z = 0; z < out[2]; z++)
-    for (let y = 0; y < out[1]; y++)
+    for (let y = 0; y < out[1]; y++) {
+      const row = (mz[z] * dims[1] + my[y]) * dims[0],
+        outRow = (z * out[1] + y) * out[0];
       for (let x = 0; x < out[0]; x++) {
-        const p = [x, y, z].map((n, a) =>
-            out[a] <= 1 ? 0 : Math.round((n / (out[a] - 1)) * (dims[a] - 1)),
-          ),
-          source = (p[2] * dims[1] + p[1]) * dims[0] + p[0],
-          index = (z * out[1] + y) * out[0] + x;
+        const source = row + mx[x],
+          index = outRow + x;
         const visible =
           mode === 'hide-teeth'
             ? toothLayers.every((layer) => layer[source] === 0)
             : labels[source] === value ||
-              (bone && boneValues.includes(bone[source]));
+              (bone !== undefined && boneValues.includes(bone[source]));
         if (visible) voxels[index] = preview.voxels[index];
       }
+    }
   return { ...preview, voxels };
 }

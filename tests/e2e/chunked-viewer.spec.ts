@@ -122,7 +122,7 @@ test('exports v2 in a worker, pages native slices, adjusts contrast and explicit
       .getAttribute('data-bytes-read'),
   ).toBe(before);
   await app.firstNonEmptyCanvas();
-  await page.getByLabel('Measure', { exact: true }).selectOption('distance');
+  await page.getByRole('button', { name: 'Distance', exact: true }).click();
   const canvas = page.locator('canvas[data-slice-canvas="axial"]');
   const box = await canvas.boundingBox();
   if (!box) throw new Error('No axial canvas');
@@ -134,7 +134,7 @@ test('exports v2 in a worker, pages native slices, adjusts contrast and explicit
   await expect(
     page.locator('svg text').filter({ hasText: '2.48 mm' }),
   ).toBeVisible();
-  await page.getByLabel('Measure', { exact: true }).selectOption('off');
+  await page.getByRole('button', { name: 'Navigate', exact: true }).click();
   await page
     .getByRole('button', { name: 'Load full volume for advanced tools' })
     .click();

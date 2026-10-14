@@ -39,6 +39,7 @@ Everything is reference-only; it is not a diagnostic device.
 | `F` | Maximize the active pane |
 | `S` | Save views as PNG |
 | `?` | Show the shortcut list |
+| `[` / `]` | Previous / next tooth (streamed viewer Teeth panel) |
 
 ## Phone (< 768 px wide)
 
@@ -52,6 +53,27 @@ Everything is reference-only; it is not a diagnostic device.
   sheet, swiping the handle down, or ✕.
 - While a measuring or contrast tool is active a pill shows the tool with an
   **OK** button that returns to navigation. Pinch zooms.
+
+## Teeth panel and isolation
+
+Scan packages open in the streamed viewer, which reads only the slices on
+screen and uses the same toolbar, status bar and phone dock as the full
+viewer. Its **Teeth** panel (side panel on desktop, the Teeth button in the
+phone dock) and **Review teeth** in the full editor share one arch grid:
+
+- tap a tooth in the grid or a slice; Ctrl/⌘-click or "Select several" adds
+  more; group chips pick 13–23, 33–43, an arch or all teeth;
+- **Show → Only selected** limits slices to those teeth and builds a
+  full-resolution 3D crop of them; **Show surrounding bone** keeps the bone
+  around them; **Hide teeth** shows bone only;
+- warnings flag mirrored left/right numbering and outlines that overlap (one
+  tooth split in two);
+- **Export model (STL)** writes per-tooth and combined STL files, either whole
+  teeth or crowns above an estimated gumline, with a README of caveats.
+
+Share links (`#url=<https .cbct.zip URL>&tooth=33`) open a hosted package
+directly. See [interface-review.md](./interface-review.md) for hosts that work,
+retainer caveats and the remaining roadmap.
 
 ## Contrast presets
 

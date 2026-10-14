@@ -11,9 +11,12 @@ for (const mobile of [false,true]) {
       await page.goto('/');
       await page.getByTestId('zip-input').setInputFiles(join(root!,'cases','onevolume-yolo.cbct.zip'));
       await expect(page.getByTestId('streaming-status')).toHaveText('Full-resolution slices',{timeout:45000});
-      await expect(page.getByLabel('Selected tooth instance').locator('option')).toHaveCount(8);
-      await page.getByLabel('Structure visibility').selectOption('selected');
-      await page.getByRole('button',{name:'Review and export case'}).click();
+      if(mobile) await page.getByRole('button',{name:'Teeth',exact:true}).click();
+      const teeth=page.getByRole('group',{name:'Teeth'}).getByRole('button');
+      await expect(teeth).toHaveCount(7);
+      await teeth.first().click();
+      await page.getByRole('button',{name:'Only selected'}).click();
+      await page.getByRole('button',{name:'Review and edit teeth'}).click();
       await expect(page.getByTestId('progressive-viewer')).toHaveCount(0,{timeout:60000});
       await page.getByRole('button',{name:'Review teeth',exact:true}).click();
       const panel=page.getByRole('region',{name:'Tooth review'});
@@ -31,7 +34,7 @@ for (const mobile of [false,true]) {
       test.setTimeout(120000);await page.goto('/');
       await page.getByTestId('zip-input').setInputFiles(join(root!,'cases','sidexis-dental.cbct.zip'));
       await expect(page.getByTestId('streaming-status')).toHaveText('Full-resolution slices',{timeout:60000});
-      await page.getByLabel('Contrast preset').selectOption('bone');
+      await page.keyboard.press('3');
       await expect(page.getByTestId('streaming-status')).toHaveText('Full-resolution slices');
     });
   });

@@ -6,7 +6,7 @@ import {
   Smile,
   X,
 } from 'lucide-react';
-import { type PointerEvent, type ReactNode, useRef, useState } from 'react';
+import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../i18n';
 import { PLANE_COLORS } from '../../constants';
 import { VolumeAxis } from '../../types';
@@ -77,6 +77,7 @@ export function MobileDock({
   measureActive,
   contrastActive,
   chartCount,
+  chartLabel,
   onNavigate,
   onSheetChange,
 }: {
@@ -85,6 +86,8 @@ export function MobileDock({
   measureActive: boolean;
   contrastActive: boolean;
   chartCount: number;
+  /** Label for the chart slot (the streaming viewer shows "Teeth"). */
+  chartLabel?: string;
   onNavigate: () => void;
   onSheetChange: (sheet: MobileSheet | null) => void;
 }) {
@@ -144,7 +147,7 @@ export function MobileDock({
       )}
       {item(
         'chart',
-        t('dental.chart.tab'),
+        chartLabel ?? t('dental.chart.tab'),
         <Smile className="h-5 w-5" aria-hidden="true" />,
         activeSheet === 'chart',
         () => toggle('chart'),
@@ -178,6 +181,17 @@ export function BottomSheet({
   const { t } = useTranslation();
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartRef = useRef<number | null>(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Drag the grab handle / header down to dismiss, like a native sheet.
   const onDragStart = (event: PointerEvent<HTMLDivElement>) => {
@@ -200,6 +214,7 @@ export function BottomSheet({
     // Covers the bottom dock: the sheet sits above the whole viewer.
     <section
       role="dialog"
+      aria-modal="true"
       aria-label={title}
       className={cn(
         'absolute inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl border-t border-slate-700 bg-slate-900/97 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_32px_rgba(0,0,0,0.45)] backdrop-blur',

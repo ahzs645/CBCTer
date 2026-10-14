@@ -50,6 +50,17 @@ async function openCase(page: Page) {
     'Full-resolution slices',
   );
 }
+/** The streaming viewer's Teeth panel: side panel on desktop, a sheet on phones. */
+async function openTeeth(page: Page, mobile: boolean) {
+  if (mobile)
+    // The dock button carries a count badge ("Teeth 1").
+    await page.getByRole('button', { name: /^Teeth\b/ }).click();
+}
+async function reviewAndEdit(page: Page, mobile: boolean) {
+  await openTeeth(page, mobile);
+  await page.getByRole('button', { name: 'Review and edit teeth' }).click();
+  await expect(page.getByTestId('progressive-viewer')).toHaveCount(0);
+}
 async function exportCase(page: Page, path: string, mobile: boolean) {
   if (mobile) {
     await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -108,10 +119,10 @@ test('an embedding app hands off a complete case and preserves its analysis', as
   await expect(viewer.getByTestId('streaming-status')).toHaveText(
     'Full-resolution slices',
   );
-  await expect(viewer.getByLabel('Selected tooth instance')).toContainText(
-    'FDI 11',
-  );
-  await viewer.getByRole('button', { name: 'Review and export case' }).click();
+  await expect(
+    viewer.getByRole('button', { name: /^Tooth 11 .*unreviewed/ }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await viewer.getByRole('button', { name: 'Review and edit teeth' }).click();
   await viewer
     .getByRole('button', { name: 'Review teeth', exact: true })
     .click();
@@ -135,9 +146,10 @@ for (const mobile of [false, true]) {
     test('imports another model without replacing accepted outlines and rejects repeat imports', async ({page}) => {
       test.setTimeout(60000);
       await openCase(page);
-      await page.getByRole('button',{name:'Review and export case'}).click();
+      await reviewAndEdit(page, mobile);
       await page.getByRole('button',{name:'Review teeth',exact:true}).click();
       const panel=page.getByRole('region',{name:'Tooth review'});
+      await panel.getByText('Add or propose outlines',{exact:true}).click();
       await panel.getByText('Propose outlines with a model',{exact:true}).click();
       await expect(panel.getByRole('link',{name:'Open cloud model runner'})).toHaveAttribute('href',/colab\.research\.google\.com\/github\/ahzs645\/CBCTer/);
       await panel.getByText('Propose outlines with a model',{exact:true}).click();
@@ -160,17 +172,14 @@ for (const mobile of [false, true]) {
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(e.message));
       await openCase(page);
-      await page.getByLabel('Contrast preset').selectOption('teeth');
+      await page.keyboard.press('4');
       await expect(page.getByTestId('streaming-status')).toHaveText(
         'Full-resolution slices',
       );
-      await page
-        .getByLabel('Selected tooth instance')
-        .selectOption('stable-tooth-11');
-      await page.getByLabel('Structure visibility').selectOption('selected');
-      await page
-        .getByRole('button', { name: 'Review and export case' })
-        .click();
+      await openTeeth(page, mobile);
+      await page.getByRole('button', { name: /^Tooth 11 / }).click();
+      await page.getByRole('button', { name: 'Only selected' }).click();
+      await page.getByRole('button', { name: 'Review and edit teeth' }).click();
       await expect(page.getByTestId('progressive-viewer')).toHaveCount(0);
       await page
         .getByRole('button', { name: 'Review teeth', exact: true })
@@ -184,8 +193,9 @@ for (const mobile of [false, true]) {
       await expect(panel.getByLabel('Selected tooth instance')).toContainText(
         'FDI 12 · accepted',
       );
-      await panel.getByLabel('Structure visibility').selectOption('selected');
+      await panel.getByRole('button', { name: 'Only selected' }).click();
       await panel.getByLabel('Show surrounding bone').check();
+      await panel.getByText('Fix the outline', { exact: true }).click();
       await panel
         .getByRole('button', { name: 'Erase outline', exact: true })
         .click();
@@ -210,6 +220,7 @@ for (const mobile of [false, true]) {
       await expect(panel.getByLabel('Selected tooth instance')).toContainText(
         'corrected',
       );
+      await panel.getByText('Fix the outline', { exact: true }).click();
       await panel.getByRole('button', { name: 'Split at crosshair' }).click();
       await expect(
         panel.getByLabel('Selected tooth instance').locator('option'),
@@ -290,12 +301,11 @@ for (const mobile of [false, true]) {
       );
       await page.goto('/');
       await page.getByTestId('zip-input').setInputFiles(exported);
-      await expect(page.getByLabel('Selected tooth instance')).toContainText(
-        'FDI 12 · accepted',
-      );
-      await page
-        .getByRole('button', { name: 'Review and export case' })
-        .click();
+      await openTeeth(page, mobile);
+      await expect(
+        page.getByRole('button', { name: /^Tooth 12 .*accepted/ }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: 'Review and edit teeth' }).click();
       if (mobile) {
         await page.getByRole('button', { name: 'More', exact: true }).click();
       }
@@ -325,13 +335,12 @@ for (const mobile of [false, true]) {
       test.setTimeout(60000);
       page.setDefaultTimeout(15000);
       await openCase(page);
-      await page
-        .getByRole('button', { name: 'Review and export case' })
-        .click();
+      await reviewAndEdit(page, mobile);
       await page
         .getByRole('button', { name: 'Review teeth', exact: true })
         .click();
       const panel = page.getByRole('region', { name: 'Tooth review' });
+      await panel.getByText('Add or propose outlines', { exact: true }).click();
       await panel
         .getByText('Separate individual teeth', { exact: true })
         .click();
@@ -437,6 +446,7 @@ for (const mobile of [false, true]) {
           panel.getByLabel('Selected tooth instance').locator('option').count(),
         )
         .toBe(saved.toothCount + 1);
+      await panel.getByText('Add or propose outlines', { exact: true }).click();
       await panel
         .getByText('Propose outlines with a model', { exact: true })
         .click();

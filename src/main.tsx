@@ -24,6 +24,19 @@ if (originalMeasure) {
   });
 }
 
+// A lazy chunk from an older deploy is gone: reload once for the new one.
+// Same guard key as src/app/ErrorBoundary.tsx; a second failure is shown.
+window.addEventListener("vite:preloadError", (event) => {
+  try {
+    if (sessionStorage.getItem("cbcter:chunk-reload")) return;
+    sessionStorage.setItem("cbcter:chunk-reload", String(Date.now()));
+  } catch {
+    return;
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 const [{ default: React }, ReactDOM, { default: App }] = await Promise.all([
   import("react"),
   import("react-dom/client"),

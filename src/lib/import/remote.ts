@@ -6,6 +6,7 @@ import {
 } from './dataSource';
 import { getExtension, inferMimeType, normalizeArchivePath } from './fileTypes';
 import { fetchRemoteRange } from './remoteRange';
+import { blockedHostMessage } from '../../app/shareLink';
 
 export interface RemoteManifestEntry {
   url: string;
@@ -107,8 +108,11 @@ async function fetchRemoteFile(
 const MAX_MANIFEST_PROBE_BYTES = 4 * 1024 * 1024;
 
 export async function loadRemoteImport(
-  url: string,
+  rawUrl: string,
 ): Promise<LoadedRemoteImport> {
+  const url = rawUrl.trim();
+  const blocked = blockedHostMessage(url);
+  if (blocked) throw new Error(blocked);
   const remoteName = filenameFromUrl(url);
   if (/\.cbct\.zip$/i.test(remoteName)) {
     return {
