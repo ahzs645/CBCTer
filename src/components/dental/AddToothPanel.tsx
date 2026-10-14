@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Hint } from './PanelSection';
 import { useTranslation } from '../../i18n';
 import { cn } from '../../utils/cn';
 import { Button } from '../Button';
@@ -48,9 +49,9 @@ export function AddToothPanel({
   const chosen = fdiChoices.includes(fdi) ? fdi : (fdiChoices[0] ?? 11);
   return (
     <div className="space-y-2 text-xs text-slate-300">
-      <p className="text-[11px] leading-snug text-slate-400">
-        {t('dental.addTooth.intro')}
-      </p>
+      <Hint more={t('dental.addTooth.introMore')}>
+        {t('dental.addTooth.introShort')}
+      </Hint>
       {picking !== null ? (
         <div
           role="status"

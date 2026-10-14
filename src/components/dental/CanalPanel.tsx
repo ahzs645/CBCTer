@@ -1,4 +1,5 @@
 import { useTranslation } from '../../i18n';
+import { Hint } from './PanelSection';
 import { cn } from '../../utils/cn';
 import { Button } from '../Button';
 import { FOCUS_RING } from '../Button.constants';
@@ -114,9 +115,7 @@ export function CanalPanel({
           </tbody>
         </table>
       ) : null}
-      <p className="text-[10px] leading-snug text-slate-400">
-        {t('dental.canal.hint')}
-      </p>
+      <Hint more={t('dental.canal.hint')}>{t('dental.canal.hintShort')}</Hint>
     </div>
   );
 }

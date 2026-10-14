@@ -26,7 +26,6 @@ export function FolderPicker({
         <p className="text-sm text-slate-400">
           {t('folderPicker.description')}
         </p>
-        <p className="text-sm text-slate-500">{t('folderPicker.detail')}</p>
         {detail ? <p className="text-xs text-slate-500">{detail}</p> : null}
         {!directorySupported ? (
           <p className="text-xs text-amber-300">

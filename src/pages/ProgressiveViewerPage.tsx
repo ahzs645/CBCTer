@@ -23,6 +23,7 @@ import { useAxisViewportLabels, appViewerTheme } from '../app/viewer-i18n';
 import { ErrorBoundary } from '../app/ErrorBoundary';
 import { buildShareLink } from '../app/shareLink';
 import { formatSpacing } from '../app/helpers';
+import { Button } from '../components/Button';
 import { RangeField } from '../components/RangeField';
 import { DentalToolbar } from '../components/dental/DentalToolbar';
 import {
@@ -68,6 +69,7 @@ import {
 } from '../lib/case/caseEdits';
 import { decodeMask, encodeMask } from '../lib/dental/growTooth';
 import { AddToothPanel } from '../components/dental/AddToothPanel';
+import { Hint, PanelSection } from '../components/dental/PanelSection';
 import { ScanComparePanel } from '../components/dental/ScanComparePanel';
 import { compareInWorker } from '../lib/dental/compareClient';
 import type { ScanComparison, ToothCloud } from '../lib/dental/compareScans';
@@ -1491,6 +1493,13 @@ export default function ProgressiveViewerPage({
         setSelectedIds((current) => current.filter((item) => item !== id));
       }}
     />,
+    {
+      id: 'add-tooth',
+      open: !teeth.length,
+      summary: addedTeeth.length
+        ? t('dental.teethPanel.summaryAdded', { count: addedTeeth.length })
+        : undefined,
+    },
   );
 
   // Before/after comparison with another scan of the same person --------------
@@ -1608,6 +1617,10 @@ export default function ProgressiveViewerPage({
           }
         />
       </>,
+      {
+        id: 'compare',
+        summary: comparison ? t('dental.teethPanel.summaryCompared') : undefined,
+      },
     );
 
   // Case report (with a QR code for the share link) ----------------------------
@@ -1889,13 +1902,128 @@ export default function ProgressiveViewerPage({
     />
   );
 
-  const section = (title: string, children: ReactNode) => (
-    <section className="space-y-2 border-b border-slate-800 px-3 py-2.5">
-      <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-        {title}
-      </h2>
+  // Secondary tools pass `{ id, summary }` and start collapsed, so the
+  // panel opens short; the header then shows the tool's state.
+  const section = (
+    title: string,
+    children: ReactNode,
+    collapse?: { id: string; summary?: ReactNode; open?: boolean },
+  ) => (
+    <PanelSection
+      title={title}
+      id={collapse?.id}
+      collapsible={Boolean(collapse)}
+      defaultOpen={collapse?.open ?? false}
+      summary={collapse?.summary}
+    >
       {children}
-    </section>
+    </PanelSection>
+  );
+
+  // Fixes the numbering needs: one line each, details one tap away.
+  const unmergedSplits = splits.filter(
+    ({ a, b }) =>
+      !mergedPairs.some(
+        ([x, y]) => (x === a.id && y === b.id) || (x === b.id && y === a.id),
+      ),
+  );
+  const teethNotices = (
+    <>
+      {mirrored && !swapSides ? (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded border border-amber-400/40 bg-amber-950/40 px-2 py-1.5"
+        >
+          <Hint
+            className="flex-1 text-xs text-amber-100"
+            more={t('dental.teethPanel.mirrored')}
+          >
+            {t('dental.teethPanel.mirroredShort')}
+          </Hint>
+          <Button
+            variant="secondary"
+            size="xs"
+            aria-label={t('dental.review.swap')}
+            onClick={() => setSwapSides(true)}
+          >
+            {t('dental.teethPanel.swapShort')}
+          </Button>
+        </div>
+      ) : swapSides ? (
+        <p className="text-xs text-amber-100">
+          {t('dental.teethPanel.swapped')}{' '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => setSwapSides(false)}
+          >
+            {t('dental.teethPanel.undo')}
+          </button>
+        </p>
+      ) : null}
+      {splits.length ? (
+        <div className="space-y-1 rounded border border-amber-400/40 bg-amber-950/30 px-2 py-1.5 text-xs text-amber-100">
+          <div className="flex items-start gap-2">
+            <Hint
+              className="flex-1 text-xs text-amber-100"
+              more={t('dental.teethPanel.splitsDetail')}
+            >
+              {t('dental.teethPanel.splitsShort', { count: splits.length })}
+            </Hint>
+            {unmergedSplits.length > 1 ? (
+              <Button
+                variant="secondary"
+                size="xs"
+                aria-label={t('dental.teethPanel.treatAll')}
+                onClick={() =>
+                  setMergedPairs(splits.map(({ a, b }) => [a.id, b.id]))
+                }
+              >
+                {t('dental.teethPanel.treatAll')}
+              </Button>
+            ) : null}
+          </div>
+          <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+            {splits.map(({ a, b }) => {
+              const merged = !unmergedSplits.some(
+                (pair) => pair.a === a && pair.b === b,
+              );
+              return (
+                <li key={`${a.id}-${b.id}`} className="flex items-center gap-1">
+                  <span>
+                    {t('dental.teethPanel.splitPairShort', {
+                      a: shownFdi(a) ?? '?',
+                      b: shownFdi(b) ?? '?',
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() =>
+                      setMergedPairs((current) =>
+                        merged
+                          ? current.filter(
+                              ([x, y]) =>
+                                !(
+                                  (x === a.id && y === b.id) ||
+                                  (x === b.id && y === a.id)
+                                ),
+                            )
+                          : [...current, [a.id, b.id]],
+                      )
+                    }
+                  >
+                    {merged
+                      ? t('dental.teethPanel.keepApart')
+                      : t('dental.teethPanel.treatAsOne')}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 
   const teethPanel = teeth.length ? (
@@ -1905,100 +2033,6 @@ export default function ProgressiveViewerPage({
           count: teeth.filter((tooth) => tooth.review !== 'rejected').length,
         }),
         <>
-          {mirrored && !swapSides ? (
-            <div
-              role="alert"
-              className="rounded border border-amber-400/40 bg-amber-950/40 p-2 text-xs text-amber-100"
-            >
-              {t('dental.teethPanel.mirrored')}
-              <button
-                type="button"
-                className="mt-1 block min-h-9 rounded border border-amber-400/50 px-2"
-                onClick={() => setSwapSides(true)}
-              >
-                {t('dental.review.swap')}
-              </button>
-            </div>
-          ) : swapSides ? (
-            <p className="text-xs text-amber-100">
-              {t('dental.teethPanel.swapped')}{' '}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => setSwapSides(false)}
-              >
-                {t('dental.teethPanel.undo')}
-              </button>
-            </p>
-          ) : null}
-          {splits.length ? (
-            <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
-              <p>{t('dental.teethPanel.splits', { count: splits.length })}</p>
-              <ul className="mt-1 space-y-0.5">
-                {splits.map(({ a, b, sharedMm2 }) => {
-                  const merged = mergedPairs.some(
-                    ([x, y]) =>
-                      (x === a.id && y === b.id) || (x === b.id && y === a.id),
-                  );
-                  return (
-                    <li
-                      key={`${a.id}-${b.id}`}
-                      className="flex items-center gap-2"
-                    >
-                      <span className="flex-1">
-                        {t('dental.teethPanel.splitPair', {
-                          a: localToothLabel(t, { ...a, fdi: shownFdi(a) }),
-                          b: localToothLabel(t, { ...b, fdi: shownFdi(b) }),
-                          area: Math.round(sharedMm2),
-                        })}
-                      </span>
-                      <button
-                        type="button"
-                        className="underline"
-                        onClick={() =>
-                          setMergedPairs((current) =>
-                            merged
-                              ? current.filter(
-                                  ([x, y]) =>
-                                    !(
-                                      (x === a.id && y === b.id) ||
-                                      (x === b.id && y === a.id)
-                                    ),
-                                )
-                              : [...current, [a.id, b.id]],
-                          )
-                        }
-                      >
-                        {merged
-                          ? t('dental.teethPanel.keepApart')
-                          : t('dental.teethPanel.treatAsOne')}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              {splits.some(
-                ({ a, b }) =>
-                  !mergedPairs.some(
-                    ([x, y]) =>
-                      (x === a.id && y === b.id) || (x === b.id && y === a.id),
-                  ),
-              ) ? (
-                <button
-                  type="button"
-                  className="mt-1 underline"
-                  onClick={() =>
-                    setMergedPairs(splits.map(({ a, b }) => [a.id, b.id]))
-                  }
-                >
-                  {t('dental.teethPanel.treatAll')}
-                </button>
-              ) : null}
-              <p className="mt-1 text-amber-100/80">
-                {t('dental.teethPanel.splitsSaved')}
-              </p>
-            </div>
-          ) : null}
           <ToothArchGrid
             teeth={teeth}
             selectedIds={selectedIds}
@@ -2038,6 +2072,7 @@ export default function ProgressiveViewerPage({
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
+          {teethNotices}
           {focus ? (
             <button
               type="button"
@@ -2048,7 +2083,10 @@ export default function ProgressiveViewerPage({
               {t('dental.teethPanel.focusOn', { name: nameOf(focus) })}
             </button>
           ) : null}
-          <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
+          <label
+            className="flex min-h-8 items-center gap-2 text-xs text-slate-300"
+            title={t('dental.review.multiTitle')}
+          >
             <input
               type="checkbox"
               className="h-4 w-4 accent-sky-400"
@@ -2078,8 +2116,6 @@ export default function ProgressiveViewerPage({
           </button>
         </>,
       )}
-      {addToothSection()}
-      {compareSection()}
       {section(
         t('dental.review.show'),
         <>
@@ -2097,9 +2133,9 @@ export default function ProgressiveViewerPage({
             />
             {t('dental.review.showBone')}
           </label>
-          <p className="text-[11px] text-slate-400">
-            {t('dental.teethPanel.showHint')}
-          </p>
+          <Hint more={t('dental.teethPanel.showHint')}>
+            {t('dental.teethPanel.showHintShort')}
+          </Hint>
         </>,
       )}
       {section(
@@ -2110,72 +2146,6 @@ export default function ProgressiveViewerPage({
           status={exportStatus}
           onExport={(request) => void exportTeeth(request)}
         />,
-      )}
-      {section(
-        t('dental.teethPanel.iosTitle'),
-        <div className="space-y-1.5 text-xs text-slate-300">
-          <label className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 hover:bg-slate-700">
-            {iosBusy
-              ? t('dental.teethPanel.iosBusy')
-              : selectedTeeth.length
-                ? t('dental.teethPanel.iosImportSelected', {
-                    count: selectedTeeth.length,
-                  })
-                : t('dental.teethPanel.iosImportAll')}
-            <input
-              type="file"
-              aria-label={t('dental.teethPanel.iosInput')}
-              accept=".stl,.ply,.obj"
-              className="sr-only"
-              disabled={iosBusy}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void importIntraoral(file);
-                e.target.value = '';
-              }}
-            />
-          </label>
-          {iosStatus ? <p role="status">{iosStatus}</p> : null}
-          {iosFit ? (
-            <div className="space-y-1 rounded border border-cyan-500/40 bg-cyan-950/30 p-2 text-cyan-50">
-              <p>
-                {t('dental.teethPanel.iosFit', {
-                  name: iosName,
-                  rms: iosFit.rms.toFixed(2),
-                  inliers: Math.round(iosFit.inlierRatio * 100),
-                  mean: iosFit.deviation.mean.toFixed(2),
-                  p95: iosFit.deviation.p95.toFixed(2),
-                })}
-              </p>
-              {iosFit.rms > 0.3 || iosFit.inlierRatio < 0.3 ? (
-                <p className="text-amber-200">
-                  {t('dental.teethPanel.iosPoor')}
-                </p>
-              ) : null}
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-cyan-400"
-                  checked={iosShow}
-                  onChange={(e) => setIosShow(e.target.checked)}
-                />
-                {t('dental.teethPanel.iosShow')}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-cyan-400"
-                  checked={iosUse}
-                  onChange={(e) => setIosUse(e.target.checked)}
-                />
-                {t('dental.teethPanel.iosUse')}
-              </label>
-            </div>
-          ) : null}
-          <p className="text-[10px] leading-snug text-slate-400">
-            {t('dental.teethPanel.iosHint')}
-          </p>
-        </div>,
       )}
       {section(
         t('dental.teethPanel.checkTitle'),
@@ -2239,16 +2209,26 @@ export default function ProgressiveViewerPage({
               </p>
             )
           ) : null}
-          <p className="text-[10px] leading-snug text-slate-400">
-            {t('dental.teethPanel.checkHint')}
-          </p>
+          <Hint more={t('dental.teethPanel.checkHint')}>
+            {t('dental.teethPanel.checkHintShort')}
+          </Hint>
         </div>,
+        {
+          id: 'check-teeth',
+          open: true,
+          summary:
+            darkCheck && darkCheck.done === darkCheck.total
+              ? darkCheck.results.length
+                ? t('dental.teethPanel.summaryFlagged', {
+                    count: darkCheck.results.length,
+                  })
+                : t('dental.teethPanel.summaryClear')
+              : undefined,
+        },
       )}
-      <details className="border-b border-slate-800 px-3 py-2">
-        <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-          {t('dental.teethPanel.layers')}
-        </summary>
-        <div className="pt-2">
+      {section(
+        t('dental.teethPanel.layers'),
+        <>
           <LayerList
             rows={teeth.map((tooth) => ({
               tooth,
@@ -2280,8 +2260,9 @@ export default function ProgressiveViewerPage({
             }
             onOpacity={setOutlineOpacity}
           />
-        </div>
-      </details>
+        </>,
+        { id: 'layers' },
+      )}
       {section(
         t('dental.teethPanel.canalTitle'),
         <CanalPanel
@@ -2307,7 +2288,88 @@ export default function ProgressiveViewerPage({
             );
           }}
         />,
+        {
+          id: 'canal',
+          summary:
+            canals.right || canals.left
+              ? t('dental.teethPanel.summaryTraced', {
+                  count: Number(Boolean(canals.right)) + Number(Boolean(canals.left)),
+                })
+              : undefined,
+        },
       )}
+      {section(
+        t('dental.teethPanel.iosTitle'),
+        <div className="space-y-1.5 text-xs text-slate-300">
+          <label className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full cursor-pointer items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 hover:bg-slate-700">
+            {iosBusy
+              ? t('dental.teethPanel.iosBusy')
+              : selectedTeeth.length
+                ? t('dental.teethPanel.iosImportSelected', {
+                    count: selectedTeeth.length,
+                  })
+                : t('dental.teethPanel.iosImportAll')}
+            <input
+              type="file"
+              aria-label={t('dental.teethPanel.iosInput')}
+              accept=".stl,.ply,.obj"
+              className="sr-only"
+              disabled={iosBusy}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importIntraoral(file);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {iosStatus ? <p role="status">{iosStatus}</p> : null}
+          {iosFit ? (
+            <div className="space-y-1 rounded border border-cyan-500/40 bg-cyan-950/30 p-2 text-cyan-50">
+              <p>
+                {t('dental.teethPanel.iosFit', {
+                  name: iosName,
+                  rms: iosFit.rms.toFixed(2),
+                  inliers: Math.round(iosFit.inlierRatio * 100),
+                  mean: iosFit.deviation.mean.toFixed(2),
+                  p95: iosFit.deviation.p95.toFixed(2),
+                })}
+              </p>
+              {iosFit.rms > 0.3 || iosFit.inlierRatio < 0.3 ? (
+                <p className="text-amber-200">
+                  {t('dental.teethPanel.iosPoor')}
+                </p>
+              ) : null}
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-cyan-400"
+                  checked={iosShow}
+                  onChange={(e) => setIosShow(e.target.checked)}
+                />
+                {t('dental.teethPanel.iosShow')}
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-cyan-400"
+                  checked={iosUse}
+                  onChange={(e) => setIosUse(e.target.checked)}
+                />
+                {t('dental.teethPanel.iosUse')}
+              </label>
+            </div>
+          ) : null}
+          <Hint more={t('dental.teethPanel.iosHint')}>
+            {t('dental.teethPanel.iosHintShort')}
+          </Hint>
+        </div>,
+        {
+          id: 'intraoral',
+          summary: iosFit ? t('dental.teethPanel.summaryAligned') : undefined,
+        },
+      )}
+      {compareSection()}
+      {addToothSection()}
     </>
   ) : (
     <>
@@ -2374,16 +2436,20 @@ export default function ProgressiveViewerPage({
             {copied}
           </p>
         ) : null}
-        <p className="text-[11px] text-slate-400">
-          {focus
-            ? t('dental.teethPanel.shareHintTooth', { name: nameOf(focus) })
-            : t('dental.teethPanel.shareHint')}
-        </p>
+        <Hint
+          more={
+            focus
+              ? t('dental.teethPanel.shareHintTooth', { name: nameOf(focus) })
+              : t('dental.teethPanel.shareHint')
+          }
+        >
+          {t('dental.teethPanel.shareShort')}
+        </Hint>
       </>
     ) : (
-      <p className="text-xs text-slate-400">
-        {t('dental.teethPanel.shareLocal')}
-      </p>
+      <Hint className="text-xs" more={t('dental.teethPanel.shareLocalMore')}>
+        {t('dental.teethPanel.shareLocalShort')}
+      </Hint>
     ),
   );
 
@@ -2409,9 +2475,7 @@ export default function ProgressiveViewerPage({
         })}
       </p>
       {fullEditorButton}
-      <p className="text-[11px] text-slate-400">
-        {t('streaming.advancedHint')}
-      </p>
+      <Hint more={t('streaming.advancedHint')} />
       <button
         type="button"
         disabled={fullLoading}

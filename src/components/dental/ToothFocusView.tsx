@@ -1,4 +1,5 @@
 import { Crosshair, X } from 'lucide-react';
+import { Hint } from './PanelSection';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { compute } from '../../lib/dental/computeClient';
 import { useTranslation } from '../../i18n';
@@ -454,9 +455,9 @@ export function ToothFocusView(props: ToothFocusProps) {
                         {tr('dental.focus.noAreas')}
                       </p>
                     )}
-                    <p className="mt-1 text-[10px] leading-snug text-slate-400">
-                      {tr('dental.focus.disclaimer')}
-                    </p>
+                    <Hint className="mt-1" more={tr('dental.focus.disclaimer')}>
+                      {tr('dental.focus.disclaimerShort')}
+                    </Hint>
                   </>
                 )}
               </section>

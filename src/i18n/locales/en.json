@@ -16,7 +16,7 @@
   "importPage": {
     "eyebrow": "Local-first CBCT workspace",
     "title": "CBCTer",
-    "description": "Inspect CBCT (Cone Beam Computed Tomography) scans directly in the browser from local study folders. CBCTer parses supported exports locally, opens them as linked 2D slice views with a 3D volume overview, and separates individual teeth for export.",
+    "description": "View CBCT scans in your browser, isolate teeth and export them. Scans are read on this device, not uploaded.",
     "github": "Star on GitHub",
     "logoAlt": "CBCTer logo",
     "busyTitle": "Building viewer",
@@ -651,7 +651,8 @@
       },
       "showIt": "Show it",
       "noAreas": "No compact dark areas found.",
-      "disclaimer": "Automatic and unvalidated. Dark areas can be decay, resorption, a low-density filling or an artifact; only a dentist with an X-ray can tell."
+      "disclaimer": "Automatic and unvalidated. Dark areas can be decay, resorption, a low-density filling or an artifact; only a dentist with an X-ray can tell.",
+      "disclaimerShort": "Automatic; not a diagnosis."
     },
     "layers": {
       "opacity": "Outline opacity",
@@ -683,7 +684,8 @@
       "traced": "{{length}} mm traced",
       "remove": "remove",
       "closest": "Closest teeth to the canal (surface to canal wall)",
-      "hint": "The canal is a thin dark tube with a bright rim low in the back of the lower jaw; it is easiest to see on coronal slices. Tracing is approximate and assumes a 2.5 mm canal. Check it slice by slice; it is not suitable for implant or surgical planning."
+      "hint": "The canal is a thin dark tube with a bright rim low in the back of the lower jaw; it is easiest to see on coronal slices. Tracing is approximate and assumes a 2.5 mm canal. Check it slice by slice; it is not suitable for implant or surgical planning.",
+      "hintShort": "Easiest to see on coronal slices. Approximate."
     },
     "toothNames": {
       "format": "{{quadrant}} {{position}}",
@@ -723,7 +725,9 @@
       "discard": "Discard",
       "added": "Added by hand",
       "remove": "Remove {{name}}",
-      "saved": "Saved on this device."
+      "saved": "Saved on this device.",
+      "introShort": "Pick its number, then click its crown on a slice.",
+      "introMore": "The outline grows from your click and stops at bone and other teeth. It is an estimate: check it on a few slices, and use Looser or Tighter if it is off."
     },
     "reviewState": {
       "unreviewed": "unreviewed",
@@ -765,7 +769,8 @@
       "export_other": "Export {{count}} teeth as STL",
       "disclaimer": "CBCT shows gums poorly, so the gumline is estimated from the bone. CBCT crowns are less exact than an intraoral scan, and teeth can move after the scan. Use the model as a reference for your orthodontist or lab, not as a direct replacement for a new scan.",
       "patientRight": "Patient right",
-      "patientLeft": "Patient left"
+      "patientLeft": "Patient left",
+      "disclaimerShort": "Gumline is estimated. Check fit with your orthodontist."
     },
     "review": {
       "region": "Tooth review",
@@ -787,7 +792,7 @@
       "fdi": "FDI {{fdi}}",
       "unassignedN": "Unassigned {{n}}",
       "option": "{{name}} · {{review}} · {{voxels}} voxels",
-      "multi": "Select several (or Ctrl/⌘-click)",
+      "multi": "Select several",
       "focus": "Focus on this tooth",
       "acceptNextTitle": "Accept this outline and go to the next unreviewed tooth",
       "acceptNext": "Accept & next",
@@ -840,7 +845,8 @@
       "coreSize": "Core size (voxels)",
       "separating": "Separating…",
       "proposeSeparate": "Propose separate teeth",
-      "separateHint": "Run anatomy segmentation in Study if no mask is available. Anatomy model weights are required. Separation uses a watershed and may need splits or merges."
+      "separateHint": "Run anatomy segmentation in Study if no mask is available. Anatomy model weights are required. Separation uses a watershed and may need splits or merges.",
+      "multiTitle": "Or Ctrl/⌘-click teeth"
     },
     "compare": {
       "openAnother": "Open another later scan…",
@@ -857,7 +863,8 @@
       "shapeTitle": "Largest surface difference once the tooth is lined up (wear, chips, fillings)",
       "goTo": "Go to tooth {{fdi}}",
       "reference": "Used to line the scans up",
-      "floor": "mm; changes under {{mm}} mm or {{deg}}° are below what the scans can show. · marks the teeth used to line the scans up."
+      "floor": "mm; changes under {{mm}} mm or {{deg}}° are below what the scans can show. · marks the teeth used to line the scans up.",
+      "disclaimerShort": "Tooth positions only; tiny changes can be scan noise."
     },
     "toothExport": {
       "meshing": "Meshing tooth {{done}} of {{total}}…",
@@ -981,7 +988,31 @@
       "nTeeth_other": "{{count}} teeth",
       "ok": "OK",
       "measurementCount_one": "{{count}} measurement on this scan.",
-      "measurementCount_other": "{{count}} measurements on this scan."
+      "measurementCount_other": "{{count}} measurements on this scan.",
+      "mirroredShort": "Left and right numbers look swapped.",
+      "swapShort": "Swap",
+      "splitsShort_one": "One tooth looks cut in two.",
+      "splitsShort_other": "{{count}} teeth look cut in two.",
+      "splitsDetail": "Each pair shares a large surface, while real neighbours only touch at small points. “Treat as one” is saved on this device and in share links.",
+      "splitPairShort": "{{a}} + {{b}}",
+      "iosHintShort": "From your dentist: crowns about five times more exact than CBCT.",
+      "checkHintShort": "Flags possible decay or resorption. Not a diagnosis.",
+      "shareLocalShort": "This scan is only on this device.",
+      "shareLocalMore": "To send it, share the .cbct.zip file itself; the recipient drops it on the CBCTer start page. For a link that opens straight into this view, host the file where other websites may read it (Hugging Face, GitHub raw files under 100 MB, or an S3/R2 bucket with CORS) and open it once from that link. Google Drive and Dropbox links can’t be opened by other sites.",
+      "shareShort": "Anyone with the link can open this scan.",
+      "summaryAdded_one": "{{count}} added",
+      "summaryAdded_other": "{{count}} added",
+      "summaryTraced": "{{count}} of 2 traced",
+      "summaryAligned": "aligned",
+      "summaryCompared": "compared",
+      "summaryFlagged_one": "{{count}} to look at",
+      "summaryFlagged_other": "{{count}} to look at",
+      "summaryClear": "nothing found",
+      "showHintShort": "“Only selected” also builds a sharp 3D view."
+    },
+    "hint": {
+      "more": "More about this",
+      "less": "Show less"
     }
   },
   "streaming": {

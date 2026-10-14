@@ -364,10 +364,11 @@ export default function ImportPage({ app }: ImportPageProps) {
 
           <Notice>{t('common.referenceOnly')}</Notice>
 
-          <section className="rounded border border-slate-800 bg-slate-950/70 p-4">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+          {/* Reference material: closed until someone needs it. */}
+          <details className="rounded border border-slate-800 bg-slate-950/70 p-4">
+            <summary className="cursor-pointer text-[11px] uppercase tracking-[0.18em] text-slate-500">
               {t('importPage.supportedFoldersTitle')}
-            </div>
+            </summary>
             <div className="mt-3 space-y-3 text-sm text-slate-300">
               <div>
                 <div className="font-medium text-slate-100">
@@ -438,7 +439,7 @@ export default function ImportPage({ app }: ImportPageProps) {
                 components={[<code key="code-1" className={codeClass} />]}
               />
             </div>
-          </section>
+          </details>
         </div>
       </div>
     </main>

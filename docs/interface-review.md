@@ -477,6 +477,38 @@ no measurable change, and 13 was listed as present in one scan only.
   state in English because tests match it. Sentences generated inside the
   comparison and the export memory plan are still English.
 
+### Less to read
+
+A word count of what each panel shows when opened on this case found most
+of the text was caveats and how-tos needed once, not while working. On the
+phone, the Teeth sheet opened on two paragraph-long warnings, and the tooth
+grid started below the fold.
+
+Rules applied:
+- **Order:** the main control comes first. The tooth grid and arrow
+  navigation open the Teeth panel; warnings follow it.
+- **Warnings:** one line with the action beside it, for example "Left and
+  right numbers look swapped. [Swap]". The reason sits behind an ⓘ.
+- **Explanations:** at most one short line per tool; the full text is one
+  tap away (`Hint` in `components/dental/PanelSection.tsx`).
+- **Secondary tools start collapsed:** Layers, Nerve canal, Intraoral scan,
+  Compare and Add a missing tooth. Their headers show their state ("2 of 2
+  traced", "aligned", "6 to look at"). The open/closed choice is remembered
+  per section.
+- **Repeats removed:** split teeth listed as overlaps a second time in the
+  full editor, and the folder card's second description line.
+- **Start page:** the list of supported formats is reference material and
+  starts closed. The intro is one sentence.
+
+| Panel | Words shown before | After |
+| --- | --- | --- |
+| Streamed viewer side panel (desktop) | 565 | 182 |
+| Phone: Teeth sheet | 449 | 148 |
+| Phone: More sheet | 102 | 20 |
+
+The caveats still exist: the full text is behind each ⓘ, in the case report
+and in every export's README.
+
 ### Still open
 
 - **One mounted viewer:** the streamed and full viewers are still two

@@ -1,4 +1,5 @@
 import { Check, Download, X } from 'lucide-react';
+import { Hint } from './PanelSection';
 import { useState } from 'react';
 import { useTranslation } from '../../i18n';
 import type { ToothInstance } from '../../lib/case/types';
@@ -388,9 +389,9 @@ export function ToothModelExportForm({
           {status}
         </p>
       ) : null}
-      <p className="text-[11px] leading-snug text-slate-400">
-        {t('dental.picker.disclaimer')}
-      </p>
+      <Hint more={t('dental.picker.disclaimer')}>
+        {t('dental.picker.disclaimerShort')}
+      </Hint>
     </div>
   );
 }

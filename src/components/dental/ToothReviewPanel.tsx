@@ -1,4 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Hint } from './PanelSection';
+import { Button } from '../Button';
 import {
   DENTAL_SEG_VARIANTS,
   type DentalSegVariantId,
@@ -93,6 +95,14 @@ export function ToothReviewPanel(p: Props) {
   const live = teeth.filter((t) => t.review !== 'rejected');
   const reviewed = teeth.filter((t) => t.review !== 'unreviewed').length;
   const ordered = archOrder(live);
+  const visibleOverlaps = p.overlaps.filter(
+    ([a, b]) =>
+      !p.splits?.some(
+        (pair) =>
+          (pair.a.id === a.id && pair.b.id === b.id) ||
+          (pair.a.id === b.id && pair.b.id === a.id),
+      ),
+  );
   const [model, setModel] = useState<DentalSegVariantId>('full');
   const [source, setSource] = useState(
       p.state.activeSegmentGroupId ?? p.state.activeMaskId ?? '',
@@ -164,16 +174,31 @@ export function ToothReviewPanel(p: Props) {
         </p>
       )}
       {p.mirrored ? (
-        <div className="rounded border border-amber-400/40 bg-amber-950/40 p-2 text-xs text-amber-100">
-          {t('dental.review.mirrored')}
-          <button className={`${button} mt-2 block`} onClick={p.onSwapSides}>
-            {t('dental.review.swap')}
-          </button>
+        <div className="flex items-start gap-2 rounded border border-amber-400/40 bg-amber-950/40 px-2 py-1.5">
+          <Hint
+            className="flex-1 text-xs text-amber-100"
+            more={t('dental.review.mirrored')}
+          >
+            {t('dental.teethPanel.mirroredShort')}
+          </Hint>
+          <Button
+            variant="secondary"
+            size="xs"
+            aria-label={t('dental.review.swap')}
+            onClick={p.onSwapSides}
+          >
+            {t('dental.teethPanel.swapShort')}
+          </Button>
         </div>
       ) : null}
       {p.splits?.length ? (
         <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
-          <p>{t('dental.review.splits')}</p>
+          <Hint
+            className="text-xs text-amber-100"
+            more={t('dental.teethPanel.splitsDetail')}
+          >
+            {t('dental.teethPanel.splitsShort', { count: p.splits.length })}
+          </Hint>
           <ul className="mt-1 space-y-0.5">
             {p.splits.map(({ a, b, sharedMm2 }) => (
               <li key={`${a.id}-${b.id}`} className="flex items-center gap-2">
@@ -202,9 +227,10 @@ export function ToothReviewPanel(p: Props) {
           </ul>
         </div>
       ) : null}
-      {p.overlaps.length ? (
+      {/* Overlaps already listed as split teeth above are not repeated. */}
+      {visibleOverlaps.length ? (
         <div className="rounded border border-amber-400/40 bg-amber-950/30 p-2 text-xs text-amber-100">
-          {p.overlaps.map(([a, b]) => (
+          {visibleOverlaps.map(([a, b]) => (
             <p key={`${a.id}-${b.id}`}>
               {t('dental.review.overlap', {
                 a: toothLabel(a),
@@ -261,7 +287,10 @@ export function ToothReviewPanel(p: Props) {
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
-          <label className="flex min-h-8 items-center gap-2 text-xs text-slate-300">
+          <label
+            className="flex min-h-8 items-center gap-2 text-xs text-slate-300"
+            title={t('dental.review.multiTitle')}
+          >
             <input
               type="checkbox"
               className="h-4 w-4 accent-sky-400"

@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { Hint } from './PanelSection';
 import { useTranslation } from '../../i18n';
 import type { ScanComparison } from '../../lib/dental/compareScans';
 import { cn } from '../../utils/cn';
@@ -59,9 +60,9 @@ export function ScanComparePanel({
       {comparison ? (
         <Results comparison={comparison} onGoToTooth={onGoToTooth} />
       ) : null}
-      <p className="text-[10px] leading-snug text-slate-400">
-        {t('dental.compare.disclaimer')}
-      </p>
+      <Hint more={t('dental.compare.disclaimer')}>
+        {t('dental.compare.disclaimerShort')}
+      </Hint>
     </div>
   );
 }
