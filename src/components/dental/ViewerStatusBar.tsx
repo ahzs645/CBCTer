@@ -31,7 +31,9 @@ export function ViewerStatusBar({
     <footer className="flex h-7 shrink-0 items-center gap-4 overflow-hidden border-t border-slate-800 bg-slate-950 px-3 font-mono text-[11px] text-slate-400">
       <span className="shrink-0">
         {t('dental.status.position')}{' '}
-        <span className="text-slate-200">{mm} mm</span>
+        <span className="text-slate-200">
+          {cursor ? t('dental.units.mm', { value: mm }) : mm}
+        </span>
       </span>
       {cursor ? (
         <span className="hidden shrink-0 lg:inline">

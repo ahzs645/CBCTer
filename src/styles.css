@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/*
+ * Button and focus colours (see src/components/Button.tsx). Utilities such as
+ * bg-primary/15, text-primary-fg, border-danger/60 and ring-focus come from
+ * these, so retinting the controls is a one-line change here.
+ */
+@theme {
+  --color-primary: oklch(68.5% 0.169 237.323); /* sky-500 */
+  --color-primary-fg: oklch(97.7% 0.013 236.62); /* sky-50 */
+  --color-focus: oklch(74.6% 0.16 232.661); /* sky-400 */
+  --color-danger: oklch(64.5% 0.246 16.439); /* rose-500 */
+  --color-danger-fg: oklch(89.2% 0.058 10.001); /* rose-200 */
+}
+
 @layer base {
   html,
   body,

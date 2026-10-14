@@ -16,7 +16,7 @@ const cancelled = new Set<number>();
 let queue = Promise.resolve();
 interface Request {
   id: number;
-  type: 'init' | 'region' | 'materialize' | 'cancel';
+  type: 'init' | 'region' | 'materialize' | 'cancel' | 'ping';
   source?: PackageSourceDescriptor;
   cacheBytes?: number;
   start?: Vec3;
@@ -25,6 +25,12 @@ interface Request {
 }
 self.onmessage = (event: MessageEvent<Request>) => {
   const request = event.data;
+  // Heartbeat, answered outside the decode queue: the session restarts a
+  // worker that stops answering.
+  if (request.type === 'ping') {
+    postMessage({ id: request.id, pong: true });
+    return;
+  }
   if (request.type === 'cancel') {
     cancelled.add(request.id);
     return;

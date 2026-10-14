@@ -60,7 +60,7 @@ describe('buildToothModelZip', () => {
       scanName: 'test',
     });
     expect(reports).toHaveLength(2);
-    const files = unzipSync(zip);
+    const files = unzipSync(new Uint8Array(await zip.arrayBuffer()));
     expect(
       Object.keys(files).filter((f) => f.startsWith('teeth/')),
     ).toHaveLength(2);
@@ -79,7 +79,7 @@ describe('buildToothModelZip', () => {
       model: { crownOnly: false, gumOffsetMm: 1 },
       scanName: 'test',
     });
-    const readme = new TextDecoder().decode(unzipSync(zip)['README.txt']);
+    const readme = new TextDecoder().decode(unzipSync(new Uint8Array(await zip.arrayBuffer()))['README.txt']);
     expect(readme).toContain('Bite: no upper and lower teeth');
   });
 });

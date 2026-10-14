@@ -1,5 +1,7 @@
 import { Crosshair, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { compute } from '../../lib/dental/computeClient';
+import { useTranslation } from '../../i18n';
 import type { ToothCropReader } from '../../lib/case/toothExport';
 import {
   crownDirectionFor,
@@ -8,7 +10,6 @@ import {
 } from '../../lib/case/toothSelection';
 import type { ToothInstance } from '../../lib/case/types';
 import {
-  findDarkAreas,
   obliqueToRgba,
   sampleOblique,
   toothAxes,
@@ -18,6 +19,9 @@ import {
 } from '../../lib/dental/toothFocus';
 import type { SliceWindowLevel, Vec3 } from '../../types';
 import { cn } from '../../utils/cn';
+import { Button } from '../Button';
+import { FOCUS_RING } from '../Button.constants';
+import { useFocusTrap } from './useFocusTrap';
 
 const rotate = (a: Vec3, b: Vec3, degrees: number): Vec3 => {
   const r = (degrees * Math.PI) / 180;
@@ -93,6 +97,8 @@ export interface ToothFocusProps {
  */
 export function ToothFocusView(props: ToothFocusProps) {
   const { tooth, dims, spacing, read } = props;
+  const { t: tr } = useTranslation();
+  const dialogRef = useFocusTrap<HTMLDivElement>();
   const [crop, setCrop] = useState<{
     scan: ArrayLike<number>;
     labels: Uint16Array;
@@ -141,25 +147,31 @@ export function ToothFocusView(props: ToothFocusProps) {
 
   useEffect(() => {
     if (!crop || !axes) return;
-    // Let the slices paint first; the check takes a moment on big teeth.
-    const timer = window.setTimeout(() => {
-      try {
-        setAreas(
-          findDarkAreas({
-            scan: crop.scan,
-            labels: crop.labels,
-            shape: crop.shape,
-            spacing,
-            values,
-            axes,
-          }),
-        );
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    }, 30);
-    return () => window.clearTimeout(timer);
-  }, [crop, axes, spacing, values]);
+    // The check runs in a worker; the slices stay interactive meanwhile.
+    let cancelled = false;
+    compute('toothCheck', {
+      scan: crop.scan,
+      labels: crop.labels,
+      shape: crop.shape,
+      spacing,
+      values,
+      crownDirection: crownDirectionFor(
+        tooth,
+        props.allTeeth,
+        props.superiorSign ?? 1,
+      ),
+    }).then(
+      (result) => {
+        if (!cancelled) setAreas(result.areas);
+      },
+      (e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [crop, axes, spacing, values, tooth, props.allTeeth, props.superiorSign]);
 
   const views = useMemo(() => {
     if (!crop || !axes) return null;
@@ -279,10 +291,12 @@ export function ToothFocusView(props: ToothFocusProps) {
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
-      aria-label={`Focus on ${props.name}`}
-      className="fixed inset-0 z-[60] flex items-stretch justify-center bg-slate-950/80 p-0 backdrop-blur-sm md:items-center md:p-6"
+      aria-label={tr('dental.focus.dialogLabel', { name: props.name })}
+      className="fixed inset-0 z-[60] flex items-stretch justify-center bg-slate-950/80 p-0 outline-none backdrop-blur-sm md:items-center md:p-6"
       onKeyDown={(e) => {
         if (e.key === 'Escape') props.onClose();
       }}
@@ -293,18 +307,21 @@ export function ToothFocusView(props: ToothFocusProps) {
             {props.name}
             {axes ? (
               <span className="ml-2 font-normal text-slate-400">
-                {axes.lengthMm.toFixed(1)} mm long
+                {tr('dental.focus.length', {
+                  length: axes.lengthMm.toFixed(1),
+                })}
               </span>
             ) : null}
           </h2>
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="icon"
             onClick={props.onClose}
-            aria-label="Close tooth focus"
-            className="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-slate-800"
+            aria-label={tr('dental.focus.close')}
+            className="h-8 w-8 text-slate-200"
           >
             <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
         </header>
         {error ? (
           <p role="alert" className="px-3 py-2 text-sm text-rose-300">
@@ -316,7 +333,7 @@ export function ToothFocusView(props: ToothFocusProps) {
             role="status"
             className="px-3 py-6 text-center text-sm text-slate-400"
           >
-            Loading {props.name}…
+            {tr('dental.focus.loading', { name: props.name })}
           </p>
         ) : (
           <div className="grid gap-3 p-3 md:grid-cols-[1fr_1fr_1fr_14rem]">
@@ -324,22 +341,22 @@ export function ToothFocusView(props: ToothFocusProps) {
               image={views.a}
               windowLevel={windowLevel}
               marker={views.marker}
-              label="Along the tooth"
+              label={tr('dental.focus.along')}
             />
             <SliceImageCanvas
               image={views.b}
               windowLevel={windowLevel}
               marker={views.marker}
-              label="Turned 90°"
+              label={tr('dental.focus.turned')}
             />
             <SliceImageCanvas
               image={views.cross}
               windowLevel={windowLevel}
-              label="Cross-section"
+              label={tr('dental.focus.cross')}
             />
             <div className="space-y-2">
               {range(
-                'Turn around the tooth',
+                tr('dental.focus.rotate'),
                 rotation,
                 0,
                 179,
@@ -348,16 +365,19 @@ export function ToothFocusView(props: ToothFocusProps) {
                 (v) => `${v}°`,
               )}
               {range(
-                'Slice depth',
+                tr('dental.focus.depth'),
                 depthMm,
                 -4,
                 4,
                 0.1,
                 setDepthMm,
-                (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} mm`,
+                (v) =>
+                  tr('dental.units.mm', {
+                    value: `${v >= 0 ? '+' : ''}${v.toFixed(1)}`,
+                  }),
               )}
               {range(
-                'Cross-section: crown → root',
+                tr('dental.focus.crossPosition'),
                 along,
                 0,
                 1,
@@ -366,7 +386,7 @@ export function ToothFocusView(props: ToothFocusProps) {
                 (v) => `${Math.round(v * 100)}%`,
               )}
               {range(
-                'Contrast window',
+                tr('dental.focus.window'),
                 windowLevel.window,
                 200,
                 6000,
@@ -375,7 +395,7 @@ export function ToothFocusView(props: ToothFocusProps) {
                 (v) => String(v),
               )}
               {range(
-                'Contrast level',
+                tr('dental.focus.level'),
                 windowLevel.level,
                 -500,
                 3000,
@@ -385,11 +405,11 @@ export function ToothFocusView(props: ToothFocusProps) {
               )}
               <section className="rounded border border-slate-800 p-2 text-xs">
                 <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  Dark-area check
+                  {tr('dental.focus.darkTitle')}
                 </h3>
                 {!areas ? (
                   <p role="status" className="text-slate-400">
-                    Checking…
+                    {tr('dental.focus.checking')}
                   </p>
                 ) : (
                   <>
@@ -397,8 +417,8 @@ export function ToothFocusView(props: ToothFocusProps) {
                       className={cn(pulp ? 'text-slate-300' : 'text-amber-100')}
                     >
                       {pulp
-                        ? 'Pulp canal visible.'
-                        : 'No pulp canal visible (it may be narrowed, filled or calcified).'}
+                        ? tr('dental.focus.pulpVisible')
+                        : tr('dental.focus.pulpMissing')}
                     </p>
                     {focal.length ? (
                       focal.map((area, index) => (
@@ -406,34 +426,36 @@ export function ToothFocusView(props: ToothFocusProps) {
                           key={index}
                           className="mt-1 rounded border border-amber-400/40 bg-amber-950/30 p-1.5 text-amber-100"
                         >
-                          Dark area, {area.volumeMm3.toFixed(1)} mm³,{' '}
-                          {area.alongTooth < 0.25
-                            ? 'in the crown'
-                            : area.alongTooth < 0.5
-                              ? 'at the neck of the tooth'
-                              : 'on the root'}
-                          , reaching the surface,{' '}
-                          {Math.round(area.relativeDensity * 100)}% of dentine
-                          density.
+                          {tr('dental.focus.darkArea', {
+                            volume: area.volumeMm3.toFixed(1),
+                            where:
+                              area.alongTooth < 0.25
+                                ? tr('dental.focus.where.crown')
+                                : area.alongTooth < 0.5
+                                  ? tr('dental.focus.where.neck')
+                                  : tr('dental.focus.where.root'),
+                            density: Math.round(area.relativeDensity * 100),
+                          })}
                           <button
                             type="button"
                             onClick={() => showArea(area)}
-                            className="mt-1 flex items-center gap-1 underline"
+                            className={cn(
+                              'mt-1 flex items-center gap-1 rounded underline',
+                              FOCUS_RING,
+                            )}
                           >
                             <Crosshair className="h-3 w-3" aria-hidden="true" />
-                            Show it
+                            {tr('dental.focus.showIt')}
                           </button>
                         </div>
                       ))
                     ) : (
                       <p className="text-slate-400">
-                        No compact dark areas found.
+                        {tr('dental.focus.noAreas')}
                       </p>
                     )}
                     <p className="mt-1 text-[10px] leading-snug text-slate-400">
-                      Automatic and unvalidated. Dark areas can be decay,
-                      resorption, a low-density filling or an artifact; only a
-                      dentist with an X-ray can tell.
+                      {tr('dental.focus.disclaimer')}
                     </p>
                   </>
                 )}

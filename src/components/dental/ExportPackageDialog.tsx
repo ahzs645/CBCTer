@@ -9,11 +9,15 @@ import {
 import type { Vec3 } from '../../types';
 import { cn } from '../../utils/cn';
 import { Button } from '../Button';
+import { useFocusTrap } from './useFocusTrap';
 
 interface ExportPackageDialogProps {
   scanId: string;
   dimensions: Vec3;
-  /** Phones get a bottom sheet with bigger targets. */
+  /**
+   * Phone layout: a bottom sheet instead of a centred dialog. Target sizes
+   * follow the pointer (`[@media(pointer:coarse)]`), not this prop.
+   */
   touch?: boolean;
   onExport: (options: {
     name: string;
@@ -42,6 +46,7 @@ export function ExportPackageDialog({
   onClose,
 }: ExportPackageDialogProps) {
   const { t } = useTranslation();
+  const dialogRef = useFocusTrap<HTMLElement>();
   const [name, setName] = useState(() => anonymousScanName(scanId));
   const [contents, setContents] = useState<ScanPackageContents>('full+half');
   const [storage, setStorage] = useState<'classic' | 'streamable'>('classic');
@@ -95,8 +100,7 @@ export function ExportPackageDialog({
   ) => (
     <label
       className={cn(
-        'flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition',
-        touch && 'min-h-12',
+        'flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition [@media(pointer:coarse)]:min-h-12',
         contents === value
           ? 'border-sky-500/70 bg-sky-500/10'
           : 'border-slate-700 hover:bg-slate-800/60',
@@ -130,11 +134,13 @@ export function ExportPackageDialog({
         onClick={() => status.state !== 'packing' && onClose()}
       />
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={t('dental.package.title')}
         className={cn(
-          'relative w-full border-slate-700 bg-slate-900 shadow-2xl',
+          'relative w-full border-slate-700 bg-slate-900 shadow-2xl outline-none',
           touch
             ? 'max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]'
             : 'max-h-[90dvh] max-w-md overflow-y-auto rounded-lg border p-4',
@@ -153,18 +159,16 @@ export function ExportPackageDialog({
               {t('dental.package.description')}
             </p>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="icon"
             onClick={onClose}
             disabled={status.state === 'packing'}
             aria-label={t('dental.shortcuts.close')}
-            className={cn(
-              'inline-flex shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40',
-              touch ? 'h-10 w-10' : 'h-7 w-7',
-            )}
+            className="shrink-0"
           >
             <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
         </div>
 
         <label className="block">
@@ -186,7 +190,7 @@ export function ExportPackageDialog({
           className="mt-3 grid gap-2"
           disabled={status.state === 'packing'}
         >
-          <legend className="text-sm">Export contents</legend>
+          <legend className="text-sm">{t('dental.package.contents')}</legend>
           {(['scan', 'case'] as const).map((value) => (
             <label
               key={value}
@@ -201,13 +205,14 @@ export function ExportPackageDialog({
                   if (value === 'case') setStorage('streamable');
                 }}
               />
-              {value === 'scan' ? 'Scan only' : 'Scan + analysis'}
+              {value === 'scan'
+                ? t('dental.package.scanOnly')
+                : t('dental.package.scanAndAnalysis')}
             </label>
           ))}
           {caseContents === 'case' && (
             <p className="text-xs text-slate-400">
-              Includes masks, tooth IDs, review history, notes, measurements,
-              surfaces and saved arch. Findings may contain patient information.
+              {t('dental.package.caseIncludes')}
             </p>
           )}
         </fieldset>
@@ -272,7 +277,7 @@ export function ExportPackageDialog({
         <p className="mt-3 rounded border border-slate-800 bg-slate-950/70 px-2.5 py-2 text-[11px] leading-4 text-slate-400">
           {caseContents === 'scan'
             ? t('dental.package.excluded')
-            : 'The full native scan and optional analysis are saved together. Model weights and vendor software are excluded.'}
+            : t('dental.package.caseExcluded')}
         </p>
 
         {status.state === 'done' ? (
@@ -289,7 +294,7 @@ export function ExportPackageDialog({
         <Button
           variant="primary"
           block
-          className={cn('mt-3', touch && 'h-12 text-sm')}
+          className="mt-3 [@media(pointer:coarse)]:min-h-12"
           disabled={status.state === 'packing'}
           onClick={() => void run()}
         >

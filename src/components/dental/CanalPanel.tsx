@@ -1,9 +1,11 @@
+import { useTranslation } from '../../i18n';
 import { cn } from '../../utils/cn';
+import { Button } from '../Button';
+import { FOCUS_RING } from '../Button.constants';
 
 export type CanalSide = 'right' | 'left';
 
-const button =
-  'inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 items-center justify-center rounded border border-slate-600 bg-slate-800 px-2.5 text-xs hover:bg-slate-700 disabled:opacity-40';
+const linkButton = cn('rounded underline', FOCUS_RING);
 
 /**
  * Nerve canal tracing: pick the canal's two ends on the slices for each side;
@@ -31,8 +33,7 @@ export function CanalPanel({
   onCancel: () => void;
   onClear: (side: CanalSide) => void;
 }) {
-  const sideLabel = (side: CanalSide) =>
-    side === 'right' ? "Patient's right" : "Patient's left";
+  const { t } = useTranslation();
   return (
     <div className="space-y-2 text-xs text-slate-300">
       {picking ? (
@@ -40,38 +41,50 @@ export function CanalPanel({
           className="rounded border border-pink-400/50 bg-pink-950/30 p-2 text-pink-100"
           role="status"
         >
-          {sideLabel(picking)} canal: click{' '}
-          {pickedPoints === 0 ? 'one end of the canal' : 'the other end'} on a
-          slice.
-          <button type="button" className="ml-2 underline" onClick={onCancel}>
-            Cancel
+          {t(
+            pickedPoints === 0
+              ? `dental.canal.pickFirst.${picking}`
+              : `dental.canal.pickSecond.${picking}`,
+          )}
+          <button
+            type="button"
+            className={cn('ml-2', linkButton)}
+            onClick={onCancel}
+          >
+            {t('dental.canal.cancel')}
           </button>
         </div>
       ) : null}
       <div className="grid grid-cols-2 gap-1.5">
         {(['right', 'left'] as const).map((side) => (
           <div key={side} className="space-y-1">
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
+              block
               className={cn(
-                button,
-                'w-full',
+                'min-h-8 px-2.5 text-xs',
                 picking === side && 'border-pink-400',
               )}
               disabled={busy || Boolean(picking)}
               onClick={() => onPick(side)}
             >
-              {traced[side] != null ? 'Re-trace' : 'Trace'} {side}
-            </button>
+              {traced[side] != null
+                ? t(`dental.canal.retrace.${side}`)
+                : t(`dental.canal.trace.${side}`)}
+            </Button>
             {traced[side] != null ? (
               <p className="text-[11px] text-slate-400">
-                {traced[side]!.toFixed(0)} mm traced ·{' '}
+                {t('dental.canal.traced', {
+                  length: traced[side]!.toFixed(0),
+                })}{' '}
+                ·{' '}
                 <button
                   type="button"
-                  className="underline"
+                  className={linkButton}
                   onClick={() => onClear(side)}
                 >
-                  remove
+                  {t('dental.canal.remove')}
                 </button>
               </p>
             ) : null}
@@ -82,7 +95,7 @@ export function CanalPanel({
       {distances.length ? (
         <table className="w-full text-[11px]">
           <caption className="text-left text-slate-400">
-            Closest teeth to the canal (surface to canal wall)
+            {t('dental.canal.closest')}
           </caption>
           <tbody>
             {distances.map((row) => (
@@ -94,7 +107,7 @@ export function CanalPanel({
                     row.distanceMm < 2 ? 'text-amber-200' : 'text-slate-300',
                   )}
                 >
-                  {row.distanceMm.toFixed(1)} mm
+                  {t('dental.units.mm', { value: row.distanceMm.toFixed(1) })}
                 </td>
               </tr>
             ))}
@@ -102,10 +115,7 @@ export function CanalPanel({
         </table>
       ) : null}
       <p className="text-[10px] leading-snug text-slate-400">
-        The canal is a thin dark tube with a bright rim low in the back of the
-        lower jaw; it is easiest to see on coronal slices. Tracing is
-        approximate and assumes a 2.5 mm canal. Check it slice by slice; it is
-        not suitable for implant or surgical planning.
+        {t('dental.canal.hint')}
       </p>
     </div>
   );

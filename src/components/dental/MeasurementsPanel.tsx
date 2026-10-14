@@ -11,6 +11,10 @@ import { Button } from '../Button';
 interface MeasurementsPanelProps {
   measurements: StudyMeasurement[];
   activeMeasurementId?: string;
+  /**
+   * @deprecated Ignored: targets grow on touch screens by themselves
+   * (`[@media(pointer:coarse)]`). Kept so existing callers still compile.
+   */
   touch?: boolean;
   onGoTo: (measurement: StudyMeasurement) => void;
   onToggleVisible: (measurementId: string) => void;
@@ -23,7 +27,6 @@ interface MeasurementsPanelProps {
 export function MeasurementsPanel({
   measurements,
   activeMeasurementId,
-  touch = false,
   onGoTo,
   onToggleVisible,
   onRename,
@@ -32,10 +35,6 @@ export function MeasurementsPanel({
   onExportCsv,
 }: MeasurementsPanelProps) {
   const { t } = useTranslation();
-  const iconButton = cn(
-    'inline-flex shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-slate-800 hover:text-slate-100',
-    touch ? 'h-10 w-10' : 'h-7 w-7',
-  );
 
   if (measurements.length === 0) {
     return (
@@ -84,18 +83,20 @@ export function MeasurementsPanel({
                   ) : null}
                 </div>
               </div>
-              <button
-                type="button"
-                className={iconButton}
+              <Button
+                variant="quiet"
+                size="icon"
+                className="shrink-0"
                 title={t('dental.measures.goTo')}
                 aria-label={t('dental.measures.goTo')}
                 onClick={() => onGoTo(measurement)}
               >
                 <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className={iconButton}
+              </Button>
+              <Button
+                variant="quiet"
+                size="icon"
+                className="shrink-0"
                 title={measurement.visible ? t('dental.measures.hide') : t('dental.measures.show')}
                 aria-label={measurement.visible ? t('dental.measures.hide') : t('dental.measures.show')}
                 onClick={() => onToggleVisible(measurement.id)}
@@ -105,16 +106,17 @@ export function MeasurementsPanel({
                 ) : (
                   <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
                 )}
-              </button>
-              <button
-                type="button"
-                className={iconButton}
+              </Button>
+              <Button
+                variant="quiet"
+                size="icon"
+                className="shrink-0"
                 title={t('dental.measures.delete')}
                 aria-label={t('dental.measures.delete')}
                 onClick={() => onDelete(measurement.id)}
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
+              </Button>
             </li>
           );
         })}
@@ -123,16 +125,14 @@ export function MeasurementsPanel({
         <Button
           variant="ghost"
           size="sm"
-          className={touch ? 'h-10' : undefined}
           onClick={onExportCsv}
         >
           <Download className="h-3.5 w-3.5" aria-hidden="true" />
           CSV
         </Button>
         <Button
-          variant="ghost"
+          variant="danger"
           size="sm"
-          className={touch ? 'h-10' : undefined}
           onClick={() => {
             if (window.confirm(t('dental.measures.confirmClearAll'))) onDeleteAll();
           }}

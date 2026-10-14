@@ -238,7 +238,7 @@ describe('tooth model export', () => {
         return { scan: s, labels: l };
       },
     });
-    const files = unzipSync(zip);
+    const files = unzipSync(new Uint8Array(await zip.arrayBuffer()));
     expect(Object.keys(files).sort()).toEqual([
       'README.txt',
       'crowns-combined.stl',

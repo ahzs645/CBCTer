@@ -16,17 +16,22 @@ function sampleIndex(
   );
 }
 
+// Both passes go through a 65536-entry table (one per Int16 value) instead
+// of doing the arithmetic per voxel: several times faster on big previews.
 function quantizePreviewVoxels(
   voxels: Int16Array,
   scalarRange: [number, number],
 ): Uint8Array {
   const [scalarMin, scalarMax] = scalarRange;
   const span = Math.max(1, scalarMax - scalarMin);
+  const table = new Uint8Array(65536);
+  for (let value = -32768; value < 32768; value += 1)
+    table[value + 32768] = Math.round(
+      clamp((value - scalarMin) / span, 0, 1) * 255,
+    );
   const out = new Uint8Array(voxels.length);
-  for (let index = 0; index < voxels.length; index += 1) {
-    const normalized = ((voxels[index] ?? 0) - scalarMin) / span;
-    out[index] = Math.round(clamp(normalized, 0, 1) * 255);
-  }
+  for (let index = 0; index < voxels.length; index += 1)
+    out[index] = table[voxels[index] + 32768];
   return out;
 }
 
@@ -37,11 +42,15 @@ function buildScalarHistogram(
   const histogram = new Uint32Array(HISTOGRAM_BINS);
   const [min, max] = scalarRange;
   const span = Math.max(1, max - min);
+  const counts = new Uint32Array(65536);
+  for (let index = 0; index < voxels.length; index += 1)
+    counts[voxels[index] + 32768] += 1;
   let included = 0;
-
-  for (let index = 0; index < voxels.length; index += 1) {
-    const value = voxels[index] ?? 0;
-    if (value < min || value > max) continue;
+  const lo = Math.max(-32768, Math.ceil(min)),
+    hi = Math.min(32767, Math.floor(max));
+  for (let value = lo; value <= hi; value += 1) {
+    const count = counts[value + 32768];
+    if (!count) continue;
     const bucket = Math.max(
       0,
       Math.min(
@@ -49,8 +58,8 @@ function buildScalarHistogram(
         Math.round(((value - min) / span) * (histogram.length - 1)),
       ),
     );
-    histogram[bucket] += 1;
-    included += 1;
+    histogram[bucket] += count;
+    included += count;
   }
 
   return { histogram, included };

@@ -237,6 +237,8 @@ export interface ToothModelRequest {
   /** Add one printable piece: the crowns joined on a horseshoe base. */
   archModel: boolean;
   baseHeightMm: number;
+  /** Simplify the surfaces (well under a voxel of error) for smaller files. */
+  smaller: boolean;
 }
 
 /**
@@ -258,6 +260,7 @@ export function ToothModelExportForm({
   const [gumOffsetMm, setGumOffsetMm] = useState(2);
   const [archModel, setArchModel] = useState(true);
   const [baseHeightMm, setBaseHeightMm] = useState(8);
+  const [smaller, setSmaller] = useState(true);
   return (
     <div className="space-y-2 text-xs text-slate-300">
       <div
@@ -325,6 +328,18 @@ export function ToothModelExportForm({
           ) : null}
         </label>
       ) : null}
+      <label className="flex min-h-8 items-center gap-2">
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-sky-400"
+          checked={smaller}
+          onChange={(e) => setSmaller(e.target.checked)}
+        />
+        <span className="flex-1">
+          Smaller files{' '}
+          <span className="text-slate-400">(simplified, still printable)</span>
+        </span>
+      </label>
       <button
         type="button"
         disabled={busy || !count}
@@ -334,6 +349,7 @@ export function ToothModelExportForm({
             gumOffsetMm,
             archModel: crownOnly && archModel,
             baseHeightMm,
+            smaller,
           })
         }
         className="inline-flex min-h-8 [@media(pointer:coarse)]:min-h-9 w-full items-center justify-center gap-1.5 rounded border border-sky-500/60 bg-sky-500/15 px-2.5 text-xs text-sky-50 hover:bg-sky-500/25 disabled:opacity-40"

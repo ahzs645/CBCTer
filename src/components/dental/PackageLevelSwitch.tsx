@@ -1,7 +1,7 @@
 import { Layers } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { ParsedVolumeMeta } from '../../types';
-import { cn } from '../../utils/cn';
+import { Button } from '../Button';
 
 /**
  * Full / phone level toggle for scan packages that carry both. Switching
@@ -32,24 +32,22 @@ export function PackageLevelSwitch({
           aria-label={t('dental.package.levelTitle')}
         >
           {levels.map((level) => (
-            <button
+            <Button
               key={level.id}
-              type="button"
+              variant="quiet"
+              size="xs"
               disabled={busy}
-              aria-pressed={meta.packageLevel === level.id}
-              title={`${level.dimensions.join(' × ')} · ${level.spacing[0].toFixed(2)} mm`}
+              pressed={meta.packageLevel === level.id}
+              title={`${level.dimensions.join(' × ')} · ${t('dental.units.mm', {
+                value: level.spacing[0].toFixed(2),
+              })}`}
               onClick={() => meta.packageLevel !== level.id && onChange(level.id)}
-              className={cn(
-                'h-6 rounded px-2 text-[11px] transition disabled:opacity-50',
-                meta.packageLevel === level.id
-                  ? 'bg-slate-200 text-slate-950'
-                  : 'text-slate-400 hover:text-slate-100',
-              )}
+              className="px-2"
             >
               {level.id === 'full'
                 ? t('dental.package.levelFull')
                 : t('dental.package.levelHalf')}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

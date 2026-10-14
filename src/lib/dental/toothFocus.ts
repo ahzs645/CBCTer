@@ -319,7 +319,7 @@ function pass1d(
  * or the full 3×3×3 cube when `cube` is set (as three 1D passes).
  * Alternating the two gives a rounder structuring element than either alone.
  */
-function morph(
+export function morph(
   mask: Uint8Array,
   shape: Vec3,
   grow: boolean,
@@ -353,7 +353,7 @@ function morph(
 }
 
 /** Everything not reachable from the crop border through background. */
-function fillHoles(mask: Uint8Array, shape: Vec3): Uint8Array {
+export function fillHoles(mask: Uint8Array, shape: Vec3): Uint8Array {
   const [w, h, d] = shape,
     plane = w * h;
   const outside = new Uint8Array(mask.length);

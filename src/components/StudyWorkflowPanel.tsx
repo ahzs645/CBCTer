@@ -277,21 +277,18 @@ export function StudyWorkflowPanel({
         {tabs.map((item) => {
           const Icon = item.icon;
           return (
-            <button
+            <Button
               key={item.id}
-              type="button"
-              className={cn(
-                'inline-flex h-8 items-center justify-center rounded border text-slate-400 transition hover:bg-slate-900 hover:text-slate-100',
-                tab === item.id
-                  ? 'border-sky-500/70 bg-sky-500/10 text-sky-100'
-                  : 'border-slate-800 bg-slate-950',
-              )}
+              variant="ghost"
+              size="sm"
+              pressed={tab === item.id}
+              className="h-8"
               title={item.label}
               aria-label={item.label}
               onClick={() => setTab(item.id)}
             >
               <Icon className="h-4 w-4" aria-hidden="true" />
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -873,9 +870,10 @@ export function StudyWorkflowPanel({
                       }
                     />
                   </div>
-                  <button
-                    type="button"
-                    className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                  <Button
+                    variant="quiet"
+                    size="icon"
+                    className="h-6 w-6"
                     aria-label={
                       mask.visible ? t('common.hide') : t('common.show')
                     }
@@ -889,7 +887,7 @@ export function StudyWorkflowPanel({
                     ) : (
                       <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
                     )}
-                  </button>
+                  </Button>
                 </div>
               ))
             )}
@@ -979,9 +977,10 @@ export function StudyWorkflowPanel({
                         : ''}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                  <Button
+                    variant="quiet"
+                    size="icon"
+                    className="h-6 w-6"
                     aria-label={
                       surface.visible ? t('common.hide') : t('common.show')
                     }
@@ -992,23 +991,25 @@ export function StudyWorkflowPanel({
                     ) : (
                       <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
                     )}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    size="icon"
+                    className="h-6 w-6"
                     aria-label={t('workflow.surfaces.download')}
                     onClick={() => onDownloadSurface(surface.id)}
                   >
                     <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded px-1 py-0.5 text-[10px] font-semibold text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    size="xs"
+                    className="px-1 text-[10px] font-semibold"
                     aria-label={t('workflow.surfaces.downloadPly')}
                     onClick={() => onDownloadSurfacePly(surface.id)}
                   >
                     PLY
-                  </button>
+                  </Button>
                 </div>
               ))
             )}
@@ -1087,14 +1088,15 @@ export function StudyWorkflowPanel({
                         {measurement.points.length} pts
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className="rounded p-1 text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                    <Button
+                      variant="quiet"
+                      size="icon"
+                      className="h-6 w-6"
                       aria-label={t('workflow.measures.delete')}
                       onClick={() => onDeleteMeasurement(measurement.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))

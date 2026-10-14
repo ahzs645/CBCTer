@@ -15,10 +15,18 @@ export interface LocalProjectRecord {
   updatedAt: number;
 }
 
+/** Edits to a streamed case, kept on this device (see lib/case/caseEdits). */
+export interface CaseEditsRecord {
+  key: string;
+  updatedAt: number;
+  edits: unknown;
+}
+
 export class CBCTerDexie extends Dexie {
   studies!: Table<ScanStudy, string>;
   presets!: Table<ViewerPreset, string>;
   projects!: Table<LocalProjectRecord, string>;
+  caseEdits!: Table<CaseEditsRecord, string>;
 
   constructor() {
     super('cbcter-local');
@@ -33,6 +41,13 @@ export class CBCTerDexie extends Dexie {
         'id, source, status, updatedAt, deletedAt, studyInstanceUid, seriesInstanceUid',
       presets: 'id, studyId, updatedAt, deletedAt',
       projects: 'id, updatedAt',
+    });
+    this.version(3).stores({
+      studies:
+        'id, source, status, updatedAt, deletedAt, studyInstanceUid, seriesInstanceUid',
+      presets: 'id, studyId, updatedAt, deletedAt',
+      projects: 'id, updatedAt',
+      caseEdits: 'key, updatedAt',
     });
   }
 }

@@ -1,6 +1,8 @@
 import { Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 import type { ToothInstance } from '../../lib/case/types';
 import { cn } from '../../utils/cn';
+import { FOCUS_RING } from '../Button.constants';
 
 export interface LayerRow {
   tooth: ToothInstance;
@@ -29,17 +31,18 @@ export function LayerList({
   onColor: (id: string, color: string) => void;
   onOpacity: (opacity: number) => void;
 }) {
+  const { t } = useTranslation();
   const allVisible = rows.every((row) => !hidden.has(row.tooth.id));
   return (
     <div className="space-y-1.5 text-xs text-slate-300">
       <label className="block">
         <span className="flex justify-between text-[11px]">
-          <span>Outline opacity</span>
+          <span>{t('dental.layers.opacity')}</span>
           <span className="font-mono">{Math.round(opacity * 100)}%</span>
         </span>
         <input
           type="range"
-          aria-label="Outline opacity"
+          aria-label={t('dental.layers.opacity')}
           min={0}
           max={2}
           step={0.05}
@@ -50,14 +53,14 @@ export function LayerList({
       </label>
       <button
         type="button"
-        className="text-[11px] text-sky-300 underline"
+        className={cn('rounded text-[11px] text-sky-300 underline', FOCUS_RING)}
         onClick={() => onShowAll(!allVisible)}
       >
-        {allVisible ? 'Hide all outlines' : 'Show all outlines'}
+        {allVisible ? t('dental.layers.hideAll') : t('dental.layers.showAll')}
       </button>
       <ul
         className="grid grid-cols-2 gap-x-2 gap-y-0.5"
-        aria-label="Tooth layers"
+        aria-label={t('dental.layers.list')}
       >
         {rows.map(({ tooth, name, color }) => {
           const visible = !hidden.has(tooth.id);
@@ -65,7 +68,7 @@ export function LayerList({
             <li key={tooth.id} className="flex min-w-0 items-center gap-1.5">
               <input
                 type="color"
-                aria-label={`${name} colour`}
+                aria-label={t('dental.layers.colour', { name })}
                 value={color}
                 onChange={(e) => onColor(tooth.id, e.target.value)}
                 className="h-5 w-5 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0"
@@ -73,10 +76,15 @@ export function LayerList({
               <button
                 type="button"
                 aria-pressed={visible}
-                aria-label={`${visible ? 'Hide' : 'Show'} ${name}`}
+                aria-label={
+                  visible
+                    ? t('dental.layers.hide', { name })
+                    : t('dental.layers.show', { name })
+                }
                 onClick={() => onToggle(tooth.id)}
                 className={cn(
-                  'flex min-h-7 min-w-0 flex-1 items-center gap-1 rounded px-1 text-left hover:bg-slate-800',
+                  'flex min-h-7 min-w-0 flex-1 items-center gap-1 rounded px-1 text-left hover:bg-slate-800 [@media(pointer:coarse)]:min-h-9',
+                  FOCUS_RING,
                   !visible && 'text-slate-500 line-through',
                 )}
               >

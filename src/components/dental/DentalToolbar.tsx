@@ -20,7 +20,7 @@ import type {
   DentalWindowPreset,
   DentalWindowPresetId,
 } from '../../lib/dental/windowPresets';
-import { cn } from '../../utils/cn';
+import { Button } from '../Button';
 import { Select } from '../Select';
 import { DENTAL_TOOLS, type DentalLayout } from './tools';
 
@@ -70,22 +70,18 @@ function IconButton({
   shortcut?: string;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="quiet"
+      size="sm"
+      pressed={active}
       aria-label={label}
-      aria-pressed={active}
       title={shortcut ? `${label} (${shortcut})` : label}
       onClick={onClick}
-      className={cn(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded border px-2 text-xs transition',
-        active
-          ? 'border-sky-500/70 bg-sky-500/15 text-sky-100'
-          : 'border-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100',
-      )}
+      className="h-8 shrink-0 text-xs"
     >
       {children}
       {showLabel ? <span className="hidden 2xl:inline">{label}</span> : null}
-    </button>
+    </Button>
   );
 }
 

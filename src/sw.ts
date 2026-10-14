@@ -1,5 +1,14 @@
 /// <reference lib="webworker" />
 
+import {
+  cacheNamesFor,
+  isLargeDataPath,
+  isStorableResponse,
+  pruneCacheNames,
+  SW_VERSION_PLACEHOLDER,
+  trimCache,
+} from './lib/pwa/swCache';
+
 interface BuildManifestEntry {
   file?: string;
   css?: string[];
@@ -8,7 +17,11 @@ interface BuildManifestEntry {
 
 type BuildManifest = Record<string, BuildManifestEntry>;
 
-const CACHE_NAME = 'voxel-viewer-shell-v1';
+// The build replaces the placeholder with a hash of the emitted files, so
+// every deploy that changes the app installs a new worker with fresh caches
+// and the previous deploy's caches are deleted when it activates.
+const SW_VERSION: string = SW_VERSION_PLACEHOLDER;
+const { shell: SHELL_CACHE, runtime: RUNTIME_CACHE } = cacheNamesFor(SW_VERSION);
 const APP_SHELL_PATHS = [
   '',
   'index.html',
@@ -38,8 +51,13 @@ const ASSET_MANIFEST_URL = toAppUrl('asset-manifest.json');
 const INDEX_URL = toAppUrl('index.html');
 const ROOT_URL = toAppUrl('');
 
-const isCacheableResponse = (response: Response) =>
-  response.ok && (response.type === 'basic' || response.type === 'default');
+async function storeRuntime(request: Request, response: Response) {
+  if (!isStorableResponse(response)) return;
+  const cache = await caches.open(RUNTIME_CACHE);
+  await cache.put(request, response.clone());
+  // Keep the runtime cache bounded; failures here only cost a cache miss.
+  void trimCache(cache).catch(() => undefined);
+}
 
 // Static hosts like GitHub Pages can't send the Cross-Origin-Opener-Policy /
 // Cross-Origin-Embedder-Policy headers that cross-origin isolation — and thus
@@ -96,9 +114,10 @@ async function getBuildAssetUrls(): Promise<string[]> {
 }
 
 async function installAppShell(): Promise<void> {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(SHELL_CACHE);
   const urls = await getBuildAssetUrls();
-  await cache.addAll(urls);
+  // Bypass the HTTP cache so a new deploy never precaches a stale index.html.
+  await cache.addAll(urls.map((url) => new Request(url, { cache: 'reload' })));
   await sw.skipWaiting();
 }
 
@@ -109,9 +128,9 @@ sw.addEventListener('install', (event) => {
 async function activateAppShell(): Promise<void> {
   const cacheNames = await caches.keys();
   await Promise.all(
-    cacheNames
-      .filter((cacheName) => cacheName !== CACHE_NAME)
-      .map((cacheName) => caches.delete(cacheName)),
+    pruneCacheNames(cacheNames, [SHELL_CACHE, RUNTIME_CACHE]).map(
+      (cacheName) => caches.delete(cacheName),
+    ),
   );
   await sw.clients.claim();
 }
@@ -120,37 +139,33 @@ sw.addEventListener('activate', (event) => {
   event.waitUntil(activateAppShell());
 });
 
-async function networkFirst(request: Request): Promise<Response> {
-  const cache = await caches.open(CACHE_NAME);
+async function cached(request: Request | string) {
+  const shell = await caches.open(SHELL_CACHE);
+  const hit = await shell.match(request);
+  if (hit) return hit;
+  return (await caches.open(RUNTIME_CACHE)).match(request);
+}
 
+async function networkFirst(request: Request): Promise<Response> {
   try {
     const response = await fetch(request);
-
-    if (isCacheableResponse(response)) {
-      await cache.put(request, response.clone());
-    }
-
+    await storeRuntime(request, response);
     return withCrossOriginIsolation(response);
   } catch {
     const fallback =
-      (await cache.match(request)) ??
-      (await cache.match(INDEX_URL)) ??
-      (await cache.match(ROOT_URL));
+      (await cached(request)) ??
+      (await cached(INDEX_URL)) ??
+      (await cached(ROOT_URL));
     return fallback ? withCrossOriginIsolation(fallback) : Response.error();
   }
 }
 
 async function cacheFirst(request: Request): Promise<Response> {
-  const cache = await caches.open(CACHE_NAME);
-  const cachedResponse = await cache.match(request);
+  const cachedResponse = await cached(request);
   if (cachedResponse) return withCrossOriginIsolation(cachedResponse);
 
   const response = await fetch(request);
-
-  if (isCacheableResponse(response)) {
-    await cache.put(request, response.clone());
-  }
-
+  await storeRuntime(request, response);
   return withCrossOriginIsolation(response);
 }
 
@@ -160,6 +175,8 @@ sw.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // Scan packages, samples and models stream through untouched.
+  if (isLargeDataPath(url.pathname)) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request));

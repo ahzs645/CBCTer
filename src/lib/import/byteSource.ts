@@ -1,3 +1,11 @@
+import {
+  fetchTransient,
+  readBodyTransient,
+  rejectRetryableStatus,
+  TransientFetchError,
+  withRetry,
+  type RetryOptions,
+} from './fetchRetry';
 /** Half-open byte ranges, shared by local Blobs and HTTP packages. */
 export interface ByteSource {
   size: number;
@@ -24,13 +32,21 @@ const RANGE_UNSUPPORTED =
  * that header to other sites). The end-of-central-directory record at the tail gives the
  * central directory's offset and size, and with them the file length.
  */
-async function zipLengthFromTail(url: string): Promise<number> {
-  const response = await fetch(url, { headers: { Range: 'bytes=-65558' } });
-  if (response.status !== 206) {
-    await response.body?.cancel();
-    throw new Error(RANGE_UNSUPPORTED);
-  }
-  const tail = new Uint8Array(await response.arrayBuffer());
+async function zipLengthFromTail(
+  url: string,
+  retry?: RetryOptions,
+): Promise<number> {
+  const tail = await withRetry(async () => {
+    const response = await fetchTransient(url, {
+      headers: { Range: 'bytes=-65558' },
+    });
+    await rejectRetryableStatus(response);
+    if (response.status !== 206) {
+      await response.body?.cancel();
+      throw new Error(RANGE_UNSUPPORTED);
+    }
+    return readBodyTransient(response);
+  }, retry);
   const view = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
   for (let i = tail.length - 22; i >= 0; i--) {
     if (view.getUint32(i, true) !== 0x06054b50) continue;
@@ -45,7 +61,14 @@ async function zipLengthFromTail(url: string): Promise<number> {
   }
   throw new Error('This link does not point to a ZIP scan package.');
 }
-export async function httpSource(url: string): Promise<ByteSource> {
+export interface HttpSourceOptions {
+  /** Backoff for range reads that fail on the network, 408/429/5xx or short bodies. */
+  retry?: RetryOptions;
+}
+export async function httpSource(
+  url: string,
+  { retry }: HttpSourceOptions = {},
+): Promise<ByteSource> {
   // A 200 response is cancelled before its body is read: no hidden full download.
   let probe: Response;
   try {
@@ -65,7 +88,7 @@ export async function httpSource(url: string): Promise<ByteSource> {
   const hiddenRange = !contentRange;
   if ((await probe.arrayBuffer()).byteLength !== 1)
     throw new Error('Invalid HTTP range response.');
-  const size = match ? Number(match[1]) : await zipLengthFromTail(url);
+  const size = match ? Number(match[1]) : await zipLengthFromTail(url, retry);
   if (!Number.isSafeInteger(size) || size < 22)
     throw new Error('Invalid remote package length.');
   const etag = probe.headers.get('etag');
@@ -81,26 +104,33 @@ export async function httpSource(url: string): Promise<ByteSource> {
         end > size
       )
         throw new Error('Invalid byte range.');
-      const response = await fetch(url, {
-        headers: {
-          Range: `bytes=${start}-${end - 1}`,
-          ...(etag && !etag.startsWith('W/') ? { 'If-Range': etag } : {}),
-        },
-      });
       const expected = `bytes ${start}-${end - 1}/${size}`;
-      if (
-        response.status !== 206 ||
-        (!hiddenRange && response.headers.get('content-range') !== expected) ||
-        (etag && response.headers.get('etag') !== etag)
-      ) {
-        await response.body?.cancel();
-        throw new Error(
-          'The remote package changed or returned an invalid range. Reopen the scan.',
-        );
-      }
-      const data = new Uint8Array(await response.arrayBuffer());
-      if (data.length !== end - start)
-        throw new Error('Truncated HTTP byte range.');
+      const data = await withRetry(async () => {
+        const response = await fetchTransient(url, {
+          headers: {
+            Range: `bytes=${start}-${end - 1}`,
+            ...(etag && !etag.startsWith('W/') ? { 'If-Range': etag } : {}),
+          },
+        });
+        await rejectRetryableStatus(response);
+        if (
+          response.status !== 206 ||
+          (!hiddenRange &&
+            response.headers.get('content-range') !== expected) ||
+          (etag && response.headers.get('etag') !== etag)
+        ) {
+          await response.body?.cancel();
+          throw new Error(
+            'The remote package changed or returned an invalid range. Reopen the scan.',
+          );
+        }
+        const body = await readBodyTransient(response);
+        if (body.length < end - start)
+          throw new TransientFetchError('Truncated HTTP byte range.');
+        if (body.length !== end - start)
+          throw new Error('Invalid HTTP range response.');
+        return body;
+      }, retry);
       this.bytesRead += data.length;
       return data;
     },

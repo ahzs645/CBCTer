@@ -55,9 +55,22 @@ import {
   buildToothModelZip,
   type ToothCropReader,
 } from '../lib/case/toothExport';
+import { exportBudgetBytes, planToothExport } from '../lib/case/exportBudget';
+import {
+  addedTeethRegion,
+  caseKey,
+  editsFromLinkParams,
+  editsToLinkParams,
+  loadCaseEdits,
+  saveCaseEdits,
+  type AddedTooth,
+} from '../lib/case/caseEdits';
+import { decodeMask, encodeMask } from '../lib/dental/growTooth';
+import { AddToothPanel } from '../components/dental/AddToothPanel';
 import {
   archOrder,
   buildIsolatedVolume,
+  fdiArch,
   crownDirectionFor,
   mirrorFdi,
   numberingLooksMirrored,
@@ -70,24 +83,17 @@ import {
 } from '../lib/case/toothSelection';
 import type { ToothInstance } from '../lib/case/types';
 import {
-  canalCenterline,
   canalSliceMarks,
-  snapToCanal,
-  toothCanalDistances,
-  traceCanalPath,
   voxelToAxisPoint,
   type CanalVolumeRead,
 } from '../lib/dental/canal';
+import { compute } from '../lib/dental/computeClient';
 import {
   drawCanalMarks,
   drawDots,
   overlaySize,
 } from '../lib/dental/overlayDraw';
-import {
-  findDarkAreas,
-  toothAxes,
-  type DarkArea,
-} from '../lib/dental/toothFocus';
+import type { DarkArea } from '../lib/dental/toothFocus';
 import { buildDentalReportHtml } from '../lib/dental/report';
 import { downloadText } from '../lib/dental/snapshot';
 import { CanalPanel, type CanalSide } from '../components/dental/CanalPanel';
@@ -132,9 +138,13 @@ export interface StreamingViewState {
   axis: VolumeAxis;
 }
 
-function downloadBlob(bytes: Uint8Array, name: string) {
+function downloadBlob(data: Uint8Array | Blob, name: string) {
   const url = URL.createObjectURL(
-    new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
+    data instanceof Blob
+      ? data
+      : new Blob([data as Uint8Array<ArrayBuffer>], {
+          type: 'application/zip',
+        }),
   );
   const link = document.createElement('a');
   link.href = url;
@@ -142,6 +152,38 @@ function downloadBlob(bytes: Uint8Array, name: string) {
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
+
+/** Label layer id of teeth outlined by hand in this viewer. */
+const ADDED_GROUP = 'added-teeth';
+
+/** A segment group for the hand-added teeth layer (value k + 1 each). */
+function addedGroup(teeth: AddedTooth[]) {
+  const now = 0;
+  return {
+    id: ADDED_GROUP,
+    studyId: '',
+    imageId: '',
+    name: 'Teeth added by hand',
+    visible: true,
+    opacity: 0.55,
+    segments: teeth.map((tooth, k) => ({
+      id: tooth.id,
+      value: k + 1,
+      name: tooth.fdi ? `Tooth ${tooth.fdi}` : 'Added tooth',
+      color: '#34d399',
+      opacity: 0.55,
+      visible: true,
+      locked: false,
+      createdAt: now,
+      updatedAt: now,
+    })),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+const numberName = (fdi: number | null) =>
+  fdi ? `Tooth ${fdi}` : 'Added tooth';
 
 const indexKey = (a: VolumeAxis) =>
   a === VolumeAxis.Axial ? 'z' : a === VolumeAxis.Coronal ? 'y' : 'x';
@@ -171,15 +213,77 @@ export default function ProgressiveViewerPage({
     dimensions = m.volume.dimensions,
     spacing = m.volume.spacing;
   const caseState = session.caseMetadata?.state;
-  const rawTeeth = useMemo(
-    () => caseState?.toothInstances ?? [],
-    [caseState?.toothInstances],
+  // Corrections to this read-only case: saved on this device per scan, and
+  // the numbering swap and merges also travel in share links.
+  const editsKey = caseKey(m.volume.sha256, m.name);
+  const linkEdits = useMemo(
+    () =>
+      app.sharedEdits
+        ? editsFromLinkParams(new URLSearchParams(app.sharedEdits))
+        : null,
+    [app.sharedEdits],
+  );
+  // Teeth the model missed, outlined by hand (plus one being outlined now).
+  const [addedTeeth, setAddedTeeth] = useState<AddedTooth[]>([]);
+  const [draftTooth, setDraftTooth] = useState<
+    (AddedTooth & { seed: Vec3; level: number; leaked: boolean }) | null
+  >(null);
+  const shownAdded = useMemo(
+    () => (draftTooth ? [...addedTeeth, draftTooth] : addedTeeth),
+    [addedTeeth, draftTooth],
+  );
+  const addedMasks = useMemo(
+    () =>
+      new Map(
+        shownAdded.map((tooth) => [
+          tooth.id,
+          decodeMask(tooth.runs, tooth.shape[0] * tooth.shape[1] * tooth.shape[2]),
+        ]),
+      ),
+    [shownAdded],
+  );
+  /** Labels of one layer in a box; hand-added teeth form their own layer. */
+  const labelRegion = useCallback(
+    async (
+      groupId: string,
+      start: Vec3,
+      shape: Vec3,
+      signal?: AbortSignal,
+    ): Promise<Uint16Array> =>
+      groupId === ADDED_GROUP
+        ? addedTeethRegion(shownAdded, addedMasks, start, shape)
+        : ((await session.analysisRegion(
+            groupId,
+            start,
+            shape,
+            signal,
+          )) as Uint16Array),
+    [session, shownAdded, addedMasks],
+  );
+  const rawTeeth = useMemo<ToothInstance[]>(
+    () => [
+      ...(caseState?.toothInstances ?? []),
+      ...shownAdded.map((tooth, k) => ({
+        id: tooth.id,
+        groupId: ADDED_GROUP,
+        value: k + 1,
+        fdi: tooth.fdi,
+        review: 'corrected' as const,
+        centroid: tooth.centroid,
+        bounds: tooth.bounds,
+        voxelCount: tooth.voxels,
+        source: 'manual' as const,
+      })),
+    ],
+    [caseState?.toothInstances, shownAdded],
   );
   // Teeth the model cut in two (found below) can be shown as one tooth.
   const [splits, setSplits] = useState<
     Array<{ a: ToothInstance; b: ToothInstance; sharedMm2: number }>
   >([]);
-  const [mergedPairs, setMergedPairs] = useState<Array<[string, string]>>([]);
+  const [mergedPairs, setMergedPairs] = useState<Array<[string, string]>>(
+    () => linkEdits?.mergedPairs ?? [],
+  );
   const teeth = useMemo(
     () => mergeTeethView(rawTeeth, mergedPairs),
     [rawTeeth, mergedPairs],
@@ -188,13 +292,13 @@ export default function ProgressiveViewerPage({
   const readCrop = useCallback<ToothCropReader>(
     async (groupId, start, shape) => ({
       scan: displayVoxels(await session.region(start, shape), m.volume),
-      labels: (await session.analysisRegion(
+      labels: (await labelRegion(
         groupId,
         start,
         shape,
       )) as Uint16Array,
     }),
-    [session, m.volume],
+    [session, m.volume, labelRegion],
   );
   useEffect(() => {
     if (rawTeeth.length < 2) return;
@@ -206,7 +310,9 @@ export default function ProgressiveViewerPage({
         dimensions,
         spacing,
         async (groupId, start, shape) =>
-          (await session.analysisRegion(groupId, start, shape)) as Uint16Array,
+          (await labelRegion(groupId, start, shape)) as Uint16Array,
+        15,
+        (input) => compute('sharedSurface', input),
       ).then(
         (found) => {
           if (!cancelled) setSplits(found);
@@ -218,7 +324,7 @@ export default function ProgressiveViewerPage({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [rawTeeth, dimensions, spacing, session]);
+  }, [rawTeeth, dimensions, spacing, labelRegion]);
   // Layers: per-tooth visibility and colour, one opacity for all outlines.
   const [hiddenTeeth, setHiddenTeeth] = useState<Set<string>>(new Set());
   const [toothColors, setToothColors] = useState<Record<string, string>>({});
@@ -268,7 +374,9 @@ export default function ProgressiveViewerPage({
   const initialTooth = teeth.find(
     (tooth) =>
       tooth.id === caseState?.selectedInstanceId ||
-      (app.sharedTooth != null && tooth.fdi === app.sharedTooth),
+      (app.sharedTooth != null &&
+        (linkEdits?.swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi) ===
+          app.sharedTooth),
   );
   const [selectedIds, setSelectedIds] = useState<string[]>(() =>
     initialTooth && !caseState?.toothSelection?.includes(initialTooth.id)
@@ -287,9 +395,61 @@ export default function ProgressiveViewerPage({
     () => numberingLooksMirrored(teeth, leftSign),
     [teeth, leftSign],
   );
-  const [swapSides, setSwapSides] = useState(false);
-  const [iso3D, setIso3D] = useState<PreparedVolumeFor3D | null>(null);
-  const [isoStatus, setIsoStatus] = useState('');
+  const [swapSides, setSwapSides] = useState(linkEdits?.swapSides ?? false);
+  // Load this scan's saved corrections once; a share link's swap and merges
+  // take precedence over the device's.
+  const [editsReady, setEditsReady] = useState(false);
+  const [editsNote, setEditsNote] = useState('');
+  useEffect(() => {
+    let live = true;
+    void loadCaseEdits(editsKey).then((saved) => {
+      if (!live) return;
+      if (!linkEdits) {
+        if (saved.swapSides) setSwapSides(true);
+        if (saved.mergedPairs?.length) setMergedPairs(saved.mergedPairs);
+      }
+      if (saved.addedTeeth?.length) setAddedTeeth(saved.addedTeeth);
+      if (saved.hiddenTeeth?.length)
+        setHiddenTeeth(new Set(saved.hiddenTeeth));
+      if (saved.toothColors) setToothColors(saved.toothColors);
+      setEditsReady(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, [editsKey, linkEdits]);
+  useEffect(() => {
+    if (!editsReady) return;
+    const timer = window.setTimeout(() => {
+      saveCaseEdits(editsKey, {
+        swapSides,
+        mergedPairs,
+        addedTeeth,
+        hiddenTeeth: [...hiddenTeeth],
+        toothColors,
+      }).then(
+        () => setEditsNote(''),
+        () =>
+          setEditsNote(
+            'Corrections could not be saved on this device (storage is off or full).',
+          ),
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    editsReady,
+    editsKey,
+    swapSides,
+    mergedPairs,
+    addedTeeth,
+    hiddenTeeth,
+    toothColors,
+  ]);
+  const [isoResult, setIsoResult] = useState<{
+    key: string;
+    volume: PreparedVolumeFor3D | null;
+    status: string;
+  } | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
   const shownFdi = (tooth: ToothInstance) =>
@@ -362,7 +522,12 @@ export default function ProgressiveViewerPage({
   const analysisPlanes = useRef(
     new Map<
       VolumeAxis,
-      { index: number; layers: Array<{ id: string; words: Uint16Array }> }
+      {
+        index: number;
+        /** Hand-added teeth the cached layers were read with. */
+        added: string;
+        layers: Array<{ id: string; words: Uint16Array }>;
+      }
     >(),
   );
   const [result, setResult] = useState<{
@@ -376,7 +541,9 @@ export default function ProgressiveViewerPage({
   const currentKey = `${cursor.x}|${cursor.y}|${cursor.z}|${wl.window}|${wl.level}|${compact ? axis : 'all'}`;
   const selectionKey = [...selectedIds].sort().join(',');
   const layersKey = `${[...hiddenTeeth].sort().join(',')}|${JSON.stringify(toothColors)}|${outlineOpacity}|${mergedPairs.length}`;
-  const analysisKey = `${cursor.x}|${cursor.y}|${cursor.z}|${compact ? axis : 'all'}|${selectionKey}|${focusId}|${showMode}|${bone}|${layersKey}`;
+  const addedKey = shownAdded.map((tooth) => tooth.id).join(',');
+  const analysisKey = `${cursor.x}|${cursor.y}|${cursor.z}|${compact ? axis : 'all'}|${selectionKey}|${focusId}|${showMode}|${bone}|${layersKey}|${addedKey}`;
+
   const pending = result?.key !== currentKey;
   const preview = useMemo<ViewerSlices>(
     () => ({
@@ -449,13 +616,16 @@ export default function ProgressiveViewerPage({
 
   useEffect(() => {
     const abort = new AbortController();
-    const groups = (caseState?.segmentGroups ?? []).filter(
-      (g) =>
-        g.visible &&
-        session.caseMetadata?.manifest.layers.some(
-          (l) => l.id === g.id && l.role !== 'prediction',
-        ),
-    );
+    const groups = [
+      ...(caseState?.segmentGroups ?? []).filter(
+        (g) =>
+          g.visible &&
+          session.caseMetadata?.manifest.layers.some(
+            (l) => l.id === g.id && l.role !== 'prediction',
+          ),
+      ),
+      ...(shownAdded.length ? [addedGroup(shownAdded)] : []),
+    ];
     if (!groups.length) return;
     const chosen = new Set(selectedIds);
     const rejected = new Set(
@@ -469,12 +639,12 @@ export default function ProgressiveViewerPage({
         const index = cursor[indexKey(a)];
         const cached = analysisPlanes.current.get(a);
         const layers =
-          cached?.index === index
+          cached?.index === index && cached.added === addedKey
             ? cached.layers
             : await Promise.all(
                 groups.map(async (g) => ({
                   id: g.id,
-                  words: await session.analysisRegion(
+                  words: await labelRegion(
                     g.id,
                     start,
                     shape,
@@ -484,13 +654,16 @@ export default function ProgressiveViewerPage({
               );
         if (abort.signal.aborted)
           throw new DOMException('Cancelled', 'AbortError');
-        analysisPlanes.current.set(a, { index, layers });
+        analysisPlanes.current.set(a, { index, added: addedKey, layers });
         const image = extractLabelmapOverlayImage(
           layers.map((l) => {
             const group = groups.find((g) => g.id === l.id)!,
-              role = session.caseMetadata?.manifest.layers.find(
-                (v) => v.id === l.id,
-              )?.role;
+              role =
+                l.id === ADDED_GROUP
+                  ? 'teeth'
+                  : session.caseMetadata?.manifest.layers.find(
+                      (v) => v.id === l.id,
+                    )?.role;
             return {
               labelmap: l.words,
               visible: true,
@@ -568,40 +741,50 @@ export default function ProgressiveViewerPage({
     showMode,
     bone,
     analysisKey,
+    shownAdded,
   ]);
   const outlinesLoading =
     teeth.length > 0 && !pending && analysisResult?.key !== analysisKey;
 
   // Full-resolution 3D crop of the selected teeth ---------------------------
-  const isoKey = showMode === 'selected' ? `${selectionKey}|${bone}` : '';
+  const isoKey =
+    showMode === 'selected' && selectedTeeth.length && app.prepared3D
+      ? `${selectionKey}|${bone}|${addedKey}`
+      : '';
+  const isoBox = isoKey
+    ? selectionBounds(selectedTeeth, dimensions, bone ? 24 : 6)
+    : null;
+  const isoTooBig = Boolean(
+    isoBox &&
+      isoBox.shape[0] * isoBox.shape[1] * isoBox.shape[2] >
+        (compact ? 12e6 : 40e6),
+  );
+  const iso3D =
+    isoKey && !isoTooBig && isoResult?.key === isoKey ? isoResult.volume : null;
+  const isoStatus = !isoKey
+    ? ''
+    : isoTooBig
+      ? 'Too many teeth for 3D on this device. Pick an arch or fewer teeth.'
+      : isoResult?.key === isoKey
+        ? isoResult.status
+        : 'Loading 3D of the selected teeth…';
   useEffect(() => {
-    if (!isoKey || !selectedTeeth.length || !app.prepared3D) {
-      setIso3D(null);
-      setIsoStatus('');
-      return;
-    }
-    const box = selectionBounds(selectedTeeth, dimensions, bone ? 24 : 6)!;
-    const voxels = box.shape[0] * box.shape[1] * box.shape[2];
-    if (voxels > (compact ? 12e6 : 40e6)) {
-      setIso3D(null);
-      setIsoStatus(
-        'Too many teeth for 3D on this device. Pick an arch or fewer teeth.',
-      );
-      return;
-    }
+    if (!isoKey || isoTooBig || !isoBox) return;
+    const box = isoBox;
     const abort = new AbortController();
-    setIsoStatus('Loading 3D of the selected teeth…');
     const groupIds = [...new Set(selectedTeeth.map((tooth) => tooth.groupId))];
     void Promise.all([
       session.region(box.start, box.shape, abort.signal),
       ...groupIds.map((id) =>
-        session.analysisRegion(id, box.start, box.shape, abort.signal),
+        labelRegion(id, box.start, box.shape, abort.signal),
       ),
     ]).then(
       ([scan, ...labels]) => {
         if (abort.signal.aborted) return;
-        setIso3D(
-          buildIsolatedVolume({
+        setIsoResult({
+          key: isoKey,
+          status: '',
+          volume: buildIsolatedVolume({
             scan: displayVoxels(scan, m.volume),
             labels: labels.map((words, i) => ({
               groupId: groupIds[i],
@@ -616,19 +799,21 @@ export default function ProgressiveViewerPage({
             context: bone,
             maxEdge: compact ? 256 : 512,
           }),
-        );
-        setIsoStatus('');
+        });
       },
       (e) => {
         if (abort.signal.aborted) return;
-        setIso3D(null);
-        setIsoStatus(e instanceof Error ? e.message : String(e));
+        setIsoResult({
+          key: isoKey,
+          volume: null,
+          status: e instanceof Error ? e.message : String(e),
+        });
       },
     );
     return () => abort.abort();
-    // selectedTeeth is represented by isoKey.
+    // selectedTeeth and the box are represented by isoKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isoKey, session, app.prepared3D, compact]);
+  }, [isoKey, isoTooBig, session, compact]);
 
   // Interaction ---------------------------------------------------------------
   const labels = useAxisViewportLabels();
@@ -660,6 +845,13 @@ export default function ProgressiveViewerPage({
     return (point[2] * shape[1] + point[1]) * shape[0] + point[0];
   };
   const select = (a: VolumeAxis) => (p: { xRatio: number; yRatio: number }) => {
+    if (addPick !== null) {
+      const voxel = axisPointToVoxel(a, p, cursor, dimensions).map((v) =>
+        Math.round(v),
+      ) as Vec3;
+      setAddPick(null);
+      void growAt(voxel, addPick, 0.5);
+    }
     if (canalPick) {
       const voxel = axisPointToVoxel(a, p, cursor, dimensions) as Vec3;
       const points = [...canalPick.points, voxel];
@@ -676,7 +868,8 @@ export default function ProgressiveViewerPage({
           l.id === item.groupId && toothValues(item).includes(l.words[index]),
       ),
     );
-    if (tooth && !canalPick) selectTooth(tooth.id, multi, false);
+    if (tooth && !canalPick && addPick === null)
+      selectTooth(tooth.id, multi, false);
     setCursor((c) =>
       a === VolumeAxis.Axial
         ? {
@@ -760,6 +953,15 @@ export default function ProgressiveViewerPage({
   const exportTeeth = async (request: ToothModelRequest) => {
     setExportBusy(true);
     setExportStatus('');
+    // Phones get a smaller memory budget; drop what won't fit up front.
+    const union = selectionBounds(selectedTeeth, dimensions, 8);
+    const plan = planToothExport({
+      teeth: selectedTeeth.length,
+      unionVoxels: union ? union.shape[0] * union.shape[1] * union.shape[2] : 0,
+      archModel: request.archModel,
+      smaller: request.smaller,
+      budgetBytes: exportBudgetBytes(),
+    });
     try {
       const { zip, reports } = await buildToothModelZip({
         teeth: selectedTeeth.map((tooth) => ({
@@ -772,6 +974,7 @@ export default function ProgressiveViewerPage({
         scanName: m.name,
         model: {
           ...request,
+          archModel: plan.archModel,
           superiorSign,
           intraoral:
             iosUse && iosFit
@@ -783,7 +986,7 @@ export default function ProgressiveViewerPage({
         },
         read: async (groupId, start, shape) => ({
           scan: displayVoxels(await session.region(start, shape), m.volume),
-          labels: (await session.analysisRegion(
+          labels: (await labelRegion(
             groupId,
             start,
             shape,
@@ -791,6 +994,12 @@ export default function ProgressiveViewerPage({
         }),
         onProgress: (done, total) =>
           setExportStatus(`Meshing tooth ${done} of ${total}…`),
+        compute: {
+          part: (input) => compute('toothPart', input),
+          arch: (options) => compute('archModel', options),
+        },
+        readLabels: async (groupId, start, shape) =>
+          (await labelRegion(groupId, start, shape)) as Uint16Array,
       });
       downloadBlob(
         zip,
@@ -801,7 +1010,8 @@ export default function ProgressiveViewerPage({
         `Saved ${reports.length} ${reports.length === 1 ? 'tooth' : 'teeth'}` +
           (guessed
             ? `; gumline guessed for ${guessed} (no bone contact found).`
-            : '.'),
+            : '.') +
+          (plan.note ? ` ${plan.note}` : ''),
       );
     } catch (e) {
       setExportStatus(e instanceof Error ? e.message : String(e));
@@ -811,46 +1021,49 @@ export default function ProgressiveViewerPage({
   };
   // Same keys as the full viewer (see docs/viewer-controls.md).
   const onKeyRef = useRef<(event: KeyboardEvent) => void>(() => {});
-  onKeyRef.current = (event: KeyboardEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (
-      event.defaultPrevented ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.metaKey ||
-      target?.closest(
-        'input, textarea, select, [contenteditable="true"], [role="listbox"]',
+  useEffect(() => {
+    onKeyRef.current = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        target?.closest(
+          'input, textarea, select, [contenteditable="true"], [role="listbox"]',
+        )
       )
-    )
-      return;
-    const key = event.key;
-    const toolForKey = DENTAL_TOOLS.find(
-      (item) => item.shortcut.toLowerCase() === key.toLowerCase(),
-    );
-    if (key === 'Escape') setTool('crosshair');
-    else if (toolForKey) setTool(toolForKey.tool);
-    else if (key === 'i' || key === 'I') setInvert((v) => !v);
-    else if (/^[1-6]$/.test(key) && presets[Number(key) - 1])
-      applyPreset(presets[Number(key) - 1].id);
-    else if (key === 'ArrowUp' || key === 'PageUp')
-      updateIndex(
-        axis,
-        cursor[indexKey(axis)] - (event.shiftKey || key === 'PageUp' ? 10 : 1),
+        return;
+      const key = event.key;
+      const toolForKey = DENTAL_TOOLS.find(
+        (item) => item.shortcut.toLowerCase() === key.toLowerCase(),
       );
-    else if (key === 'ArrowDown' || key === 'PageDown')
-      updateIndex(
-        axis,
-        cursor[indexKey(axis)] +
-          (event.shiftKey || key === 'PageDown' ? 10 : 1),
-      );
-    else if (key === '+' || key === '=') setZoom((z) => z * 1.25);
-    else if (key === '-' || key === '_') setZoom((z) => z / 1.25);
-    else if (key === '0') setZoom(1);
-    else if (key === ']') stepTooth(1);
-    else if (key === '[') stepTooth(-1);
-    else return;
-    event.preventDefault();
-  };
+      if (key === 'Escape') setTool('crosshair');
+      else if (toolForKey) setTool(toolForKey.tool);
+      else if (key === 'i' || key === 'I') setInvert((v) => !v);
+      else if (/^[1-6]$/.test(key) && presets[Number(key) - 1])
+        applyPreset(presets[Number(key) - 1].id);
+      else if (key === 'ArrowUp' || key === 'PageUp')
+        updateIndex(
+          axis,
+          cursor[indexKey(axis)] - (event.shiftKey || key === 'PageUp' ? 10 : 1),
+        );
+      else if (key === 'ArrowDown' || key === 'PageDown')
+        updateIndex(
+          axis,
+          cursor[indexKey(axis)] +
+            (event.shiftKey || key === 'PageDown' ? 10 : 1),
+        );
+      else if (key === '+' || key === '=') setZoom((z) => z * 1.25);
+      else if (key === '-' || key === '_') setZoom((z) => z / 1.25);
+      else if (key === '0') setZoom(1);
+      else if (key === ']') stepTooth(1);
+      else if (key === '[') stepTooth(-1);
+      else return;
+      event.preventDefault();
+    };
+  });
+
   useEffect(() => {
     const listener = (event: KeyboardEvent) => onKeyRef.current(event);
     window.addEventListener('keydown', listener);
@@ -861,6 +1074,7 @@ export default function ProgressiveViewerPage({
     ? buildShareLink(window.location.href, {
         url: app.sourceUrl,
         ...(focus && shownFdi(focus) ? { tooth: shownFdi(focus)! } : {}),
+        edits: editsToLinkParams({ swapSides, mergedPairs }),
       })
     : null;
   const copyShareLink = async () => {
@@ -956,23 +1170,15 @@ export default function ProgressiveViewerPage({
           Math.round(3 / spacing[0]),
         )!;
         const crop = await readCrop(tooth.groupId, box.start, box.shape);
-        const values = toothValues(tooth);
-        const axes = toothAxes(
-          crop.labels,
-          box.shape,
-          values,
+        const { axes, areas } = await compute('toothCheck', {
+          scan: crop.scan,
+          labels: crop.labels,
+          shape: box.shape,
           spacing,
-          crownDirectionFor(tooth, teeth, superiorSign),
-        );
+          values: toothValues(tooth),
+          crownDirection: crownDirectionFor(tooth, teeth, superiorSign),
+        });
         if (axes) {
-          const areas = findDarkAreas({
-            scan: crop.scan,
-            labels: crop.labels,
-            shape: box.shape,
-            spacing,
-            values,
-            axes,
-          });
           const focal = areas.filter((area) => area.kind === 'focal');
           const pulp = areas.some((area) => area.kind === 'pulp-like');
           if (focal.length || !pulp) results.push({ tooth, focal, pulp });
@@ -1029,25 +1235,22 @@ export default function ProgressiveViewerPage({
     setCanalBusy(true);
     setCanalStatus('Finding the canal…');
     try {
-      const snap = async (p: Vec3) =>
-        snapToCanal(await readBox([p], 4), p, spacing, 2);
+      const snap = async (point: Vec3) =>
+        compute('snapCanal', {
+          read: await readBox([point], 4),
+          point,
+          spacing,
+          radiusMm: 2,
+        });
       const from = await snap(a),
         to = await snap(b);
       setCanalStatus('Following the canal…');
-      const path = traceCanalPath(
-        await readBox([from, to], 10),
+      const { centerline, lengthMm } = await compute('traceCanal', {
+        read: await readBox([from, to], 10),
         from,
         to,
         spacing,
-      );
-      const centerline = canalCenterline(path, spacing);
-      let lengthMm = 0;
-      for (let i = 1; i < centerline.length; i++)
-        lengthMm += Math.hypot(
-          ...[0, 1, 2].map(
-            (k) => (centerline[i][k] - centerline[i - 1][k]) * spacing[k],
-          ),
-        );
+      });
       setCanals((current) => ({
         ...current,
         [side]: { centerline, lengthMm },
@@ -1064,7 +1267,7 @@ export default function ProgressiveViewerPage({
           const box = selectionBounds([tooth], dimensions, 1)!;
           return {
             id: tooth.id,
-            labels: (await session.analysisRegion(
+            labels: (await labelRegion(
               tooth.groupId,
               box.start,
               box.shape,
@@ -1075,7 +1278,14 @@ export default function ProgressiveViewerPage({
           };
         }),
       );
-      const rows = toothCanalDistances(centerline, 1.25, spacing, labelled)
+      const rows = (
+        await compute('canalDistances', {
+          centerline,
+          radiusMm: 1.25,
+          spacing,
+          teeth: labelled,
+        })
+      )
         .sort((x, y) => x.distanceMm - y.distanceMm)
         .slice(0, 4)
         .map((row) => ({
@@ -1095,6 +1305,171 @@ export default function ProgressiveViewerPage({
       setCanalBusy(false);
     }
   };
+
+  // Adding a tooth the model missed -----------------------------------------
+  const [addPick, setAddPick] = useState<number | null>(null);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addStatus, setAddStatus] = useState('');
+  /** Outline the tooth under `seed` (scan voxel); `shown` is its number. */
+  const growAt = async (seed: Vec3, shown: number, level: number) => {
+    setAddBusy(true);
+    setAddStatus('');
+    try {
+      const fdi = swapSides ? mirrorFdi(shown) : shown;
+      // Upper crowns point down (inferior), lower crowns up.
+      const crownDirection: 1 | -1 =
+        fdiArch(fdi) === 'upper' ? (-superiorSign as 1 | -1) : superiorSign;
+      // A box the tooth fits in from a click on its crown: 13 mm across,
+      // 12 mm crownward and 27 mm rootward (long canine roots).
+      const across = [6.5, 6.5].map((mm, k) => Math.round(mm / spacing[k]));
+      const crownward = Math.round(12 / spacing[2]),
+        rootward = Math.round(27 / spacing[2]);
+      const zLo = crownDirection > 0 ? seed[2] - rootward : seed[2] - crownward,
+        zHi = crownDirection > 0 ? seed[2] + crownward : seed[2] + rootward;
+      const lo = [seed[0] - across[0], seed[1] - across[1], zLo],
+        hi = [seed[0] + across[0], seed[1] + across[1], zHi];
+      const start = [0, 1, 2].map((k) => Math.max(0, lo[k])) as Vec3;
+      const shape = [0, 1, 2].map(
+        (k) => Math.min(dimensions[k] - 1, hi[k]) - start[k] + 1,
+      ) as Vec3;
+      const scan = displayVoxels(await session.region(start, shape), m.volume);
+      // Other teeth's voxels are off limits.
+      const taken = new Uint8Array(scan.length);
+      const others = rawTeeth.filter(
+        (tooth) => tooth.review !== 'rejected' && tooth.id !== draftTooth?.id,
+      );
+      for (const groupId of new Set(others.map((tooth) => tooth.groupId))) {
+        const values = new Set(
+          others
+            .filter((tooth) => tooth.groupId === groupId)
+            .flatMap(toothValues),
+        );
+        const labels =
+          groupId === ADDED_GROUP
+            ? addedTeethRegion(addedTeeth, addedMasks, start, shape)
+            : await labelRegion(groupId, start, shape);
+        for (let i = 0; i < labels.length; i++)
+          if (labels[i] && values.has(labels[i])) taken[i] = 1;
+      }
+      const grown = await compute('growTooth', {
+        scan,
+        taken,
+        shape,
+        spacing,
+        seed: [seed[0] - start[0], seed[1] - start[1], seed[2] - start[2]],
+        level,
+        crownDirection,
+      });
+      if (!grown) {
+        setAddStatus('No tooth found there. Click on the crown of the tooth.');
+        return;
+      }
+      // Keep only the outline's own box.
+      const size = [0, 1, 2].map(
+        (k) => grown.max[k] - grown.min[k] + 1,
+      ) as Vec3;
+      const mask = new Uint8Array(size[0] * size[1] * size[2]);
+      for (let z = 0; z < size[2]; z++)
+        for (let y = 0; y < size[1]; y++)
+          for (let x = 0; x < size[0]; x++)
+            mask[(z * size[1] + y) * size[0] + x] =
+              grown.mask[
+                ((z + grown.min[2]) * shape[1] + y + grown.min[1]) * shape[0] +
+                  x +
+                  grown.min[0]
+              ];
+      const toScan = (v: Vec3) => v.map((c, k) => c + start[k]) as Vec3;
+      setDraftTooth({
+        id: draftTooth?.id ?? `added-${fdi ?? 0}-${seed.join('-')}`,
+        fdi,
+        start: toScan(grown.min),
+        shape: size,
+        runs: encodeMask(mask),
+        voxels: grown.voxels,
+        centroid: toScan(grown.centroid),
+        bounds: { min: toScan(grown.min), max: toScan(grown.max) },
+        seed,
+        level,
+        leaked: grown.leaked,
+      });
+    } catch (e) {
+      setAddStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddBusy(false);
+    }
+  };
+  const keepDraft = () => {
+    if (!draftTooth) return;
+    const { seed, level, leaked, ...tooth } = draftTooth;
+    void seed;
+    void level;
+    void leaked;
+    setAddedTeeth((current) => [...current, tooth]);
+    setDraftTooth(null);
+    setSelectedIds([tooth.id]);
+    setFocusId(tooth.id);
+    setAddStatus(
+      `${numberName(swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi)} added. Saved on this device.`,
+    );
+  };
+  const presentNumbers = new Set(
+    teeth
+      .filter((tooth) => tooth.review !== 'rejected' && tooth.id !== draftTooth?.id)
+      .map((tooth) => shownFdi(tooth)),
+  );
+  const missingNumbers = [1, 2, 3, 4].flatMap((q) =>
+    [1, 2, 3, 4, 5, 6, 7, 8]
+      .map((n) => q * 10 + n)
+      .filter((fdi) => !presentNumbers.has(fdi)),
+  );
+  const addToothSection = () =>
+    section(
+    'Add a missing tooth',
+    <AddToothPanel
+      fdiChoices={missingNumbers}
+      picking={addPick}
+      busy={addBusy}
+      status={addStatus || editsNote}
+      draft={
+        draftTooth
+          ? {
+              fdi: swapSides ? mirrorFdi(draftTooth.fdi) : draftTooth.fdi,
+              volumeMm3:
+                draftTooth.voxels * spacing[0] * spacing[1] * spacing[2],
+              leaked: draftTooth.leaked,
+            }
+          : null
+      }
+      added={addedTeeth.map((tooth) => ({
+        id: tooth.id,
+        name: numberName(swapSides ? mirrorFdi(tooth.fdi) : tooth.fdi),
+      }))}
+      onStart={(fdi) => {
+        setCanalPick(null);
+        setAddStatus('');
+        setAddPick(fdi);
+      }}
+      onCancel={() => setAddPick(null)}
+      onKeep={keepDraft}
+      onAdjust={(direction) => {
+        if (!draftTooth) return;
+        const level = Math.min(
+          0.85,
+          Math.max(0.2, draftTooth.level - direction * 0.08),
+        );
+        void growAt(
+          draftTooth.seed,
+          (swapSides ? mirrorFdi(draftTooth.fdi) : draftTooth.fdi) ?? 11,
+          level,
+        );
+      }}
+      onDiscard={() => setDraftTooth(null)}
+      onRemove={(id) => {
+        setAddedTeeth((current) => current.filter((tooth) => tooth.id !== id));
+        setSelectedIds((current) => current.filter((item) => item !== id));
+      }}
+    />,
+  );
 
   // Case report (with a QR code for the share link) ----------------------------
   const openReport = () => {
@@ -1224,7 +1599,9 @@ export default function ProgressiveViewerPage({
     pending || analysisResult?.key !== analysisKey
       ? undefined
       : analysisResult.overlays;
-  const shownOverlays = useMemo(() => {
+  // Canal marks and the intraoral outline drawn over the label overlays
+  // (cheap when there are none: the overlays pass through unchanged).
+  const shownOverlays = (() => {
     const out: Partial<Record<VolumeAxis, SliceImage | null>> = {
       ...(baseOverlays ?? {}),
     };
@@ -1278,16 +1655,7 @@ export default function ProgressiveViewerPage({
       if (image) out[a] = image;
     }
     return out;
-  }, [
-    baseOverlays,
-    canals,
-    canalPick,
-    cursor,
-    dimensions,
-    spacing,
-    iosFit,
-    iosShow,
-  ]);
+  })();
 
   const frame3D = (
     <div className="relative flex h-full flex-col">
@@ -1477,8 +1845,7 @@ export default function ProgressiveViewerPage({
                 </button>
               ) : null}
               <p className="mt-1 text-amber-100/80">
-                Only changes this view and exports; merge them in the full
-                editor to save it.
+                Saved on this device and carried in share links.
               </p>
             </div>
           ) : null}
@@ -1557,6 +1924,7 @@ export default function ProgressiveViewerPage({
           </button>
         </>,
       )}
+      {addToothSection()}
       {section(
         'Show',
         <>
@@ -1780,13 +2148,16 @@ export default function ProgressiveViewerPage({
       )}
     </>
   ) : (
-    section(
-      'Teeth',
-      <p className="text-xs text-slate-400">
-        This scan has no tooth outlines yet. Open the full editor to propose or
-        draw them.
-      </p>,
-    )
+    <>
+      {section(
+        'Teeth',
+        <p className="text-xs text-slate-400">
+          This scan has no tooth outlines yet. Add teeth one by one below, or
+          open the full editor to propose them with a model.
+        </p>,
+      )}
+      {addToothSection()}
+    </>
   );
 
   const contrastPanel = section(

@@ -1,5 +1,13 @@
-import { Activity, FileArchive, FileUp, Layers3 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  Activity,
+  FileArchive,
+  FileUp,
+  History,
+  Layers3,
+  RotateCcw,
+  X,
+} from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ViewerApp } from '../app/useViewerApp';
 import logoUrl from '../assets/voxel-viewer-logo.svg';
@@ -11,6 +19,14 @@ import { LanguageSelect } from '../components/LanguageSelect';
 import { Notice } from '../components/Notice';
 import { APP_ROUTES } from '../constants';
 import { Trans, useTranslation } from '../i18n';
+import {
+  clearRecentCases,
+  getRecentCasesServerSnapshot,
+  getRecentCasesSnapshot,
+  removeRecentCase,
+  subscribeRecentCases,
+  type RecentCase,
+} from '../lib/project/recentCases';
 
 interface ImportPageProps {
   app: ViewerApp;
@@ -23,6 +39,15 @@ export default function ImportPage({ app }: ImportPageProps) {
   const zipInputRef = useRef<HTMLInputElement | null>(null);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [dragging, setDragging] = useState(false);
+  const recentCases = useSyncExternalStore(
+    subscribeRecentCases,
+    getRecentCasesSnapshot,
+    getRecentCasesServerSnapshot,
+  );
+  const reopenRecent = (entry: RecentCase) => {
+    if (entry.kind === 'url' && entry.url) void app.openRemote(entry.url);
+    else if (entry.kind === 'sample') void app.openSample();
+  };
   // Only offer the sample when this deployment ships one.
   const [sampleAvailable, setSampleAvailable] = useState(false);
   useEffect(() => {
@@ -239,6 +264,83 @@ export default function ImportPage({ app }: ImportPageProps) {
               </div>
             </div>
           </section>
+
+          {recentCases.length ? (
+            <section
+              className="rounded border border-slate-800 bg-slate-950/70 p-4"
+              aria-labelledby="recent-cases-title"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div
+                  id="recent-cases-title"
+                  className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-slate-500"
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('importPage.recent.title')}
+                </div>
+                <Button size="sm" onClick={() => clearRecentCases()}>
+                  {t('importPage.recent.clear')}
+                </Button>
+              </div>
+              <ul className="mt-2 divide-y divide-slate-800/80">
+                {recentCases.map((entry) => (
+                  <li
+                    key={entry.key}
+                    className="flex items-center gap-2 py-1.5 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className="truncate text-slate-200"
+                        title={entry.url ?? entry.name}
+                      >
+                        {entry.name}
+                      </div>
+                      <div className="truncate text-[11px] text-slate-500">
+                        {t(`importPage.recent.kind.${entry.kind}`)}
+                        {' · '}
+                        {new Date(entry.openedAt).toLocaleString(undefined, {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                        })}
+                        {entry.teeth
+                          ? ` · ${t('importPage.recent.teeth', { count: entry.teeth })}`
+                          : ''}
+                      </div>
+                    </div>
+                    {entry.kind === 'file' ? (
+                      <span className="shrink-0 text-[11px] text-slate-500">
+                        {t('importPage.recent.openFileAgain')}
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={() => reopenRecent(entry)}
+                        disabled={
+                          app.busy || (entry.kind === 'url' && !entry.url)
+                        }
+                      >
+                        <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                        {t('importPage.recent.reopen')}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={() => removeRecentCase(entry.key)}
+                      aria-label={t('importPage.recent.removeLabel', {
+                        name: entry.name,
+                      })}
+                      title={t('importPage.recent.remove')}
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                      <span className="sr-only sm:not-sr-only">
+                        {t('importPage.recent.remove')}
+                      </span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           <FolderPicker
             directorySupported={app.directorySupported}

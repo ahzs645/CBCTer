@@ -1,3 +1,11 @@
+import {
+  fetchTransient,
+  readBodyTransient,
+  rejectRetryableStatus,
+  withRetry,
+  type RetryOptions,
+} from './fetchRetry';
+
 export interface RemoteRangeResult {
   url: string;
   bytes: Uint8Array;
@@ -21,16 +29,20 @@ export async function fetchRemoteRange(
   url: string,
   start = 0,
   end = 4095,
+  retry?: RetryOptions,
 ): Promise<RemoteRangeResult> {
-  const response = await fetch(url, {
-    headers: {
-      Range: `bytes=${start}-${end}`,
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Remote range request failed for ${url}: ${response.status}`);
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const { response, bytes } = await withRetry(async () => {
+    const response = await fetchTransient(url, {
+      headers: {
+        Range: `bytes=${start}-${end}`,
+      },
+    });
+    await rejectRetryableStatus(response);
+    if (!response.ok) {
+      throw new Error(`Remote range request failed for ${url}: ${response.status}`);
+    }
+    return { response, bytes: await readBodyTransient(response) };
+  }, retry);
   return {
     url: response.url || url,
     bytes,

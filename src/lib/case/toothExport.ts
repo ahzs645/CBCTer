@@ -1,10 +1,19 @@
-import { zipSync } from 'fflate';
+import { AsyncZipDeflate, Zip } from 'fflate';
 import type { Vec3 } from '../../types';
 import { maskToBinaryStl } from '../segmentation/maskMesh';
-import { archModelStl, biteContacts, orientStl } from './archModel';
+import {
+  DEFAULT_MAX_ERROR_MM,
+  DEFAULT_TARGET_RATIO,
+  simplifyClosedStl,
+} from '../surface/simplifyClosed';
+import {
+  archModelStl,
+  biteContacts,
+  orientStl,
+  type ArchModelOptions,
+} from './archModel';
 import { meshToBinaryStl, type TriMesh } from '../ios/meshIo';
 import {
-  concatBinaryStl,
   crownDirectionFor,
   estimateGumline,
   selectionBounds,
@@ -33,6 +42,8 @@ export interface ToothModelOptions {
   archModel?: boolean;
   /** Base height of the printable model, mm. */
   baseHeightMm?: number;
+  /** Simplify the closed surfaces (sub-voxel error) for smaller files. */
+  smaller?: boolean;
   /** An intraoral scan aligned to these crowns, to ship alongside them. */
   intraoral?: { crowns: TriMesh; note: string };
 }
@@ -55,6 +66,157 @@ function triangles(stl: Uint8Array) {
     : 0;
 }
 
+/** One tooth's crop and how to cut it; plain data so it can go to a worker. */
+export interface ToothPartInput {
+  scan: ArrayLike<number>;
+  labels: Uint16Array;
+  shape: Vec3;
+  start: Vec3;
+  spacing: Vec3;
+  values: number[];
+  crownDirection: 1 | -1;
+  crownOnly: boolean;
+  gumOffsetMm: number;
+  /** Simplify the closed surface to save space (sub-voxel error). */
+  smaller?: boolean;
+}
+
+export interface ToothPartResult {
+  /** Oriented binary STL, or null when the tooth has no voxels. */
+  stl: Uint8Array | null;
+  /** Gumline (absolute z index) when the crown was cut. */
+  cut: { gumline: number; crownDirection: 1 | -1; measured: boolean } | null;
+}
+
+/** Mesh one tooth (or its crown above the estimated gumline). */
+export async function meshToothPart(
+  input: ToothPartInput,
+): Promise<ToothPartResult> {
+  const { shape, start, spacing } = input;
+  let estimate: GumlineEstimate | null = null;
+  if (input.crownOnly)
+    estimate = estimateGumline({
+      scan: input.scan,
+      labels: input.labels,
+      shape,
+      spacing,
+      value: input.values,
+      crownDirection: input.crownDirection,
+      gumOffsetMm: input.gumOffsetMm,
+    });
+  const { mask, voxels } = toothMask(
+    input.labels,
+    shape,
+    input.values,
+    estimate ?? undefined,
+  );
+  const cut = estimate
+    ? {
+        gumline: estimate.gumline + start[2],
+        crownDirection: estimate.crownDirection,
+        measured: estimate.measured,
+      }
+    : null;
+  if (!voxels) return { stl: null, cut };
+  let stl = orientStl(
+    new Uint8Array(
+      await maskToBinaryStl(
+        mask,
+        [shape[2], shape[1], shape[0]],
+        spacing,
+        start,
+        1,
+        // No decimation: the mesher's decimation drops triangles (holes).
+        { extraction: 'iso', smoothIterations: 8, decimateReduction: 0 },
+      ).arrayBuffer(),
+    ),
+  );
+  if (input.smaller) stl = await shrinkStl(stl, spacing);
+  return { stl, cut };
+}
+
+/** The printable arch model's STL, optionally simplified. */
+export async function archModelPart(
+  options: ArchModelOptions & { smaller?: boolean },
+): Promise<Uint8Array> {
+  const stl = await archModelStl(options);
+  return options.smaller ? shrinkStl(stl, options.spacing) : stl;
+}
+
+/**
+ * Simplify a closed surface (it stays closed and printable). The error bound
+ * is a fraction of the voxel size, so detail the scan resolves is kept.
+ */
+async function shrinkStl(stl: Uint8Array, spacing: Vec3): Promise<Uint8Array> {
+  return simplifyClosedStl(stl, {
+    targetRatio: DEFAULT_TARGET_RATIO,
+    maxErrorMm: Math.max(DEFAULT_MAX_ERROR_MM, 0.3 * Math.min(...spacing)),
+  });
+}
+
+/** Where the heavy steps run: in this thread by default, or a worker. */
+export interface ToothExportCompute {
+  part: (input: ToothPartInput) => Promise<ToothPartResult>;
+  arch: (
+    options: ArchModelOptions & { smaller?: boolean },
+  ) => Promise<Uint8Array>;
+}
+
+const localCompute: ToothExportCompute = {
+  part: meshToothPart,
+  arch: archModelPart,
+};
+
+/**
+ * Writes a ZIP as it goes: each file is compressed as soon as it exists, so
+ * the whole archive is never held twice in memory.
+ */
+class StreamingZip {
+  private chunks: Uint8Array[] = [];
+  private zip: Zip;
+  private done: Promise<void>;
+  constructor() {
+    let finish!: () => void, fail!: (error: Error) => void;
+    this.done = new Promise((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    this.zip = new Zip((error, chunk, final) => {
+      if (error) return fail(error);
+      this.chunks.push(chunk);
+      if (final) finish();
+    });
+  }
+  /** `keep`: the caller still needs `data` (compression takes ownership). */
+  add(name: string, data: Uint8Array, keep = false) {
+    this.addParts(name, [data], keep);
+  }
+  addParts(name: string, parts: Uint8Array[], keep = false) {
+    // Compression runs off the main thread and detaches what it is given.
+    const file = new AsyncZipDeflate(name, { level: 6 });
+    this.zip.add(file);
+    if (!parts.length) file.push(new Uint8Array(0), true);
+    parts.forEach((part, i) =>
+      file.push(keep ? part.slice() : part, i === parts.length - 1),
+    );
+  }
+  async finish(): Promise<Blob> {
+    this.zip.end();
+    await this.done;
+    return new Blob(this.chunks as Uint8Array<ArrayBuffer>[], {
+      type: 'application/zip',
+    });
+  }
+}
+
+/** A binary STL header for `count` triangles, to stream parts after it. */
+function stlHeader(count: number) {
+  const header = new Uint8Array(84);
+  header.set(new TextEncoder().encode('CBCTer combined teeth'));
+  new DataView(header.buffer).setUint32(80, count, true);
+  return header;
+}
+
 /**
  * Builds a ZIP of STL surfaces (millimetres, scan frame) for the chosen teeth:
  * one file per tooth, one combined file, and a README that states how the
@@ -69,90 +231,79 @@ export async function buildToothModelZip(options: {
   model: ToothModelOptions;
   scanName: string;
   onProgress?: (done: number, total: number) => void;
-}): Promise<{ zip: Uint8Array; reports: ToothModelReport[] }> {
+  compute?: ToothExportCompute;
+  /** Labels only, for the box around all teeth (saves reading the scan). */
+  readLabels?: (groupId: string, start: Vec3, shape: Vec3) => Promise<Uint16Array>;
+}): Promise<{ zip: Blob; reports: ToothModelReport[] }> {
   const { teeth, dims, spacing, model } = options;
+  const compute = options.compute ?? localCompute;
   if (!teeth.length) throw new Error('Choose at least one tooth to export.');
-  const files: Record<string, Uint8Array> = {};
+  const zip = new StreamingZip();
   const crownCuts = new Map<
     string,
     { gumline: number; crownDirection: 1 | -1 }
   >();
-  const boxes = new Map<string, { start: Vec3; shape: Vec3 }>();
   const parts: Uint8Array[] = [];
   const reports: ToothModelReport[] = [];
   for (const [index, tooth] of teeth.entries()) {
     const box = selectionBounds([tooth], dims, 6)!;
     const crop = await options.read(tooth.groupId, box.start, box.shape);
-    let estimate: GumlineEstimate | null = null;
-    if (model.crownOnly) {
-      estimate = estimateGumline({
-        scan: crop.scan,
-        labels: crop.labels,
-        shape: box.shape,
-        spacing,
-        value: toothValues(tooth),
-        crownDirection: crownDirectionFor(
-          tooth,
-          options.allTeeth,
-          model.superiorSign ?? 1,
-        ),
-        gumOffsetMm: model.gumOffsetMm,
-      });
-    }
-    if (estimate) {
-      crownCuts.set(tooth.id, {
-        gumline: estimate.gumline + box.start[2],
-        crownDirection: estimate.crownDirection,
-      });
-      boxes.set(tooth.id, box);
-    }
-    const { mask, voxels } = toothMask(
-      crop.labels,
-      box.shape,
-      toothValues(tooth),
-      estimate ?? undefined,
-    );
-    options.onProgress?.(index + 1, teeth.length);
-    if (!voxels) continue;
-    const stl = orientStl(
-      new Uint8Array(
-        await maskToBinaryStl(
-          mask,
-          [box.shape[2], box.shape[1], box.shape[0]],
-          spacing,
-          box.start,
-          1,
-          // No decimation: the mesher's decimation drops triangles (holes).
-          { extraction: 'iso', smoothIterations: 8, decimateReduction: 0 },
-        ).arrayBuffer(),
+    const { stl, cut } = await compute.part({
+      scan: crop.scan,
+      labels: crop.labels,
+      shape: box.shape,
+      start: box.start,
+      spacing,
+      values: toothValues(tooth),
+      crownDirection: crownDirectionFor(
+        tooth,
+        options.allTeeth,
+        model.superiorSign ?? 1,
       ),
-    );
+      crownOnly: model.crownOnly,
+      gumOffsetMm: model.gumOffsetMm,
+      smaller: model.smaller,
+    });
+    if (cut)
+      crownCuts.set(tooth.id, {
+        gumline: cut.gumline,
+        crownDirection: cut.crownDirection,
+      });
+    options.onProgress?.(index + 1, teeth.length);
+    if (!stl) continue;
     const name = toothLabel(tooth, index).toLowerCase().replace(/\s+/g, '-');
     const file = `teeth/${name}${model.crownOnly ? '-crown' : ''}.stl`;
-    files[file] = stl;
+    zip.add(file, stl, true);
     parts.push(stl);
-    const tipIndex =
-      estimate &&
-      (estimate.crownDirection === 1
-        ? tooth.bounds.max[2] - box.start[2]
-        : tooth.bounds.min[2] - box.start[2]);
+    const tip = cut
+      ? cut.crownDirection === 1
+        ? tooth.bounds.max[2]
+        : tooth.bounds.min[2]
+      : null;
     reports.push({
       tooth: toothLabel(tooth, index),
       fdi: tooth.fdi,
       file,
       triangles: triangles(stl),
-      ...(estimate && tipIndex !== null
+      ...(cut && tip !== null
         ? {
             crownHeightMm:
-              Math.round(
-                Math.abs(tipIndex - estimate.gumline) * spacing[2] * 10,
-              ) / 10,
-            gumlineMeasured: estimate.measured,
+              Math.round(Math.abs(tip - cut.gumline) * spacing[2] * 10) / 10,
+            gumlineMeasured: cut.measured,
           }
         : {}),
     });
   }
   if (!parts.length) throw new Error('The chosen teeth have no voxels.');
+  const combined = model.crownOnly
+    ? 'crowns-combined.stl'
+    : 'teeth-combined.stl';
+  // The combined file streams the per-tooth triangles after one header.
+  zip.addParts(combined, [
+    stlHeader(parts.reduce((n, stl) => n + triangles(stl), 0)),
+    ...parts.map((stl) => stl.slice(84)),
+  ]);
+  parts.length = 0;
   const extra: string[] = [];
   // One crop over all chosen teeth for the bite check and the printable model.
   // The arch model grows its own box for the base, so a small pad is enough.
@@ -165,7 +316,9 @@ export async function buildToothModelZip(options: {
     unionLabels = await Promise.all(
       groupIds.map(async (groupId) => ({
         groupId,
-        words: (await options.read(groupId, union.start, union.shape)).labels,
+        words: options.readLabels
+          ? await options.readLabels(groupId, union.start, union.shape)
+          : (await options.read(groupId, union.start, union.shape)).labels,
       })),
     );
   } catch (error) {
@@ -188,7 +341,7 @@ export async function buildToothModelZip(options: {
     );
   }
   if (model.intraoral?.crowns.indices.length) {
-    files['intraoral-crowns.stl'] = meshToBinaryStl(model.intraoral.crowns);
+    zip.add('intraoral-crowns.stl', meshToBinaryStl(model.intraoral.crowns));
     extra.push(`intraoral-crowns.stl: ${model.intraoral.note}`);
   }
   if (unionLabels && model.archModel && model.crownOnly) {
@@ -202,7 +355,9 @@ export async function buildToothModelZip(options: {
       ]),
     );
     try {
-      files['arch-model.stl'] = await archModelStl({
+      zip.add(
+        'arch-model.stl',
+        await compute.arch({
         labels: unionLabels,
         shape: union.shape,
         start: union.start,
@@ -210,7 +365,9 @@ export async function buildToothModelZip(options: {
         teeth: teeth.filter((t) => crowns.has(t.id)),
         crowns,
         baseHeightMm: model.baseHeightMm ?? 8,
-      });
+        smaller: model.smaller,
+        }),
+      );
       extra.push(
         `arch-model.stl: the crowns joined on a ${model.baseHeightMm ?? 8} mm horseshoe base, one closed printable piece. The base top follows each tooth's estimated gumline in flat steps; it is not a gum contour.`,
       );
@@ -218,14 +375,13 @@ export async function buildToothModelZip(options: {
       extra.push(`Printable model skipped: ${errorText(error)}`);
     }
   }
-  const combined = model.crownOnly
-    ? 'crowns-combined.stl'
-    : 'teeth-combined.stl';
-  files[combined] = concatBinaryStl(parts);
-  files['README.txt'] = new TextEncoder().encode(
-    readme(options.scanName, model, spacing, reports, combined, extra),
+  zip.add(
+    'README.txt',
+    new TextEncoder().encode(
+      readme(options.scanName, model, spacing, reports, combined, extra),
+    ),
   );
-  return { zip: zipSync(files, { level: 6 }), reports };
+  return { zip: await zip.finish(), reports };
 }
 
 function readme(
@@ -243,6 +399,11 @@ function readme(
     `Files: ${combined} (all teeth in one file) and teeth/*.stl (one per tooth).`,
     'Units: millimetres, in the scan coordinate frame (teeth keep their arch positions).',
     `Voxel size: ${spacing.map((s) => s.toFixed(3)).join(' × ')} mm.`,
+    ...(model.smaller
+      ? [
+          `Surfaces simplified to about a tenth of the triangles; they stay closed and within ${Math.max(0.05, 0.3 * Math.min(...spacing)).toFixed(2)} mm of the unsimplified surface.`,
+        ]
+      : []),
     model.crownOnly
       ? `Cut: crowns above an ESTIMATED gumline, ${model.gumOffsetMm} mm crownward of the detected bone crest.`
       : 'Cut: whole teeth, crowns and roots.',

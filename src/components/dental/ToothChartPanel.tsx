@@ -6,10 +6,11 @@ import {
   PRIMARY_CHART_ROWS,
   TOOTH_CONDITIONS,
   toothConditionDefinition,
-  toothName,
 } from '../../lib/dental/toothChart';
 import { cn } from '../../utils/cn';
 import { Button } from '../Button';
+import { COARSE_TARGET, FOCUS_RING } from '../Button.constants';
+import { localToothName } from './toothNames';
 
 export type Dentition = 'permanent' | 'primary';
 
@@ -18,7 +19,10 @@ interface ToothChartPanelProps {
   selectedFdi: number | null;
   dentition: Dentition;
   caseNotes: string;
-  /** Larger touch targets for phones and tablets. */
+  /**
+   * @deprecated Ignored: targets grow on touch screens by themselves
+   * (`[@media(pointer:coarse)]`). Kept so existing callers still compile.
+   */
   touch?: boolean;
   onDentitionChange: (dentition: Dentition) => void;
   onSelectTooth: (fdi: number | null) => void;
@@ -33,15 +37,15 @@ interface ToothChartPanelProps {
 
 function ToothCell({
   fdi,
+  name,
   finding,
   selected,
-  touch,
   onClick,
 }: {
   fdi: number;
+  name: string;
   finding?: ToothFinding;
   selected: boolean;
-  touch: boolean;
   onClick: () => void;
 }) {
   const missing = finding?.conditions.includes('missing');
@@ -53,12 +57,13 @@ function ToothCell({
     <button
       type="button"
       onClick={onClick}
-      title={toothName(fdi)}
-      aria-label={`${fdi} ${toothName(fdi)}`}
+      title={name}
+      aria-label={`${fdi} ${name}`}
       aria-pressed={selected}
       className={cn(
         'relative flex min-w-0 flex-col items-center justify-center rounded border font-mono tabular-nums transition',
-        touch ? 'h-11 text-[11px]' : 'h-9 text-[10px] tracking-tighter',
+        'h-9 text-[10px] tracking-tighter [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-[11px] [@media(pointer:coarse)]:tracking-normal',
+        FOCUS_RING,
         selected
           ? 'border-sky-400 bg-sky-500/20 text-sky-50'
           : finding
@@ -92,7 +97,6 @@ export function ToothChartPanel({
   selectedFdi,
   dentition,
   caseNotes,
-  touch = false,
   onDentitionChange,
   onSelectTooth,
   onToggleCondition,
@@ -119,9 +123,9 @@ export function ToothChartPanel({
         >
           <ToothCell
             fdi={fdi}
+            name={localToothName(t, fdi)}
             finding={byFdi.get(fdi)}
             selected={selectedFdi === fdi}
-            touch={touch}
             onClick={() => onSelectTooth(selectedFdi === fdi ? null : fdi)}
           />
         </div>
@@ -141,21 +145,16 @@ export function ToothChartPanel({
           aria-label={t('dental.chart.title')}
         >
           {(['permanent', 'primary'] as const).map((option) => (
-            <button
+            <Button
               key={option}
-              type="button"
-              aria-pressed={dentition === option}
+              variant="quiet"
+              size="xs"
+              pressed={dentition === option}
               onClick={() => onDentitionChange(option)}
-              className={cn(
-                'rounded px-2 text-[11px] transition',
-                touch ? 'h-9' : 'h-6',
-                dentition === option
-                  ? 'bg-slate-200 text-slate-950'
-                  : 'text-slate-400 hover:text-slate-100',
-              )}
+              className="px-2"
             >
               {t(`dental.chart.${option}`)}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -188,7 +187,7 @@ export function ToothChartPanel({
                 {selectedFdi}
               </div>
               <div className="truncate text-[11px] text-slate-400">
-                {toothName(selectedFdi)}
+                {localToothName(t, selectedFdi)}
               </div>
             </div>
             <div className="shrink-0 text-[11px] text-slate-500">
@@ -210,8 +209,9 @@ export function ToothChartPanel({
                     aria-pressed={active}
                     onClick={() => onToggleCondition(selectedFdi, condition.id)}
                     className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 text-[11px] transition',
-                      touch ? 'h-9' : 'h-7',
+                      'inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] transition',
+                      COARSE_TARGET,
+                      FOCUS_RING,
                       active
                         ? 'border-transparent text-slate-950'
                         : 'border-slate-700 text-slate-300 hover:bg-slate-800',
@@ -249,7 +249,6 @@ export function ToothChartPanel({
             <Button
               variant="primary"
               size="sm"
-              className={touch ? 'h-10' : undefined}
               onClick={() => onPinToCursor(selectedFdi)}
             >
               <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
@@ -258,7 +257,6 @@ export function ToothChartPanel({
             <Button
               variant="ghost"
               size="sm"
-              className={touch ? 'h-10' : undefined}
               disabled={!selected?.point}
               onClick={() => onGoToTooth(selectedFdi)}
             >
@@ -268,7 +266,7 @@ export function ToothChartPanel({
             <Button
               variant="ghost"
               size="sm"
-              className={cn('col-span-2', touch && 'h-10')}
+              className="col-span-2"
               disabled={!selected}
               onClick={() => onClearTooth(selectedFdi)}
             >
@@ -296,7 +294,6 @@ export function ToothChartPanel({
         variant="ghost"
         size="sm"
         block
-        className={touch ? 'h-10' : undefined}
         disabled={findings.length === 0}
         onClick={onExportCsv}
       >

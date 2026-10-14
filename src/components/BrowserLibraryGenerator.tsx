@@ -7,7 +7,6 @@ import { useTranslation } from '../i18n';
 import { clampRoi, type ToothRoi } from '../lib/segmentation/roi';
 import { SEGMENTATION_ALGORITHMS } from '../lib/segmentation/types';
 import type { UseSegmentation } from '../lib/segmentation/useSegmentation';
-import { cn } from '../utils/cn';
 import { Button } from './Button';
 import { Notice } from './Notice';
 import { RangeField } from './RangeField';
@@ -248,20 +247,17 @@ export function BrowserLibraryGenerator({
           </span>
           <div className="flex flex-wrap items-center gap-1.5">
             {SEGMENTATION_ALGORITHMS.map((option) => (
-              <button
+              <Button
                 key={option.id}
-                type="button"
+                variant="ghost"
+                size="sm"
+                pressed={seg.algorithm === option.id}
                 disabled={seg.loading || seg.generating}
                 onClick={() => seg.setAlgorithm(option.id)}
-                className={cn(
-                  'rounded border px-2.5 py-1 text-xs transition disabled:opacity-50',
-                  seg.algorithm === option.id
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-200'
-                    : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800',
-                )}
+                className="px-2.5 text-xs"
               >
                 {option.label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>

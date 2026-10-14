@@ -570,6 +570,14 @@ export async function findSplitTeeth(
   spacing: Vec3,
   read: (groupId: string, start: Vec3, shape: Vec3) => Promise<Uint16Array>,
   minSharedMm2 = 15,
+  measure: (input: {
+    labels: Uint16Array;
+    shape: Vec3;
+    spacing: Vec3;
+    a: number;
+    b: number;
+  }) => number | Promise<number> = (input) =>
+    sharedSurfaceMm2(input.labels, input.shape, input.spacing, input.a, input.b),
 ): Promise<Array<{ a: ToothInstance; b: ToothInstance; sharedMm2: number }>> {
   const live = teeth.filter((t) => t.review !== 'rejected');
   const found: Array<{
@@ -599,13 +607,13 @@ export async function findSplitTeeth(
         Math.max(1, end[k] - start[k] + 1),
       ) as Vec3;
       const labels = await read(a.groupId, start, shape);
-      const sharedMm2 = sharedSurfaceMm2(
+      const sharedMm2 = await measure({
         labels,
         shape,
         spacing,
-        a.value,
-        b.value,
-      );
+        a: a.value,
+        b: b.value,
+      });
       if (sharedMm2 >= minSharedMm2) found.push({ a, b, sharedMm2 });
     }
   return found;

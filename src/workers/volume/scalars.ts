@@ -28,10 +28,16 @@ export function buildScalarHistogram(
   const histogram = new Uint32Array(HISTOGRAM_BINS);
   const [min, max] = scalarRange;
   const span = Math.max(1, max - min);
-
-  for (let index = 0; index < voxels.length; index += 1) {
-    const value = voxels[index] ?? 0;
-    if (value < min || value > max) continue;
+  // Count each Int16 value once, then fold the counts into buckets: the same
+  // result as bucketing every voxel, several times faster.
+  const counts = new Uint32Array(65536);
+  for (let index = 0; index < voxels.length; index += 1)
+    counts[voxels[index] + 32768] += 1;
+  const lo = Math.max(-32768, Math.ceil(min)),
+    hi = Math.min(32767, Math.floor(max));
+  for (let value = lo; value <= hi; value += 1) {
+    const count = counts[value + 32768];
+    if (!count) continue;
     const bucket = Math.max(
       0,
       Math.min(
@@ -39,7 +45,7 @@ export function buildScalarHistogram(
         Math.round(((value - min) / span) * (histogram.length - 1)),
       ),
     );
-    histogram[bucket] += 1;
+    histogram[bucket] += count;
   }
 
   return histogram;

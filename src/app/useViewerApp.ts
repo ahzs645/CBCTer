@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { IDLE_PROGRESS } from '../constants';
 import { loadVolumeFromFolder } from '../lib/import/load-volume';
 import { loadRemoteImport } from '../lib/import/remote';
+import { recordRecentCase } from '../lib/project/recentCases';
 import type { ScanFolderPicker } from '../lib/import/source-picker';
 import type { ImportParseOptions } from '../lib/import/types';
 import type { DicomImportEngine } from '../domain/types';
@@ -74,6 +75,8 @@ export interface ViewerApp {
   sourceUrl: string | null;
   /** FDI tooth a share link asked to select once the scan opens. */
   sharedTooth: number | null;
+  /** Case corrections a share link carried (`swap`, `merge`). */
+  sharedEdits: Record<string, string> | null;
   openSample: () => Promise<void>;
   openNifti: (file: File) => Promise<void>;
   /** Open a single ZIP: a vendor export zipped up, or a `.cbct.zip` package. */
@@ -124,6 +127,11 @@ export function useViewerApp({
       ? null
       : (readShareLink(window.location)?.tooth ?? null),
   );
+  const [sharedEdits] = useState<Record<string, string> | null>(() =>
+    typeof window === 'undefined'
+      ? null
+      : (readShareLink(window.location)?.edits ?? null),
+  );
   const [volume, setVolume] = useState<LoadedVolume | null>(null);
   const [downsampled3D, setDownsampled3D] = useState(false);
   const [prepared3D, setPrepared3D] = useState<PreparedVolumeFor3D | null>(
@@ -164,7 +172,7 @@ export function useViewerApp({
       source: ScanFolderSource,
       options?: ImportParseOptions,
       shareUrl?: string,
-    ) => {
+    ): Promise<boolean> => {
       resetViewer();
       setCurrentSource(source);
       setSourceLabel(source.label);
@@ -178,7 +186,7 @@ export function useViewerApp({
 
         if (importGeneration !== generation.current) {
           loaded.volume.chunked?.dispose();
-          return;
+          return false;
         }
         activeSession.current = loaded.volume.chunked ?? null;
         setIssue(null);
@@ -194,9 +202,10 @@ export function useViewerApp({
           completed: loaded.meta.sliceCount,
           total: loaded.meta.sliceCount,
         });
+        return true;
       } catch (error) {
         if (importGeneration !== generation.current || isAbortError(error))
-          return;
+          return false;
 
         setIssue(makeImportIssue(error));
         setProgress({
@@ -205,6 +214,7 @@ export function useViewerApp({
           completed: 0,
           total: 1,
         });
+        return false;
       }
     },
     [dicomImportEngine, resetViewer],
@@ -236,7 +246,8 @@ export function useViewerApp({
     try {
       const source = await sourcePicker.pickSource();
       if (!source) return;
-      await loadSource(source);
+      if (await loadSource(source))
+        recordRecentCase({ kind: 'file', name: source.label });
       return;
     } catch (error) {
       setIssue(makeImportIssue(error));
@@ -260,6 +271,7 @@ export function useViewerApp({
           : new URLSearchParams(window.location.search).get('sample') ||
             undefined;
       const loaded = await loadSampleVolume(samplePath);
+      recordRecentCase({ kind: 'sample', name: loaded.label, url: samplePath });
 
       setIssue(null);
       setVolume(loaded.volume);
@@ -286,14 +298,20 @@ export function useViewerApp({
   };
 
   const openArchive = async (file: File) => {
-    await loadSource({
+    const opened = await loadSource({
       kind: ScanFolderSourceKind.FileList,
       label: file.name,
       entries: [{ name: file.name, relativePath: file.name, file }],
     });
+    if (opened) recordRecentCase({ kind: 'file', name: file.name });
   };
 
   const openNifti = async (file: File) => {
+    if (await loadNiftiFile(file))
+      recordRecentCase({ kind: 'file', name: file.name });
+  };
+
+  const loadNiftiFile = async (file: File): Promise<boolean> => {
     resetViewer();
     setSourceLabel(file.name);
     setProgress({
@@ -317,8 +335,9 @@ export function useViewerApp({
         completed: loaded.volume.meta.sliceCount,
         total: loaded.volume.meta.sliceCount,
       });
+      return true;
     } catch (error) {
-      if (isAbortError(error)) return;
+      if (isAbortError(error)) return false;
 
       setIssue(makeImportIssue(error));
       setProgress({
@@ -327,6 +346,7 @@ export function useViewerApp({
         completed: 0,
         total: 1,
       });
+      return false;
     }
   };
 
@@ -345,11 +365,12 @@ export function useViewerApp({
       const remote = await loadRemoteImport(url);
       if (remoteGeneration !== generation.current) return;
       setSourceLabel(remote.label);
-      if (remote.type === 'nifti') {
-        await openNifti(remote.file);
-        return;
-      }
-      await loadSource(remote.source, undefined, url.trim());
+      const opened =
+        remote.type === 'nifti'
+          ? await loadNiftiFile(remote.file)
+          : await loadSource(remote.source, undefined, url.trim());
+      if (opened)
+        recordRecentCase({ kind: 'url', name: remote.label, url: url.trim() });
     } catch (error) {
       if (remoteGeneration !== generation.current) return;
       setIssue(makeImportIssue(error));
@@ -441,6 +462,7 @@ export function useViewerApp({
     openRemote,
     sourceUrl,
     sharedTooth,
+    sharedEdits,
     openSample,
     openNifti,
     openArchive,

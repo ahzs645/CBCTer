@@ -1,9 +1,46 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { cp, mkdir, readdir, rm } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+
+/** Must match SW_VERSION_PLACEHOLDER in src/lib/pwa/swCache.ts. */
+const SW_VERSION_PLACEHOLDER = '__CBCTER_SW_VERSION__';
+
+/**
+ * Stamps sw.js with a hash of everything else the build emitted (file names
+ * carry content hashes) plus the worker's own code. Any change to the app
+ * makes sw.js byte-different, so browsers install the new worker, which
+ * caches under a new name and deletes the old caches on activate.
+ */
+function serviceWorkerVersion(): Plugin {
+  return {
+    name: 'service-worker-version',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const sw = bundle['sw.js'];
+      if (!sw || sw.type !== 'chunk') return;
+      const hash = createHash('sha256');
+      for (const fileName of Object.keys(bundle).sort()) {
+        if (fileName === 'sw.js' || fileName === 'asset-manifest.json')
+          continue;
+        const item = bundle[fileName];
+        hash.update(fileName);
+        // index.html and other unhashed files change without changing name.
+        if (item.type === 'asset' && !/-[\w-]{8,}\.\w+$/.test(fileName))
+          hash.update(item.source);
+      }
+      hash.update(sw.code);
+      const version = hash.digest('hex').slice(0, 12);
+      if (!sw.code.includes(SW_VERSION_PLACEHOLDER))
+        this.error('sw.js lost its version placeholder.');
+      sw.code = sw.code.replaceAll(SW_VERSION_PLACEHOLDER, version);
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', 'VITE_');
@@ -43,6 +80,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      serviceWorkerVersion(),
       {
         // Dev only: serve the onnxruntime-web WASM runtime at `${base}ort/`
         // straight from node_modules. In `vite dev` these files can't live in

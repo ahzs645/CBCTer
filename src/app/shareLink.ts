@@ -9,6 +9,8 @@ export interface ShareLink {
   url: string;
   /** FDI number of a tooth to select after opening. */
   tooth?: number;
+  /** Small case corrections (see lib/case/caseEdits editsToLinkParams). */
+  edits?: Record<string, string>;
 }
 
 /**
@@ -51,9 +53,15 @@ export function readShareLink(location: {
   const url = params.get('url') ?? query.get('url');
   if (!url || !/^https:\/\//i.test(url)) return null;
   const tooth = Number(params.get('tooth') ?? query.get('tooth'));
+  const edits: Record<string, string> = {};
+  for (const key of ['swap', 'merge']) {
+    const value = params.get(key) ?? query.get(key);
+    if (value) edits[key] = value;
+  }
   return {
     url,
     ...(Number.isInteger(tooth) && tooth >= 11 && tooth <= 85 ? { tooth } : {}),
+    ...(Object.keys(edits).length ? { edits } : {}),
   };
 }
 
@@ -61,5 +69,7 @@ export function buildShareLink(page: string, link: ShareLink): string {
   const base = page.replace(/[#?].*$/, '');
   const params = new URLSearchParams({ url: link.url });
   if (link.tooth) params.set('tooth', String(link.tooth));
+  for (const [key, value] of Object.entries(link.edits ?? {}))
+    params.set(key, value);
   return `${base}#${params.toString()}`;
 }

@@ -11,9 +11,18 @@ import { useTranslation } from '../../i18n';
 import { PLANE_COLORS } from '../../constants';
 import { VolumeAxis } from '../../types';
 import { cn } from '../../utils/cn';
+import { Button } from '../Button';
+import { FOCUS_RING } from '../Button.constants';
+import { useFocusTrap } from './useFocusTrap';
 
 export type MobileView = VolumeAxis | '3d';
 export type MobileSheet = 'contrast' | 'measure' | 'chart' | 'more';
+
+/**
+ * Only one sheet is open at a time, so the dock buttons point their
+ * `aria-controls` at this id while their sheet is open.
+ */
+export const MOBILE_SHEET_ID = 'mobile-sheet';
 
 const VIEW_COLORS: Record<MobileView, string> = {
   [VolumeAxis.Axial]: PLANE_COLORS.axial,
@@ -56,6 +65,7 @@ export function MobileTopBar({
               onClick={() => onViewChange(item.id)}
               className={cn(
                 'h-9 rounded border text-xs font-semibold transition',
+                FOCUS_RING,
                 active
                   ? 'bg-slate-800 text-slate-50'
                   : 'border-slate-800 text-slate-400 active:bg-slate-900',
@@ -99,14 +109,24 @@ export function MobileDock({
     active: boolean,
     onClick: () => void,
     badge?: number,
+    /** The sheet this button opens, for aria-expanded / aria-controls. */
+    sheet?: MobileSheet,
   ) => (
     <button
       key={key}
       type="button"
       aria-pressed={active}
-      onClick={onClick}
+      aria-expanded={sheet ? activeSheet === sheet : undefined}
+      aria-controls={sheet && activeSheet === sheet ? MOBILE_SHEET_ID : undefined}
+      onClick={(event) => {
+        // Safari does not focus buttons on tap; focus it so the sheet can
+        // hand focus back here when it closes.
+        event.currentTarget.focus({ preventScroll: true });
+        onClick();
+      }}
       className={cn(
         'relative flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg text-[11px] transition',
+        FOCUS_RING,
         active ? 'bg-sky-500/15 text-sky-100' : 'text-slate-400 active:bg-slate-900',
       )}
     >
@@ -137,6 +157,8 @@ export function MobileDock({
         <Ruler className="h-5 w-5" aria-hidden="true" />,
         activeSheet === 'measure' || measureActive,
         () => toggle('measure'),
+        undefined,
+        'measure',
       )}
       {item(
         'contrast',
@@ -144,6 +166,8 @@ export function MobileDock({
         <Contrast className="h-5 w-5" aria-hidden="true" />,
         activeSheet === 'contrast' || contrastActive,
         () => toggle('contrast'),
+        undefined,
+        'contrast',
       )}
       {item(
         'chart',
@@ -152,6 +176,7 @@ export function MobileDock({
         activeSheet === 'chart',
         () => toggle('chart'),
         chartCount,
+        'chart',
       )}
       {item(
         'more',
@@ -159,6 +184,8 @@ export function MobileDock({
         <Ellipsis className="h-5 w-5" aria-hidden="true" />,
         activeSheet === 'more',
         () => toggle('more'),
+        undefined,
+        'more',
       )}
     </nav>
   );
@@ -171,14 +198,20 @@ export function BottomSheet({
   onClose,
   children,
   tall = false,
+  id = MOBILE_SHEET_ID,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   /** Use most of the screen (forms); short sheets keep the image visible. */
   tall?: boolean;
+  /** Matches the dock button's aria-controls. */
+  id?: string;
 }) {
   const { t } = useTranslation();
+  // Focus moves into the sheet, Tab stays inside it, and closing returns
+  // focus to the dock button that opened it.
+  const sheetRef = useFocusTrap<HTMLElement>();
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartRef = useRef<number | null>(null);
   const closeRef = useRef(onClose);
@@ -213,11 +246,14 @@ export function BottomSheet({
   return (
     // Covers the bottom dock: the sheet sits above the whole viewer.
     <section
+      ref={sheetRef}
+      id={id}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label={title}
       className={cn(
-        'absolute inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl border-t border-slate-700 bg-slate-900/97 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_32px_rgba(0,0,0,0.45)] backdrop-blur',
+        'absolute inset-x-0 bottom-0 z-50 flex flex-col outline-none rounded-t-2xl border-t border-slate-700 bg-slate-900/97 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_32px_rgba(0,0,0,0.45)] backdrop-blur',
         tall ? 'max-h-[85dvh]' : 'max-h-[55dvh]',
         dragOffset === 0 && 'transition-transform duration-150',
       )}
@@ -235,14 +271,15 @@ export function BottomSheet({
         </div>
         <div className="flex items-center justify-between px-3 pb-2">
           <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="icon"
             onClick={onClose}
             aria-label={t('dental.shortcuts.close')}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-400 active:bg-slate-800"
+            className="h-10 w-10 rounded-full active:bg-slate-800"
           >
             <X className="h-5 w-5" aria-hidden="true" />
-          </button>
+          </Button>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4">
@@ -273,6 +310,7 @@ export function MobileActionButton({
       aria-pressed={active}
       className={cn(
         'flex min-h-12 items-center gap-2 rounded-lg border px-3 text-left text-sm transition disabled:opacity-40',
+        FOCUS_RING,
         active
           ? 'border-sky-500/70 bg-sky-500/15 text-sky-100'
           : 'border-slate-700 bg-slate-950 text-slate-200 active:bg-slate-800',

@@ -128,6 +128,8 @@ import {
   measurementsToCsv,
   toothFindingsToCsv,
 } from '../lib/dental/report';
+import { useUnsavedWarning } from '../app/useUnsavedWarning';
+import { compute } from '../lib/dental/computeClient';
 import {
   composeSnapshots,
   downloadBlob,
@@ -598,6 +600,9 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
   const anatomyAbortRef = useRef<AbortController | null>(null);
   const maskEditSessionRef = useRef<MaskEditSession | null>(null);
   const [undoStack, setUndoStack] = useState<MaskSnapshot[]>([]);
+  // Edits since the last "Save case locally": warn before the tab closes.
+  const [savedState, setSavedState] = useState<StudyState | null>(null);
+  useUnsavedWarning(undoStack.length > 0 && studyState !== savedState);
   const [redoStack, setRedoStack] = useState<MaskSnapshot[]>([]);
   // Dentist-facing viewer chrome.
   const [invertSlices, setInvertSlices] = useState(app.caseWorkspace?.state.caseView?.invert??false);
@@ -3309,7 +3314,9 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
 
   const saveLocalProject = async () => {
     try {
+      const saving = studyState;
       await persistLocalProject();
+      setSavedState(saving);
       setCaseStatus('Case saved on this device.');
     } catch (e) {
       setCaseStatus(e instanceof Error ? e.message : 'Local saving failed.');
@@ -3917,10 +3924,12 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
         }),
         onProgress: (done, total) =>
           setModelExportStatus(`Meshing tooth ${done} of ${total}…`),
+        compute: {
+          part: (input) => compute('toothPart', input),
+          arch: (options) => compute('archModel', options),
+        },
       });
-      const url = URL.createObjectURL(
-        new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
-      );
+      const url = URL.createObjectURL(zip);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${volume.meta.scanId}-${request.crownOnly ? 'crowns' : 'teeth'}.zip`;
@@ -3952,6 +3961,8 @@ function DenseViewerPage({ app, initialMeasurements = [], initialView }:
       labelmapBuffers[groupId]
         ? cropVolume(bytesToUint16Array(labelmapBuffers[groupId]), dims, start, shape)
         : new Uint16Array(shape[0] * shape[1] * shape[2]),
+      15,
+      (input) => compute('sharedSurface', input),
     ).then((found) => {
       if (!cancelled) setToothSplits(found);
     });

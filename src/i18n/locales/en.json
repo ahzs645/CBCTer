@@ -30,6 +30,20 @@
     "remoteUrlPlaceholder": "Link to a .cbct.zip (Hugging Face, GitHub raw, S3/R2…)",
     "openNifti": "Open NIfTI file",
     "openTeeth": "Open tooth extraction",
+    "recent": {
+      "title": "Recent",
+      "clear": "Clear",
+      "reopen": "Reopen",
+      "remove": "Remove",
+      "removeLabel": "Remove {{name}} from recent scans",
+      "openFileAgain": "Open the file again",
+      "teeth": "Teeth: {{count}}",
+      "kind": {
+        "url": "Link",
+        "file": "Local file",
+        "sample": "Sample"
+      }
+    },
     "supportedFoldersTitle": "Supported folders and files",
     "supportedFolders": {
       "galileos": {
@@ -576,6 +590,9 @@
         "maximize": "Maximize the active view",
         "snapshot": "Save views as PNG",
         "help": "Show this help"
+      },
+      "keys": {
+        "wheel": "Wheel"
       }
     },
     "package": {
@@ -599,7 +616,113 @@
       "levelHint": "This package has a full-resolution and a phone (half-resolution) level. Phones open the phone level by default.",
       "openFull": "Load full resolution",
       "openHalf": "Switch to phone version (lighter)",
-      "levelBadgeHalf": "phone version"
+      "levelBadgeHalf": "phone version",
+      "contents": "Export contents",
+      "scanOnly": "Scan only",
+      "scanAndAnalysis": "Scan + analysis",
+      "caseIncludes": "Includes masks, tooth IDs, review history, notes, measurements, surfaces and saved arch. Findings may contain patient information.",
+      "caseExcluded": "The full native scan and optional analysis are saved together. Model weights and vendor software are excluded."
+    },
+    "units": {
+      "mm": "{{value}} mm"
+    },
+    "focus": {
+      "dialogLabel": "Focus on {{name}}",
+      "length": "{{length}} mm long",
+      "close": "Close tooth focus",
+      "loading": "Loading {{name}}…",
+      "along": "Along the tooth",
+      "turned": "Turned 90°",
+      "cross": "Cross-section",
+      "rotate": "Turn around the tooth",
+      "depth": "Slice depth",
+      "crossPosition": "Cross-section: crown → root",
+      "window": "Contrast window",
+      "level": "Contrast level",
+      "darkTitle": "Dark-area check",
+      "checking": "Checking…",
+      "pulpVisible": "Pulp canal visible.",
+      "pulpMissing": "No pulp canal visible (it may be narrowed, filled or calcified).",
+      "darkArea": "Dark area, {{volume}} mm³, {{where}}, reaching the surface, {{density}}% of dentine density.",
+      "where": {
+        "crown": "in the crown",
+        "neck": "at the neck of the tooth",
+        "root": "on the root"
+      },
+      "showIt": "Show it",
+      "noAreas": "No compact dark areas found.",
+      "disclaimer": "Automatic and unvalidated. Dark areas can be decay, resorption, a low-density filling or an artifact; only a dentist with an X-ray can tell."
+    },
+    "layers": {
+      "opacity": "Outline opacity",
+      "hideAll": "Hide all outlines",
+      "showAll": "Show all outlines",
+      "list": "Tooth layers",
+      "colour": "{{name}} colour",
+      "hide": "Hide {{name}}",
+      "show": "Show {{name}}"
+    },
+    "canal": {
+      "pickFirst": {
+        "right": "Patient's right canal: click one end of the canal on a slice.",
+        "left": "Patient's left canal: click one end of the canal on a slice."
+      },
+      "pickSecond": {
+        "right": "Patient's right canal: click the other end on a slice.",
+        "left": "Patient's left canal: click the other end on a slice."
+      },
+      "cancel": "Cancel",
+      "trace": {
+        "right": "Trace right",
+        "left": "Trace left"
+      },
+      "retrace": {
+        "right": "Re-trace right",
+        "left": "Re-trace left"
+      },
+      "traced": "{{length}} mm traced",
+      "remove": "remove",
+      "closest": "Closest teeth to the canal (surface to canal wall)",
+      "hint": "The canal is a thin dark tube with a bright rim low in the back of the lower jaw; it is easiest to see on coronal slices. Tracing is approximate and assumes a 2.5 mm canal. Check it slice by slice; it is not suitable for implant or surgical planning."
+    },
+    "toothNames": {
+      "format": "{{quadrant}} {{position}}",
+      "primary": "{{name}} (primary)",
+      "unknown": "Tooth {{fdi}}",
+      "quadrant": {
+        "1": "Upper Right",
+        "2": "Upper Left",
+        "3": "Lower Left",
+        "4": "Lower Right"
+      },
+      "position": {
+        "1": "Central Incisor",
+        "2": "Lateral Incisor",
+        "3": "Canine",
+        "4": "First Premolar",
+        "5": "Second Premolar",
+        "6": "First Molar",
+        "7": "Second Molar",
+        "8": "Third Molar"
+      }
+    },
+    "addTooth": {
+      "title": "Add a missing tooth",
+      "intro": "If the model missed a tooth, pick its number, then click its crown on a slice. The outline is estimated from the scan; check it on a few slices.",
+      "number": "Tooth number",
+      "start": "Click it on a slice",
+      "picking": "Click the crown of tooth {{fdi}} on a slice.",
+      "cancel": "Cancel",
+      "working": "Outlining…",
+      "draft": "Tooth {{fdi}}: {{volume}} mm³ outlined.",
+      "leaked": "It reaches the edge of the search box, so it may have run into bone or a neighbour. Try “Tighter”.",
+      "keep": "Keep",
+      "looser": "Looser",
+      "tighter": "Tighter",
+      "discard": "Discard",
+      "added": "Added by hand",
+      "remove": "Remove {{name}}",
+      "saved": "Saved on this device."
     }
   },
   "streaming": {
