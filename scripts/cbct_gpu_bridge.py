@@ -93,7 +93,8 @@ def prepare(scan, output):
     return output / 'scan.nii.gz'
 
 
-def package(scan, prediction, output, model, weights_hash=None, label_scheme='none', preprocessing=None, provenance=None):
+def package(scan, prediction, output, model, weights_hash=None, label_scheme='none', preprocessing=None, provenance=None,
+            tooth_instances=None, instance_fdi=None):
     if provenance:
         recorded=json.loads(Path(provenance).read_text())
         if recorded.get('weightsSha256') != weights_hash: raise ValueError('Model provenance weights fingerprint mismatch')
@@ -112,6 +113,34 @@ def package(scan, prediction, output, model, weights_hash=None, label_scheme='no
     prediction = sitk.Resample(prediction, reference, sitk.Transform(), sitk.sitkNearestNeighbor, 0, sitk.sitkUInt16)
     words = sitk.GetArrayFromImage(prediction).astype('<u2')
     if not np.any(words): raise ValueError('Prediction has no foreground on the source scan')
+    reviewed_instances = None
+    numbering = None
+    if (tooth_instances is None) != (instance_fdi is None):
+        raise ValueError('Provide both tooth instances and their FDI metadata')
+    if tooth_instances is not None:
+        instance_image = sitk.ReadImage(str(tooth_instances))
+        if (instance_image.GetSize() != reference.GetSize() or
+            not np.allclose(instance_image.GetSpacing(), reference.GetSpacing(), atol=1e-6) or
+            not np.allclose(instance_image.GetOrigin(), reference.GetOrigin(), atol=1e-5) or
+            not np.allclose(instance_image.GetDirection(), reference.GetDirection(), atol=1e-5)):
+            raise ValueError('Tooth instances must already match the source grid')
+        reviewed_instances = sitk.GetArrayFromImage(instance_image)
+        if (instance_image.GetNumberOfComponentsPerPixel() != 1 or
+            not np.isfinite(reviewed_instances).all() or (reviewed_instances < 0).any() or
+            (reviewed_instances > 65535).any() or
+            not np.equal(reviewed_instances, np.floor(reviewed_instances)).all()):
+            raise ValueError('Expected scalar uint16-compatible tooth instance labels')
+        reviewed_instances = reviewed_instances.astype('<u2')
+        numbering = json.loads(Path(instance_fdi).read_text())
+        expected = {str(int(n)) for n in np.unique(reviewed_instances) if n != 0}
+        if not isinstance(numbering, dict) or set(numbering) != expected:
+            raise ValueError('FDI metadata must describe exactly the nonzero tooth instances')
+        if any(n is not None and (type(n) is not int or n//10 not in range(1,5) or n%10 not in range(1,9)) for n in numbering.values()):
+            raise ValueError('Invalid suggested FDI number')
+        assembly_file = Path(str(tooth_instances) + '.json')
+        preprocessing = {**(preprocessing or {}), 'instanceLabelsSha256': digest(reviewed_instances.tobytes()),
+                         'instanceAssembly': json_bytes(json.loads(assembly_file.read_text())).decode() if assembly_file.exists()
+                         else (preprocessing or {}).get('instanceAssembly', 'Provided native-grid masks; FDI suggestions stored separately')}
     geometry = {k:v[k] for k in ['dimensions','spacing','origin','direction','coordinateSystem']}
     geo_hash = digest(jcs.canonicalize([geometry[k] for k in ['dimensions','spacing','origin','direction','coordinateSystem']]))
     binding = {'sha256':v['sha256'], 'geometrySha256':geo_hash, 'geometry':geometry,
@@ -128,22 +157,27 @@ def package(scan, prediction, output, model, weights_hash=None, label_scheme='no
         if label_scheme == 'fdi' and value//10 in range(1,5) and value%10 in range(1,9): return value
         return None
     teeth = np.isin(words, [int(n) for n in np.unique(words) if fdi(int(n)) is not None])
-    for role, array in [('teeth',np.where(teeth,words,0)),('anatomy',np.where(teeth,0,words))]:
+    tooth_array = reviewed_instances if reviewed_instances is not None else np.where(teeth,words,0)
+    # An instance-only predictor has no anatomy classes. Its untouched prediction
+    # remains in the separate immutable layer, while IDs and FDI stay independent.
+    anatomy_array = np.where(teeth,0,words) if label_scheme != 'none' or numbering is None else np.zeros_like(words)
+    for role, array in [('teeth',tooth_array),('anatomy',anatomy_array)]:
         if not np.any(array): continue
         gid=prefix+'-'+role; segments=[]
         for value in np.unique(array):
             n=int(value)
             if n==0: continue
-            coords=np.nonzero(array==n); count=len(coords[0]); number=fdi(n)
-            name = f'Tooth {number}' if number else f'Region {n}'
-            if label_scheme=='oralseg': name={1:'Maxilla',2:'Mandible',35:'Mandibular canal'}.get(n,name)
+            coords=np.nonzero(array==n); count=len(coords[0]); number=numbering[str(n)] if role=='teeth' and numbering is not None else fdi(n)
+            name = f'Tooth {number}' if number else (f'Tooth proposal {n}' if role=='teeth' else f'Region {n}')
+            if label_scheme=='oralseg' and role=='anatomy': name={1:'Maxilla',2:'Mandible',35:'Mandibular canal'}.get(n,name)
             segments.append({'id':gid+f'-{n}','value':n,'name':name,'color':COLORS[n%5],'opacity':.45,'visible':True,'locked':False,'voxelCount':count,'createdAt':now,'updatedAt':now})
             if role=='teeth': state['toothInstances'].append({'id':gid+f'-instance-{n}','groupId':gid,'value':n,'fdi':number,'review':'unreviewed','source':'model','voxelCount':count,
                 'centroid':[float(c.mean()) for c in coords[::-1]],'bounds':{'min':[int(c.min()) for c in coords[::-1]],'max':[int(c.max()) for c in coords[::-1]]}})
         state['segmentGroups'].append({'id':gid,'studyId':study_id,'imageId':image_id,'name':model+' '+role,'visible':True,'opacity':.45,'segments':segments,'createdAt':now,'updatedAt':now})
         state['analysisLayers'].append({'id':gid,'role':role,'modelId':model_id,'predictionId':prefix+'-prediction'})
         layer_arrays.append((gid,role,array.astype('<u2')))
-    state['activeSegmentGroupId']=state['segmentGroups'][0]['id']
+    if state['segmentGroups']:
+        state['activeSegmentGroupId']=state['segmentGroups'][0]['id']
     state['analysisLayers'].append({'id':prefix+'-prediction','role':'prediction','modelId':model_id})
     state['analysisRevisions']=[{'id':prefix+'-revision','at':now,'action':'Import unreviewed GPU prediction','modelId':model_id,'instanceIds':[t['id'] for t in state['toothInstances']]}]
     layer_arrays.append((prefix+'-prediction','prediction',words))
@@ -184,6 +218,6 @@ def package(scan, prediction, output, model, weights_hash=None, label_scheme='no
 if __name__=='__main__':
     parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest='command',required=True)
     p=commands.add_parser('prepare'); p.add_argument('--scan',required=True); p.add_argument('--output',required=True)
-    p=commands.add_parser('package'); p.add_argument('--scan',required=True); p.add_argument('--prediction',required=True); p.add_argument('--output',required=True); p.add_argument('--model',required=True); p.add_argument('--weights-hash'); p.add_argument('--provenance'); p.add_argument('--label-scheme',choices=['none','oralseg','fdi'],default='none')
+    p=commands.add_parser('package'); p.add_argument('--scan',required=True); p.add_argument('--prediction',required=True); p.add_argument('--output',required=True); p.add_argument('--model',required=True); p.add_argument('--weights-hash'); p.add_argument('--provenance'); p.add_argument('--label-scheme',choices=['none','oralseg','fdi'],default='none'); p.add_argument('--tooth-instances'); p.add_argument('--instance-fdi')
     args=vars(parser.parse_args()); command=args.pop('command')
     print(prepare(**args) if command=='prepare' else package(**args))

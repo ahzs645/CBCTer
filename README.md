@@ -32,8 +32,21 @@ and 867 MB → 167 MB, and phones read only 5–19 MB of it.
 records actual results, verified weight sizes, failures and interface guidance.
 An [experimental Colab runner](https://colab.research.google.com/github/ahzs645/CBCTer/blob/main/notebooks/CBCTer_GPU_models.ipynb)
 lets users with a cloud GPU prepare OralSeg/TIPs results for **Review teeth →
-Import model result**. Its GPU inference remains unverified; the native archive
-bridge and desktop/mobile result import were tested. All proposals need review.
+Import model result**. OralSeg and ToothSeg also completed a Colab CLI T4 test
+on two classic exported scans on 13 October 2026. ToothSeg produced the more
+coherent review proposals: 28 on the full scan after three provisional splits,
+and eight unnumbered regions on the partial scan. These are engineering results
+without clinician ground truth. TIPs GPU inference remains unverified.
+
+For headless Colab work, use `scripts/setup_cbct_colab_gpu.py` and
+`scripts/run_colab_oralseg_case.py`. `scripts/colab_upload_large.py` handles
+large CLI transfers with SHA256 verification. Full classic packages can be
+losslessly upgraded with `scripts/upgrade_classic_cbct.py`; missing patient
+geometry remains unknown. `scripts/run_toothseg_gpu.py` provides the CNN
+comparison; `scripts/refine_toothseg_instances.py` proposes reviewable splits
+while preserving the original foreground. See the GPU follow-up in the
+evaluation document for preprocessing and limitations. Stop Colab sessions
+after downloading their outputs.
 
 ## Commands
 

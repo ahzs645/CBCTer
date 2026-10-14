@@ -2,6 +2,64 @@
 
 The feasible models ran on both authorized vendor examples. They are **unreviewed proposals**, not validated clinical segmentations. OralSeg and TIPs were acquired but cannot run in this CPU environment; GEPAR3D's full checkpoint and TAPSeg's implementation are unavailable. Earlier clinic-scan counts are not results on these two examples.
 
+## GPU follow-up — 13 October 2026
+
+OralSeg and the ToothSeg checkpoint pair completed real inference on a Google
+Colab Tesla T4 through the authenticated `colab` CLI. The inputs were **classic
+v1 exports**, 340³ at 0.125 mm and 512×512×511 at 0.16 mm; they are not the exact
+native grids of the 4 October benchmark below. Every decoded classic voxel was
+preserved in an upgraded v2 package. The classic files omit physical origin and
+direction, so upgraded geometry stays `unknown`/`processed`; the full scan's
+patient-axis hints remain available, and the partial scan's anatomical axes are
+unverified. Source hashes, every chunk and full source words were checked.
+
+| Model | Partial export | Full export | GPU adapter time |
+| --- | --- | --- | --- |
+| OralSeg | 16 tooth classes; 10 connected components ≥16 mm³; visibly fragmented/incomplete | 20 tooth classes; 32 connected components ≥16 mm³; bilateral numbering collisions and fragments | 6.6 / 22.6 s |
+| ToothSeg pair | 8 border/core regions; background-majority semantic predictions, retained without FDI | 25 border/core instances; 28 review masks after splitting three mixed semantic regions | 47.9 / 115.9 s |
+
+Times include loading, inference and native label export; ToothSeg also includes
+instance assembly. They exclude dependency/weight acquisition, archive packing
+and subsequent split refinement. Counts are proposals, not verified teeth or
+an accuracy ranking. Visual engineering review favoured ToothSeg's masks on
+these two exports. No clinician reference segmentation exists.
+
+OralSeg used the pinned released checkpoint/code and the adapter's RAS, 0.6 mm,
+[0,2500] scaling, 64³ windows and constant averaging. Its weights loaded strictly.
+Published CUDA 12.2 Mamba/causal-convolution wheels worked with Python 3.10,
+Torch 2.2.0+cu121 and Colab's CUDA 13 driver. The runner now avoids toolkit builds
+and Python 3.11-only `hashlib.file_digest`. GPU execution is verified for this
+adapter; the interactive notebook itself and TIPs inference remain unexecuted.
+
+ToothSeg used the verified catalog checkpoint hashes, fold 5, released CT
+normalization, full 256³ / 192³ patches, nnU-Net Gaussian averaging, overlap .5,
+and no mirroring. To bound host RAM, source images were physically resampled to
+each model's 0.3 / 0.2 mm spacing before inference; integer output labels were
+mapped physically to the source grid with nearest neighbour. This differs from
+native-grid interpolation of class probabilities and is not an exact upstream
+accuracy reproduction. Border/core assembly used upstream 16 mm³ centre and
+instance thresholds, without isolated-border recovery.
+
+`refine_toothseg_instances.py` split three full-scan instances containing two
+semantic regions each with ≥20% support and ≥80 mm³. The additional suggested
+FDIs were 41, 15 and 24. Unassigned voxels within these instances went to the
+nearest semantic seed. The foreground union is byte-for-byte unchanged. This
+is a **review heuristic**, not upstream min-cost self-correction or proof of
+correct boundaries. All eight partial-scan regions were retained without FDI;
+incomplete roots and off-tooth fragments still require review. The full result
+does not propose 18/28/38/48; absence is unconfirmed.
+
+The bridge now accepts separate native-grid instance masks and suggested FDI
+metadata, including duplicates/unknowns, while keeping the original prediction
+immutable. Postprocessing and instance-mask fingerprints are recorded. Complete
+`.cbct.zip` and import `.cbcter.zip` archives were produced for both models and
+both scans. TypeScript's actual readers verified full source hashes and all
+review/prediction bytes across the two archive types. Three cross-language
+bridge tests and a synthetic rotated-geometry refinement test passed, along
+with related archive/chunk tests, TypeScript compilation and lint. Private scans,
+screenshots and predictions remain outside tracked files. The Colab session was
+terminated after downloading predictions and logs.
+
 ## Scan results
 
 | Model | OneVolume, partial field of view | Sidexis, full native volume |
